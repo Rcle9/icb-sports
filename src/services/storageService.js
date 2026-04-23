@@ -1,22 +1,27 @@
 import { supabase } from "./supabaseClient";
 
-export async function uploadImageToBucket(file, bucket, folder = "") {
+export async function uploadImageToBucket(file, bucketName, folder = "uploads") {
   if (!file) throw new Error("No file selected.");
 
-  const fileExt = file.name.split(".").pop();
-  const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${fileExt}`;
-  const filePath = folder ? `${folder}/${fileName}` : fileName;
+  const ext = file.name.split(".").pop();
+  const path = `${folder}/${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.${ext}`;
 
   const { error: uploadError } = await supabase.storage
-    .from(bucket)
-    .upload(filePath, file, {
+    .from(bucketName)
+    .upload(path, file, {
       cacheControl: "3600",
       upsert: false,
     });
 
   if (uploadError) throw uploadError;
 
-  const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
+  const { data } = supabase.storage.from(bucketName).getPublicUrl(path);
+
+  if (!data?.publicUrl) {
+    throw new Error("Failed to get public image URL.");
+  }
 
   return data.publicUrl;
 }

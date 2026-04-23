@@ -61,14 +61,14 @@ export default function ProfileSettings() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] md:flex">
+    <div className="page-shell bg-[#f5f6f8] md:flex">
       <Sidebar role={getRoleForSidebar()} />
 
-      <main className="flex-1 p-4 md:p-6 lg:p-8">
-        <div className="mx-auto max-w-[1500px]">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="Profile Settings" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-blue-700 p-6 text-white shadow-[0_18px_45px_rgba(15,23,42,0.2)] md:p-8">
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-blue-700 p-6 text-white md:p-8">
             <div>
               <p className="text-sm font-medium text-blue-100">
                 Account Preferences
@@ -132,7 +132,7 @@ export default function ProfileSettings() {
                     name="full_name"
                     value={form.full_name}
                     onChange={handleChange}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-grey outline-none transition focus:border-blue-500"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                     placeholder="Enter your full name"
                   />
                 </div>

@@ -130,14 +130,14 @@ export default function ManageBookings() {
   }, [bookings, statusFilter, facilityFilter, dateFilter, searchTerm]);
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] md:flex">
+    <div className="page-shell bg-[#f5f6f8] md:flex">
       <Sidebar role="staff" />
 
-      <main className="flex-1 h-screen overflow-hidden p-4 md:p-6 lg:p-8">
-        <div className="mx-auto h-full max-w-[1600px] overflow-hidden">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="Manage Bookings" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-blue-800 to-blue-600 p-6 text-white shadow-[0_18px_45px_rgba(15,23,42,0.2)] md:p-8">
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-blue-800 to-blue-600 p-6 text-white md:p-8">
             <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
               <div>
                 <p className="text-sm font-medium text-blue-100">
@@ -281,7 +281,7 @@ export default function ManageBookings() {
             </div>
           </Card>
 
-          <Card className="flex h-[calc(100%-420px)] min-h-0 flex-col">
+          <Card className="flex min-h-[500px] flex-col">
             <div className="mb-6">
               <h2 className="text-2xl font-bold text-black">Booking Requests</h2>
               <p className="mt-1 text-sm text-black">
@@ -300,7 +300,7 @@ export default function ManageBookings() {
             ) : filteredBookings.length === 0 ? (
               <p className="text-black">No bookings found for the selected filters.</p>
             ) : (
-              <div className="panel-scroll hide-scrollbar space-y-4 pr-2">
+              <div className="panel-scroll hide-scrollbar space-y-4 pr-2 max-h-[70vh]">
                 {filteredBookings.map((booking) => (
                   <div
                     key={booking.id}

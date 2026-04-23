@@ -1,5 +1,4 @@
 import { supabase } from "./supabaseClient";
-import { createActivityLog } from "./activityLogService";
 
 export async function getFacilities() {
   const { data, error } = await supabase
@@ -8,107 +7,60 @@ export async function getFacilities() {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data;
+  return data || [];
 }
 
 export async function createFacility(payload) {
+  const cleanPayload = {
+    name: payload.name,
+    type: payload.type,
+    description: payload.description || "",
+    image_url: payload.image_url || "",
+    price: Number(payload.price || 0),
+    is_active: payload.is_active ?? true,
+    created_by: payload.created_by || null,
+    updated_by: payload.updated_by || null,
+  };
+
   const { data, error } = await supabase
     .from("facilities")
-    .insert([payload])
+    .insert([cleanPayload])
     .select()
     .single();
 
   if (error) throw error;
-
-  await createActivityLog({
-    actor_id: payload.updated_by || null,
-    actor_role: "admin",
-    action_type: "create",
-    entity_type: "facility",
-    entity_id: data.id,
-    description: `Created facility: ${data.name}`,
-    metadata: {
-      name: data.name,
-      type: data.type,
-      price: data.price,
-      is_active: data.is_active,
-    },
-  });
-
   return data;
 }
 
 export async function updateFacility(id, payload) {
-  const { data: beforeFacility, error: beforeError } = await supabase
-    .from("facilities")
-    .select("*")
-    .eq("id", id)
-    .single();
+  const cleanPayload = {
+    ...payload,
+    price:
+      payload.price !== undefined ? Number(payload.price || 0) : undefined,
+    updated_at: new Date().toISOString(),
+  };
 
-  if (beforeError) throw beforeError;
+  Object.keys(cleanPayload).forEach((key) => {
+    if (cleanPayload[key] === undefined) delete cleanPayload[key];
+  });
 
   const { data, error } = await supabase
     .from("facilities")
-    .update(payload)
+    .update(cleanPayload)
     .eq("id", id)
     .select()
     .single();
 
   if (error) throw error;
-
-  await createActivityLog({
-    actor_id: payload.updated_by || null,
-    actor_role: "admin",
-    action_type: "update",
-    entity_type: "facility",
-    entity_id: data.id,
-    description: `Updated facility: ${data.name}`,
-    metadata: {
-      before: {
-        name: beforeFacility.name,
-        type: beforeFacility.type,
-        price: beforeFacility.price,
-        is_active: beforeFacility.is_active,
-      },
-      after: {
-        name: data.name,
-        type: data.type,
-        price: data.price,
-        is_active: data.is_active,
-      },
-    },
-  });
-
   return data;
 }
 
-export async function deleteFacility(id, actorId = null) {
-  const { data: facility, error: readError } = await supabase
-    .from("facilities")
-    .select("*")
-    .eq("id", id)
-    .single();
-
-  if (readError) throw readError;
-
+export async function deleteFacility(id) {
   const { error } = await supabase
     .from("facilities")
     .delete()
     .eq("id", id);
 
   if (error) throw error;
-
-  await createActivityLog({
-    actor_id: actorId,
-    actor_role: "admin",
-    action_type: "delete",
-    entity_type: "facility",
-    entity_id: id,
-    description: `Deleted facility: ${facility.name}`,
-    metadata: {
-      name: facility.name,
-      type: facility.type,
-      price: facility.price,
-    },
-  });
+  return true;
 }

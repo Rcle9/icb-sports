@@ -49,22 +49,22 @@ export default function Sidebar({ role = "user" }) {
               <span>📊</span>
               <span>Dashboard</span>
             </Link>
+
             <Link to="/booking" className={linkClass("/booking")}>
               <span>📅</span>
               <span>Booking</span>
             </Link>
+
             <Link to="/coaching" className={linkClass("/coaching")}>
               <span>🏸</span>
               <span>Coaching</span>
             </Link>
+
             <Link to="/shop" className={linkClass("/shop")}>
               <span>🛒</span>
               <span>Shop</span>
             </Link>
-            <Link to="/notifications" className={linkClass("/notifications")}>
-              <span>🔔</span>
-              <span>Notifications</span>
-            </Link>
+
             <Link
               to="/profile-settings"
               className={linkClass("/profile-settings")}
@@ -81,18 +81,25 @@ export default function Sidebar({ role = "user" }) {
               <span>📊</span>
               <span>Dashboard</span>
             </Link>
+
             <Link to="/staff/bookings" className={linkClass("/staff/bookings")}>
               <span>📅</span>
               <span>Bookings</span>
             </Link>
+
             <Link to="/staff/coaching" className={linkClass("/staff/coaching")}>
               <span>🏸</span>
               <span>Coaching</span>
             </Link>
-            <Link to="/staff/inventory" className={linkClass("/staff/inventory")}>
+
+            <Link
+              to="/staff/inventory"
+              className={linkClass("/staff/inventory")}
+            >
               <span>📦</span>
               <span>Inventory</span>
             </Link>
+
             <Link
               to="/staff/maintenance"
               className={linkClass("/staff/maintenance")}
@@ -100,10 +107,12 @@ export default function Sidebar({ role = "user" }) {
               <span>🛠️</span>
               <span>Maintenance</span>
             </Link>
+
             <Link to="/staff/logs" className={linkClass("/staff/logs")}>
               <span>🧾</span>
               <span>Activity Logs</span>
             </Link>
+
             <Link
               to="/profile-settings"
               className={linkClass("/profile-settings")}
@@ -120,22 +129,27 @@ export default function Sidebar({ role = "user" }) {
               <span>📊</span>
               <span>System Overview</span>
             </Link>
+
             <Link to="/admin/users" className={linkClass("/admin/users")}>
               <span>👥</span>
               <span>User Management</span>
             </Link>
+
             <Link to="/admin/facility" className={linkClass("/admin/facility")}>
               <span>🏟️</span>
               <span>Facility Control</span>
             </Link>
+
             <Link to="/admin/reports" className={linkClass("/admin/reports")}>
               <span>📈</span>
               <span>Reports</span>
             </Link>
+
             <Link to="/admin/settings" className={linkClass("/admin/settings")}>
               <span>⚙️</span>
               <span>Settings</span>
             </Link>
+
             <Link
               to="/profile-settings"
               className={linkClass("/profile-settings")}

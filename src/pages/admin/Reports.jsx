@@ -23,7 +23,6 @@ function downloadCSV(filename, rows) {
 
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
-
   const link = document.createElement("a");
   link.href = url;
   link.setAttribute("download", filename);
@@ -71,22 +70,8 @@ export default function Reports() {
         inventoryRes,
         profilesRes,
       ] = await Promise.all([
-        supabase.from("bookings").select(`
-          *,
-          facilities (
-            id,
-            name,
-            type
-          )
-        `),
-        supabase.from("coach_bookings").select(`
-          *,
-          coaches (
-            id,
-            name,
-            specialty
-          )
-        `),
+        supabase.from("bookings").select(`*, facilities (id, name, type)`),
+        supabase.from("coach_bookings").select(`*, coaches (id, name, specialty)`),
         supabase.from("maintenance_requests").select("*"),
         supabase.from("inventory").select("*"),
         supabase.from("profiles").select("*"),
@@ -117,41 +102,36 @@ export default function Reports() {
     return true;
   }
 
-  const filteredBookings = useMemo(() => {
-    return bookings.filter((item) => withinDateRange(item.booking_date));
-  }, [bookings, dateFrom, dateTo]);
+  const filteredBookings = useMemo(
+    () => bookings.filter((item) => withinDateRange(item.booking_date)),
+    [bookings, dateFrom, dateTo]
+  );
 
-  const filteredCoachBookings = useMemo(() => {
-    return coachBookings.filter((item) => withinDateRange(item.booking_date));
-  }, [coachBookings, dateFrom, dateTo]);
+  const filteredCoachBookings = useMemo(
+    () => coachBookings.filter((item) => withinDateRange(item.booking_date)),
+    [coachBookings, dateFrom, dateTo]
+  );
 
-  const filteredMaintenance = useMemo(() => {
-    return maintenance.filter((item) =>
-      withinDateRange(item.created_at?.split("T")[0])
-    );
-  }, [maintenance, dateFrom, dateTo]);
+  const filteredMaintenance = useMemo(
+    () => maintenance.filter((item) => withinDateRange(item.created_at?.split("T")[0])),
+    [maintenance, dateFrom, dateTo]
+  );
 
-  const filteredInventory = useMemo(() => {
-    return inventory.filter((item) =>
-      withinDateRange(item.created_at?.split("T")[0])
-    );
-  }, [inventory, dateFrom, dateTo]);
+  const filteredInventory = useMemo(
+    () => inventory.filter((item) => withinDateRange(item.created_at?.split("T")[0])),
+    [inventory, dateFrom, dateTo]
+  );
 
-  const summary = useMemo(() => {
-    return {
+  const summary = useMemo(
+    () => ({
       totalUsers: profiles.length,
       totalBookings: filteredBookings.length,
       totalCoachBookings: filteredCoachBookings.length,
       totalMaintenance: filteredMaintenance.length,
       totalInventoryItems: filteredInventory.length,
-    };
-  }, [
-    profiles,
-    filteredBookings,
-    filteredCoachBookings,
-    filteredMaintenance,
-    filteredInventory,
-  ]);
+    }),
+    [profiles, filteredBookings, filteredCoachBookings, filteredMaintenance, filteredInventory]
+  );
 
   function exportCurrentTab() {
     if (activeTab === "bookings") {
@@ -215,69 +195,50 @@ export default function Reports() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#f5f6f8]">
+    <div className="page-shell bg-[#f5f6f8] md:flex">
       <Sidebar role="admin" />
 
-      <main className="flex-1 p-8">
-        <div className="max-w-7xl mx-auto">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="Admin Reports" />
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-            <Card>
-              <p className="text-gray-500 text-sm">Users</p>
-              <h2 className="text-3xl font-bold mt-2">
-                {loading ? "..." : summary.totalUsers}
-              </h2>
-            </Card>
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
+            <p className="text-sm font-medium text-blue-100">Analytics and Reports</p>
+            <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
+              Review operations, bookings, inventory, and maintenance data.
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm text-slate-100 md:text-base">
+              Filter records by date and export clean reports for presentation and review.
+            </p>
+          </div>
 
-            <Card>
-              <p className="text-gray-500 text-sm">Facility Bookings</p>
-              <h2 className="text-3xl font-bold mt-2">
-                {loading ? "..." : summary.totalBookings}
-              </h2>
-            </Card>
-
-            <Card>
-              <p className="text-gray-500 text-sm">Coach Bookings</p>
-              <h2 className="text-3xl font-bold mt-2">
-                {loading ? "..." : summary.totalCoachBookings}
-              </h2>
-            </Card>
-
-            <Card>
-              <p className="text-gray-500 text-sm">Maintenance Requests</p>
-              <h2 className="text-3xl font-bold mt-2">
-                {loading ? "..." : summary.totalMaintenance}
-              </h2>
-            </Card>
-
-            <Card>
-              <p className="text-gray-500 text-sm">Inventory Items</p>
-              <h2 className="text-3xl font-bold mt-2">
-                {loading ? "..." : summary.totalInventoryItems}
-              </h2>
-            </Card>
+          <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <Card><p className="text-sm text-black">Users</p><h2 className="mt-2 text-3xl font-bold text-black">{loading ? "..." : summary.totalUsers}</h2></Card>
+            <Card><p className="text-sm text-black">Facility Bookings</p><h2 className="mt-2 text-3xl font-bold text-black">{loading ? "..." : summary.totalBookings}</h2></Card>
+            <Card><p className="text-sm text-black">Coach Bookings</p><h2 className="mt-2 text-3xl font-bold text-black">{loading ? "..." : summary.totalCoachBookings}</h2></Card>
+            <Card><p className="text-sm text-black">Maintenance Requests</p><h2 className="mt-2 text-3xl font-bold text-black">{loading ? "..." : summary.totalMaintenance}</h2></Card>
+            <Card><p className="text-sm text-black">Inventory Items</p><h2 className="mt-2 text-3xl font-bold text-black">{loading ? "..." : summary.totalInventoryItems}</h2></Card>
           </div>
 
           <Card className="mb-6">
-            <div className="flex flex-col lg:flex-row gap-4 lg:items-end">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
               <div>
-                <label className="block text-sm font-medium mb-2">Date From</label>
+                <label className="mb-2 block text-sm font-medium text-black">Date From</label>
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
-                  className="border rounded-xl px-4 py-3 outline-none"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Date To</label>
+                <label className="mb-2 block text-sm font-medium text-black">Date To</label>
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
-                  className="border rounded-xl px-4 py-3 outline-none"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none"
                 />
               </div>
 
@@ -288,7 +249,7 @@ export default function Reports() {
                     setDateFrom("");
                     setDateTo("");
                   }}
-                  className="px-4 py-3 rounded-xl border bg-white hover:bg-gray-50"
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-medium text-black hover:bg-slate-50"
                 >
                   Reset
                 </button>
@@ -296,7 +257,7 @@ export default function Reports() {
                 <button
                   type="button"
                   onClick={exportCurrentTab}
-                  className="px-4 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                  className="rounded-2xl bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
                 >
                   Export CSV
                 </button>
@@ -305,193 +266,172 @@ export default function Reports() {
           </Card>
 
           <Card>
-            <div className="flex flex-wrap gap-3 mb-6">
-              <button
-                onClick={() => setActiveTab("bookings")}
-                className={`px-4 py-2 rounded-xl text-sm font-medium ${
-                  activeTab === "bookings"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-700"
-                }`}
-              >
-                Facility Bookings
-              </button>
-
-              <button
-                onClick={() => setActiveTab("coaching")}
-                className={`px-4 py-2 rounded-xl text-sm font-medium ${
-                  activeTab === "coaching"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-700"
-                }`}
-              >
-                Coaching
-              </button>
-
-              <button
-                onClick={() => setActiveTab("maintenance")}
-                className={`px-4 py-2 rounded-xl text-sm font-medium ${
-                  activeTab === "maintenance"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-700"
-                }`}
-              >
-                Maintenance
-              </button>
-
-              <button
-                onClick={() => setActiveTab("inventory")}
-                className={`px-4 py-2 rounded-xl text-sm font-medium ${
-                  activeTab === "inventory"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-700"
-                }`}
-              >
-                Inventory
-              </button>
+            <div className="mb-6 flex flex-wrap gap-3 overflow-x-auto">
+              {[
+                ["bookings", "Facility Bookings"],
+                ["coaching", "Coaching"],
+                ["maintenance", "Maintenance"],
+                ["inventory", "Inventory"],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={`rounded-2xl px-4 py-2 text-sm font-semibold whitespace-nowrap ${
+                    activeTab === key ? "bg-blue-600 text-white" : "bg-slate-100 text-black"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             {error ? (
-              <div className="mb-4 rounded-xl bg-red-50 text-red-600 px-4 py-3 text-sm">
+              <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
                 {error}
               </div>
             ) : null}
 
             {loading ? (
-              <p className="text-gray-500">Loading reports...</p>
-            ) : null}
-
-            {!loading && activeTab === "bookings" && (
+              <p className="text-black">Loading reports...</p>
+            ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b">
-                      <th className="py-3 pr-4">Facility</th>
-                      <th className="py-3 pr-4">Date</th>
-                      <th className="py-3 pr-4">Time</th>
-                      <th className="py-3 pr-4">Session Type</th>
-                      <th className="py-3 pr-4">Status</th>
-                      <th className="py-3 pr-4">Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredBookings.map((item) => (
-                      <tr key={item.id} className="border-b">
-                        <td className="py-4 pr-4">{item.facilities?.name || "Unknown"}</td>
-                        <td className="py-4 pr-4">{item.booking_date}</td>
-                        <td className="py-4 pr-4">
-                          {formatTime(item.start_time)} - {formatTime(item.end_time)}
-                        </td>
-                        <td className="py-4 pr-4 capitalize">{item.session_type}</td>
-                        <td className="py-4 pr-4 capitalize">{item.status}</td>
-                        <td className="py-4 pr-4">{item.notes || "-"}</td>
+                {activeTab === "bookings" && (
+                  <table className="w-full min-w-[900px] text-sm">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="py-3 pr-4 text-black">Facility</th>
+                        <th className="py-3 pr-4 text-black">Date</th>
+                        <th className="py-3 pr-4 text-black">Time</th>
+                        <th className="py-3 pr-4 text-black">Session Type</th>
+                        <th className="py-3 pr-4 text-black">Status</th>
+                        <th className="py-3 pr-4 text-black">Notes</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {filteredBookings.map((item) => (
+                        <tr key={item.id} className="border-b align-top">
+                          <td className="py-4 pr-4 break-words text-black">
+                            {item.facilities?.name || "Unknown"}
+                          </td>
+                          <td className="py-4 pr-4 text-black">{item.booking_date}</td>
+                          <td className="py-4 pr-4 text-black">
+                            {formatTime(item.start_time)} - {formatTime(item.end_time)}
+                          </td>
+                          <td className="py-4 pr-4 capitalize text-black">
+                            {item.session_type}
+                          </td>
+                          <td className="py-4 pr-4 capitalize text-black">{item.status}</td>
+                          <td className="py-4 pr-4 break-words text-black">
+                            {item.notes || "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
 
-            {!loading && activeTab === "coaching" && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b">
-                      <th className="py-3 pr-4">Coach</th>
-                      <th className="py-3 pr-4">Date</th>
-                      <th className="py-3 pr-4">Time</th>
-                      <th className="py-3 pr-4">Mode</th>
-                      <th className="py-3 pr-4">Participants</th>
-                      <th className="py-3 pr-4">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredCoachBookings.map((item) => (
-                      <tr key={item.id} className="border-b">
-                        <td className="py-4 pr-4">{item.coaches?.name || "Unknown"}</td>
-                        <td className="py-4 pr-4">{item.booking_date}</td>
-                        <td className="py-4 pr-4">
-                          {formatTime(item.start_time)} - {formatTime(item.end_time)}
-                        </td>
-                        <td className="py-4 pr-4 capitalize">
-                          {item.session_mode.replaceAll("_", " ")}
-                        </td>
-                        <td className="py-4 pr-4">{item.participants}</td>
-                        <td className="py-4 pr-4 capitalize">{item.status}</td>
+                {activeTab === "coaching" && (
+                  <table className="w-full min-w-[900px] text-sm">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="py-3 pr-4 text-black">Coach</th>
+                        <th className="py-3 pr-4 text-black">Date</th>
+                        <th className="py-3 pr-4 text-black">Time</th>
+                        <th className="py-3 pr-4 text-black">Mode</th>
+                        <th className="py-3 pr-4 text-black">Participants</th>
+                        <th className="py-3 pr-4 text-black">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {filteredCoachBookings.map((item) => (
+                        <tr key={item.id} className="border-b align-top">
+                          <td className="py-4 pr-4 break-words text-black">
+                            {item.coaches?.name || "Unknown"}
+                          </td>
+                          <td className="py-4 pr-4 text-black">{item.booking_date}</td>
+                          <td className="py-4 pr-4 text-black">
+                            {formatTime(item.start_time)} - {formatTime(item.end_time)}
+                          </td>
+                          <td className="py-4 pr-4 capitalize text-black">
+                            {item.session_mode.replaceAll("_", " ")}
+                          </td>
+                          <td className="py-4 pr-4 text-black">{item.participants}</td>
+                          <td className="py-4 pr-4 capitalize text-black">{item.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
 
-            {!loading && activeTab === "maintenance" && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b">
-                      <th className="py-3 pr-4">Type</th>
-                      <th className="py-3 pr-4">Item</th>
-                      <th className="py-3 pr-4">Priority</th>
-                      <th className="py-3 pr-4">Status</th>
-                      <th className="py-3 pr-4">Replacement</th>
-                      <th className="py-3 pr-4">Created</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredMaintenance.map((item) => (
-                      <tr key={item.id} className="border-b">
-                        <td className="py-4 pr-4 capitalize">
-                          {item.request_type.replaceAll("_", " ")}
-                        </td>
-                        <td className="py-4 pr-4">{item.item_name}</td>
-                        <td className="py-4 pr-4 capitalize">{item.priority}</td>
-                        <td className="py-4 pr-4 capitalize">
-                          {item.status.replaceAll("_", " ")}
-                        </td>
-                        <td className="py-4 pr-4">
-                          {item.replacement_requested ? "Yes" : "No"}
-                        </td>
-                        <td className="py-4 pr-4">
-                          {item.created_at
-                            ? new Date(item.created_at).toLocaleString()
-                            : "-"}
-                        </td>
+                {activeTab === "maintenance" && (
+                  <table className="w-full min-w-[950px] text-sm">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="py-3 pr-4 text-black">Type</th>
+                        <th className="py-3 pr-4 text-black">Item</th>
+                        <th className="py-3 pr-4 text-black">Priority</th>
+                        <th className="py-3 pr-4 text-black">Status</th>
+                        <th className="py-3 pr-4 text-black">Replacement</th>
+                        <th className="py-3 pr-4 text-black">Created</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {filteredMaintenance.map((item) => (
+                        <tr key={item.id} className="border-b align-top">
+                          <td className="py-4 pr-4 capitalize text-black">
+                            {item.request_type.replaceAll("_", " ")}
+                          </td>
+                          <td className="py-4 pr-4 break-words text-black">
+                            {item.item_name}
+                          </td>
+                          <td className="py-4 pr-4 capitalize text-black">
+                            {item.priority}
+                          </td>
+                          <td className="py-4 pr-4 capitalize text-black">
+                            {item.status.replaceAll("_", " ")}
+                          </td>
+                          <td className="py-4 pr-4 text-black">
+                            {item.replacement_requested ? "Yes" : "No"}
+                          </td>
+                          <td className="py-4 pr-4 text-black">
+                            {item.created_at
+                              ? new Date(item.created_at).toLocaleString()
+                              : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
 
-            {!loading && activeTab === "inventory" && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b">
-                      <th className="py-3 pr-4">Name</th>
-                      <th className="py-3 pr-4">Category</th>
-                      <th className="py-3 pr-4">Quantity</th>
-                      <th className="py-3 pr-4">Min Threshold</th>
-                      <th className="py-3 pr-4">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredInventory.map((item) => (
-                      <tr key={item.id} className="border-b">
-                        <td className="py-4 pr-4">{item.name}</td>
-                        <td className="py-4 pr-4 capitalize">
-                          {item.category.replaceAll("_", " ")}
-                        </td>
-                        <td className="py-4 pr-4">{item.quantity}</td>
-                        <td className="py-4 pr-4">{item.min_threshold}</td>
-                        <td className="py-4 pr-4 capitalize">
-                          {item.status.replaceAll("_", " ")}
-                        </td>
+                {activeTab === "inventory" && (
+                  <table className="w-full min-w-[900px] text-sm">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="py-3 pr-4 text-black">Name</th>
+                        <th className="py-3 pr-4 text-black">Category</th>
+                        <th className="py-3 pr-4 text-black">Quantity</th>
+                        <th className="py-3 pr-4 text-black">Min Threshold</th>
+                        <th className="py-3 pr-4 text-black">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredInventory.map((item) => (
+                        <tr key={item.id} className="border-b align-top">
+                          <td className="py-4 pr-4 break-words text-black">{item.name}</td>
+                          <td className="py-4 pr-4 capitalize text-black">
+                            {item.category.replaceAll("_", " ")}
+                          </td>
+                          <td className="py-4 pr-4 text-black">{item.quantity}</td>
+                          <td className="py-4 pr-4 text-black">{item.min_threshold}</td>
+                          <td className="py-4 pr-4 capitalize text-black">
+                            {item.status.replaceAll("_", " ")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             )}
           </Card>

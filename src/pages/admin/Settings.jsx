@@ -104,14 +104,14 @@ export default function Settings() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] md:flex">
+    <div className="page-shell bg-[#f5f6f8] md:flex">
       <Sidebar role="admin" />
 
-      <main className="flex-1 p-4 md:p-6 lg:p-8">
-        <div className="mx-auto max-w-[1500px]">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="System Settings" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white shadow-[0_20px_50px_rgba(15,23,42,0.25)] md:p-8">
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
             <div>
               <p className="text-sm font-medium text-blue-100">
                 Platform Configuration
@@ -160,7 +160,7 @@ export default function Settings() {
                       name="system_name"
                       value={settings.system_name}
                       onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-grey outline-none transition focus:border-blue-500"
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                     />
                   </div>
 
@@ -173,7 +173,7 @@ export default function Settings() {
                       name="contact_email"
                       value={settings.contact_email}
                       onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-grey outline-none transition focus:border-blue-500"
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                     />
                   </div>
                 </div>

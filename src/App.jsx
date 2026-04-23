@@ -1,106 +1,131 @@
-import { useEffect } from "react";
-import { Routes, Route } from "react-router-dom";
-import ProtectedRoute from "./components/auth/ProtectedRoute";
-import useOnlineStatus from "./hooks/useOnlineStatus";
-import { processOfflineQueue } from "./services/offlineProcessor";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { useAuth } from "./context/AuthContext";
 
-/* AUTH */
+// Auth / public pages
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
-import ForgotPassword from "./pages/auth/ForgotPassword";
 
-/* SHARED */
-import Unauthorized from "./pages/shared/Unauthorized";
-import RoleRedirect from "./pages/shared/RoleRedirect";
+// Shared pages
 import ProfileSettings from "./pages/shared/ProfileSettings";
 
-/* PUBLIC */
-import Landing from "./pages/public/Landing";
-import Help from "./pages/public/Help";
-import Contact from "./pages/public/Contact";
-
-/* USER */
+// User pages
 import UserDashboard from "./pages/user/Dashboard";
 import Booking from "./pages/user/Booking";
 import Coaching from "./pages/user/Coaching";
-import Merch from "./pages/user/Merch";
-import Notifications from "./pages/user/Notifications";
+import Shop from "./pages/user/Shop";
+import UserNotifications from "./pages/user/Notifications";
 
-/* STAFF */
+// Staff pages
 import StaffDashboard from "./pages/staff/Dashboard";
 import ManageBookings from "./pages/staff/ManageBookings";
+import CoachingManager from "./pages/staff/CoachingManager";
 import Inventory from "./pages/staff/Inventory";
 import Maintenance from "./pages/staff/Maintenance";
-import CoachingManager from "./pages/staff/CoachingManager";
+import ActivityLogs from "./pages/staff/ActivityLogs";
 import StaffNotifications from "./pages/staff/Notifications";
 
-/* ADMIN */
+// Admin pages
 import AdminDashboard from "./pages/admin/Dashboard";
-import Users from "./pages/admin/Users";
-import AdminNotifications from "./pages/admin/Notifications";
+import UserManagement from "./pages/admin/Users";
+import FacilityControl from "./pages/admin/Facility";
 import Reports from "./pages/admin/Reports";
 import Settings from "./pages/admin/Settings";
-import FacilityControl from "./pages/admin/Facility";
-import StaffLogs from "./pages/staff/Logs";
+import AdminNotifications from "./pages/admin/Notifications";
 
-import MerchShop from "./pages/user/MerchShop";
-
-
-
-
-
-function AdminFacilityPage() {
-  return <div className="p-6">Admin Facility Control Page</div>;
+function ScreenLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#f5f6f8]">
+      <div className="rounded-2xl bg-white px-6 py-4 shadow text-black">
+        Loading...
+      </div>
+    </div>
+  );
 }
 
+function ProtectedRoute({ children, allowRoles = [] }) {
+  const { user, profile, loading } = useAuth();
 
+  if (loading) return <ScreenLoader />;
 
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
 
+  if (allowRoles.length > 0 && !allowRoles.includes(profile?.role)) {
+    if (profile?.role === "admin") return <Navigate to="/admin" replace />;
+    if (profile?.role === "staff") return <Navigate to="/staff" replace />;
+    return <Navigate to="/dashboard" replace />;
+  }
 
-function NotFoundPage() {
-  return <div className="p-6 text-red-500">404 - Page not found</div>;
+  return children;
+}
+
+function PublicRoute({ children }) {
+  const { user, profile, loading } = useAuth();
+
+  if (loading) return <ScreenLoader />;
+
+  if (user) {
+    if (profile?.role === "admin") return <Navigate to="/admin" replace />;
+    if (profile?.role === "staff") return <Navigate to="/staff" replace />;
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+}
+
+function RootRedirect() {
+  const { user, profile, loading } = useAuth();
+
+  if (loading) return <ScreenLoader />;
+
+  if (!user) return <Navigate to="/login" replace />;
+  if (profile?.role === "admin") return <Navigate to="/admin" replace />;
+  if (profile?.role === "staff") return <Navigate to="/staff" replace />;
+  return <Navigate to="/dashboard" replace />;
+}
+
+function NotFound() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#f5f6f8] p-6">
+      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
+        <p className="text-sm font-medium text-blue-600">404 Error</p>
+        <h1 className="mt-2 text-3xl font-bold text-black">Page not found</h1>
+        <p className="mt-3 text-sm text-slate-600">
+          The page you are trying to open does not exist or the route is wrong.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
-  const isOnline = useOnlineStatus();
-
-  /* OFFLINE SYNC */
-  useEffect(() => {
-    if (isOnline) {
-      processOfflineQueue();
-    }
-  }, [isOnline]);
-
   return (
     <Routes>
-      {/* PUBLIC */}
-      <Route path="/" element={<Landing />} />
-      <Route path="/home" element={<Landing />} />
-      <Route path="/help" element={<Help />} />
-      <Route path="/contact" element={<Contact />} />
+      <Route path="/" element={<RootRedirect />} />
 
-      {/* AUTH */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/unauthorized" element={<Unauthorized />} />
-      <Route path="/redirect" element={<RoleRedirect />} />
-
-      {/* PROFILE (ALL ROLES) */}
       <Route
-        path="/profile-settings"
+        path="/login"
         element={
-          <ProtectedRoute allowedRoles={["user", "staff", "admin"]}>
-            <ProfileSettings />
-          </ProtectedRoute>
+          <PublicRoute>
+            <Login />
+          </PublicRoute>
         }
       />
 
-      {/* USER ROUTES */}
+      <Route
+        path="/register"
+        element={
+          <PublicRoute>
+            <Register />
+          </PublicRoute>
+        }
+      />
+
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
+          <ProtectedRoute allowRoles={["user"]}>
             <UserDashboard />
           </ProtectedRoute>
         }
@@ -109,7 +134,7 @@ export default function App() {
       <Route
         path="/booking"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
+          <ProtectedRoute allowRoles={["user"]}>
             <Booking />
           </ProtectedRoute>
         }
@@ -118,44 +143,34 @@ export default function App() {
       <Route
         path="/coaching"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
+          <ProtectedRoute allowRoles={["user"]}>
             <Coaching />
           </ProtectedRoute>
         }
       />
 
       <Route
-        path="/merch"
+        path="/shop"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
-            <Merch />
+          <ProtectedRoute allowRoles={["user"]}>
+            <Shop />
           </ProtectedRoute>
         }
       />
-      <Route path="/shop" element={<MerchShop />} />
 
       <Route
         path="/notifications"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
-            <Notifications />
+          <ProtectedRoute allowRoles={["user"]}>
+            <UserNotifications />
           </ProtectedRoute>
         }
       />
-      <Route
-  path="/shop"
-  element={
-    <ProtectedRoute allowedRoles={["user"]}>
-      <MerchShop />
-    </ProtectedRoute>
-  }
-/>
 
-      {/* STAFF ROUTES */}
       <Route
         path="/staff"
         element={
-          <ProtectedRoute allowedRoles={["staff"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <StaffDashboard />
           </ProtectedRoute>
         }
@@ -164,8 +179,17 @@ export default function App() {
       <Route
         path="/staff/bookings"
         element={
-          <ProtectedRoute allowedRoles={["staff", "admin"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <ManageBookings />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/staff/coaching"
+        element={
+          <ProtectedRoute allowRoles={["staff"]}>
+            <CoachingManager />
           </ProtectedRoute>
         }
       />
@@ -173,7 +197,7 @@ export default function App() {
       <Route
         path="/staff/inventory"
         element={
-          <ProtectedRoute allowedRoles={["staff", "admin"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <Inventory />
           </ProtectedRoute>
         }
@@ -182,44 +206,34 @@ export default function App() {
       <Route
         path="/staff/maintenance"
         element={
-          <ProtectedRoute allowedRoles={["staff", "admin"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <Maintenance />
           </ProtectedRoute>
         }
       />
 
       <Route
-        path="/staff/coaching"
+        path="/staff/logs"
         element={
-          <ProtectedRoute allowedRoles={["staff", "admin"]}>
-            <CoachingManager />
+          <ProtectedRoute allowRoles={["staff"]}>
+            <ActivityLogs />
           </ProtectedRoute>
         }
       />
 
       <Route
-  path="/staff/logs"
-  element={
-    <ProtectedRoute allowedRoles={["staff"]}>
-      <StaffLogs />
-    </ProtectedRoute>
-  }
-/>
-
-      <Route
         path="/staff/notifications"
         element={
-          <ProtectedRoute allowedRoles={["staff", "admin"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <StaffNotifications />
           </ProtectedRoute>
         }
       />
 
-      {/* ADMIN ROUTES */}
       <Route
         path="/admin"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
+          <ProtectedRoute allowRoles={["admin"]}>
             <AdminDashboard />
           </ProtectedRoute>
         }
@@ -228,50 +242,59 @@ export default function App() {
       <Route
         path="/admin/users"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
-            <Users />
+          <ProtectedRoute allowRoles={["admin"]}>
+            <UserManagement />
           </ProtectedRoute>
         }
       />
 
       <Route
-  path="/admin/facility"
-  element={
-    <ProtectedRoute allowedRoles={["admin"]}>
-      <FacilityControl />
-    </ProtectedRoute>
-  }
-/>
+        path="/admin/facility"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <FacilityControl />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
-  path="/admin/reports"
-  element={
-    <ProtectedRoute allowedRoles={["admin"]}>
-      <Reports />
-    </ProtectedRoute>
-  }
-/>
+        path="/admin/reports"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <Reports />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
-  path="/admin/settings"
-  element={
-    <ProtectedRoute allowedRoles={["admin"]}>
-      <Settings />
-    </ProtectedRoute>
-  }
-/>
+        path="/admin/settings"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <Settings />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/admin/notifications"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
+          <ProtectedRoute allowRoles={["admin"]}>
             <AdminNotifications />
           </ProtectedRoute>
         }
       />
 
-      {/* 404 */}
-      <Route path="*" element={<NotFoundPage />} />
+      <Route
+        path="/profile-settings"
+        element={
+          <ProtectedRoute allowRoles={["user", "staff", "admin"]}>
+            <ProfileSettings />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route path="/help" element={<NotFound />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }

@@ -117,14 +117,14 @@ export default function Maintenance() {
   }, [requests, search]);
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] md:flex">
+    <div className="page-shell bg-[#f5f6f8] md:flex">
       <Sidebar role="staff" />
 
-      <main className="flex-1 h-screen overflow-hidden p-4 md:p-6 lg:p-8">
-        <div className="mx-auto h-full max-w-[1600px] overflow-hidden">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="Maintenance" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-orange-600 p-6 text-white shadow-[0_18px_45px_rgba(15,23,42,0.2)] md:p-8">
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-orange-600 p-6 text-white md:p-8">
             <div>
               <p className="text-sm font-medium text-orange-100">
                 Maintenance Monitoring
@@ -138,8 +138,8 @@ export default function Maintenance() {
             </div>
           </div>
 
-          <div className="grid h-[calc(100%-190px)] grid-cols-1 gap-6 2xl:grid-cols-[380px_minmax(950px,1fr)]">
-            <Card className="panel-scroll hide-scrollbar">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+            <Card>
               <h2 className="text-2xl font-bold text-black">
                 Create Request
               </h2>
@@ -220,7 +220,7 @@ export default function Maintenance() {
               </form>
             </Card>
 
-            <Card className="flex min-h-0 flex-col">
+            <Card className="flex min-h-[500px] flex-col">
               <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-black">Requests</h2>
@@ -242,7 +242,7 @@ export default function Maintenance() {
               ) : filteredRequests.length === 0 ? (
                 <p className="text-black">No maintenance requests found.</p>
               ) : (
-                <div className="panel-scroll hide-scrollbar space-y-4 pr-2">
+                <div className="panel-scroll hide-scrollbar space-y-4 pr-2 max-h-[70vh]">
                   {filteredRequests.map((item) => (
                     <div
                       key={item.id}

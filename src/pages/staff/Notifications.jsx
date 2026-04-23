@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
-import { supabase } from "../../services/supabaseClient";
+import Card from "../../components/ui/Card";
 import { useAuth } from "../../context/AuthContext";
 import {
   getUserNotifications,
@@ -11,7 +11,10 @@ import {
 
 export default function StaffNotifications() {
   const { user } = useAuth();
+
   const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -20,48 +23,27 @@ export default function StaffNotifications() {
     }
   }, [user?.id]);
 
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const channel = supabase
-      .channel(`staff-notifications-${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notifications",
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          setNotifications((prev) => [payload.new, ...prev]);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id]);
-
   async function loadNotifications() {
     try {
+      setLoading(true);
       setError("");
       const data = await getUserNotifications(user.id);
       setNotifications(data || []);
     } catch (err) {
       setError(err.message || "Failed to load notifications.");
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function handleRead(id) {
+  async function handleMarkAsRead(notificationId, isRead) {
+    if (isRead) return;
+
     try {
-      await markAsRead(id);
+      await markAsRead(notificationId);
       setNotifications((prev) =>
-        prev.map((notification) =>
-          notification.id === id
-            ? { ...notification, is_read: true }
-            : notification
+        prev.map((item) =>
+          item.id === notificationId ? { ...item, is_read: true } : item
         )
       );
     } catch (err) {
@@ -71,89 +53,118 @@ export default function StaffNotifications() {
 
   async function handleMarkAllAsRead() {
     try {
+      setProcessing(true);
+      setError("");
       await markAllAsRead(user.id);
       setNotifications((prev) =>
-        prev.map((notification) => ({
-          ...notification,
-          is_read: true,
-        }))
+        prev.map((item) => ({ ...item, is_read: true }))
       );
     } catch (err) {
-      setError(err.message || "Failed to mark all as read.");
+      setError(err.message || "Failed to mark all notifications as read.");
+    } finally {
+      setProcessing(false);
     }
   }
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const unreadCount = notifications.filter((item) => !item.is_read).length;
 
   return (
-    <div className="flex min-h-screen bg-[#f5f6f8]">
+    <div className="page-shell bg-[#f5f6f8] md:flex">
       <Sidebar role="staff" />
 
-      <main className="flex-1 p-8">
-        <div className="max-w-4xl mx-auto">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="Notifications" />
 
-          <div className="bg-white rounded-2xl shadow-sm border p-6">
-            <div className="flex items-center justify-between mb-6">
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-blue-800 to-blue-600 p-6 text-white md:p-8">
+            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
               <div>
-                <h2 className="text-xl font-bold text-[#0f172a]">
-                  Staff Notifications
+                <p className="text-sm font-medium text-blue-100">
+                  Staff Alerts Center
+                </p>
+                <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
+                  Track approvals, updates, and live system alerts.
                 </h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  {unreadCount} unread notification{unreadCount !== 1 ? "s" : ""}
+                <p className="mt-3 max-w-3xl text-sm text-slate-100 md:text-base">
+                  Review recent activity and important updates connected to your staff tasks.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur">
+                <p className="text-xs uppercase tracking-[0.18em] text-blue-100">
+                  Unread
+                </p>
+                <p className="mt-2 text-2xl font-bold">{unreadCount}</p>
+              </div>
+            </div>
+          </div>
+
+          <Card className="flex min-h-[520px] flex-col">
+            <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-black">All Notifications</h2>
+                <p className="mt-1 text-sm text-black">
+                  View and manage your recent notifications.
                 </p>
               </div>
 
               <button
+                type="button"
                 onClick={handleMarkAllAsRead}
-                className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+                disabled={processing || unreadCount === 0}
+                className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
               >
-                Mark all as read
+                {processing ? "Processing..." : "Mark all as read"}
               </button>
             </div>
 
             {error ? (
-              <div className="mb-4 rounded-xl bg-red-50 text-red-600 px-4 py-3 text-sm">
+              <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
                 {error}
               </div>
             ) : null}
 
-            {notifications.length === 0 ? (
-              <p className="text-gray-500">No notifications yet.</p>
+            {loading ? (
+              <p className="text-black">Loading notifications...</p>
+            ) : notifications.length === 0 ? (
+              <p className="text-black">No notifications yet.</p>
             ) : (
-              <div className="space-y-3">
+              <div className="panel-scroll hide-scrollbar space-y-4 pr-2 max-h-[70vh]">
                 {notifications.map((notification) => (
-                  <div
+                  <button
                     key={notification.id}
-                    onClick={() => handleRead(notification.id)}
-                    className={`p-4 rounded-xl border cursor-pointer transition ${
+                    type="button"
+                    onClick={() =>
+                      handleMarkAsRead(notification.id, notification.is_read)
+                    }
+                    className={`w-full rounded-2xl border p-4 text-left transition ${
                       notification.is_read
-                        ? "bg-gray-50 border-gray-200"
-                        : "bg-blue-50 border-blue-200"
+                        ? "border-slate-200 bg-white"
+                        : "border-blue-200 bg-blue-50/70"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="font-semibold text-[#0f172a]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="safe-text text-base font-semibold text-black">
                           {notification.title}
                         </p>
-                        <p className="text-sm text-gray-600 mt-1">
+                        <p className="safe-text mt-2 text-sm leading-6 text-black">
                           {notification.message}
                         </p>
-                        <p className="text-xs text-gray-400 mt-2">
+                        <p className="mt-3 text-xs text-slate-600">
                           {new Date(notification.created_at).toLocaleString()}
                         </p>
                       </div>
 
                       {!notification.is_read ? (
-                        <span className="w-3 h-3 rounded-full bg-red-500 mt-1"></span>
+                        <span className="mt-1 h-3 w-3 shrink-0 rounded-full bg-red-500"></span>
                       ) : null}
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
-          </div>
+          </Card>
         </div>
       </main>
     </div>

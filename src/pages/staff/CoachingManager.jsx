@@ -7,11 +7,22 @@ import { uploadImageToBucket } from "../../services/storageService";
 import {
   approveCoachBooking,
   createCoach,
+  deleteCoach,
   getAllCoachBookings,
   getCoaches,
   rejectCoachBooking,
   updateCoach,
 } from "../../services/coachingService";
+
+const COACH_FALLBACK =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
+      <rect width="100%" height="100%" fill="#e5e7eb"/>
+      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+        font-family="Arial, sans-serif" font-size="22" fill="#64748b">Coach</text>
+    </svg>
+  `);
 
 function formatTime(time24) {
   if (!time24) return "";
@@ -22,18 +33,24 @@ function formatTime(time24) {
   return `${hour}:${minute} ${suffix}`;
 }
 
+function getImageSrc(url) {
+  return url || COACH_FALLBACK;
+}
+
 export default function CoachingManager() {
   const { user } = useAuth();
 
   const [coaches, setCoaches] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [editingCoachId, setEditingCoachId] = useState(null);
+  const [selectedCoach, setSelectedCoach] = useState(null);
 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [deletingCoachId, setDeletingCoachId] = useState(null);
 
   const [coachForm, setCoachForm] = useState({
     name: "",
@@ -110,6 +127,7 @@ export default function CoachingManager() {
       image_url: coach.image_url || "",
       is_active: coach.is_active ?? true,
     });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function resetCoachForm() {
@@ -136,9 +154,14 @@ export default function CoachingManager() {
 
     try {
       const payload = {
-        ...coachForm,
-        created_by: user?.id || null,
+        name: coachForm.name.trim(),
+        specialty: coachForm.specialty.trim(),
+        bio: coachForm.bio.trim(),
+        experience: coachForm.experience.trim(),
+        image_url: coachForm.image_url,
+        is_active: coachForm.is_active,
         updated_by: user?.id || null,
+        ...(editingCoachId ? {} : { created_by: user?.id || null }),
       };
 
       if (editingCoachId) {
@@ -153,6 +176,27 @@ export default function CoachingManager() {
       await loadData();
     } catch (err) {
       setError(err.message || "Failed to save coach.");
+    }
+  }
+
+  async function handleDeleteCoach(id) {
+    const confirmed = window.confirm("Delete this coach?");
+    if (!confirmed) return;
+
+    try {
+      setDeletingCoachId(id);
+      setError("");
+      setMessage("");
+      await deleteCoach(id);
+      setMessage("Coach deleted successfully.");
+      if (editingCoachId === id) {
+        resetCoachForm();
+      }
+      await loadData();
+    } catch (err) {
+      setError(err.message || "Failed to delete coach.");
+    } finally {
+      setDeletingCoachId(null);
     }
   }
 
@@ -184,11 +228,7 @@ export default function CoachingManager() {
 
   const summary = useMemo(() => {
     const pending = bookings.filter((item) => item.status === "pending").length;
-    const approved = bookings.filter((item) => item.status === "approved").length;
-    const rejected = bookings.filter((item) => item.status === "rejected").length;
-    const total = bookings.length;
-
-    return { total, pending, approved, rejected };
+    return { pending };
   }, [bookings]);
 
   const coachOptions = useMemo(() => {
@@ -223,14 +263,14 @@ export default function CoachingManager() {
   }, [bookings, statusFilter, coachFilter, dateFilter, searchTerm]);
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] md:flex">
+    <div className="page-shell bg-[#f5f6f8] md:flex">
       <Sidebar role="staff" />
 
-      <main className="flex-1 p-4 md:p-6">
-        <div className="mx-auto max-w-[1500px]">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="Coaching Manager" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-violet-700 via-blue-700 to-slate-900 p-6 text-white shadow-[0_18px_45px_rgba(76,29,149,0.24)] md:p-8">
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-violet-700 via-blue-700 to-slate-900 p-6 text-white md:p-8">
             <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
               <div>
                 <p className="text-sm font-medium text-blue-100">
@@ -258,122 +298,226 @@ export default function CoachingManager() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <Card className="xl:col-span-1">
-              <h2 className="text-2xl font-bold text-slate-900">
-                {editingCoachId ? "Edit Coach" : "Add Coach"}
-              </h2>
-              <p className="mt-1 mb-6 text-sm text-slate-500">
-                Add coach details and upload a profile image.
-              </p>
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+            <div className="space-y-6">
+              <Card>
+                <h2 className="text-2xl font-bold text-black">
+                  {editingCoachId ? "Edit Coach" : "Add Coach"}
+                </h2>
+                <p className="mt-1 mb-6 text-sm text-black">
+                  Add coach details and upload a profile image.
+                </p>
 
-              {error ? (
-                <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
-                  {error}
-                </div>
-              ) : null}
+                {error ? (
+                  <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
+                    {error}
+                  </div>
+                ) : null}
 
-              {message ? (
-                <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-600">
-                  {message}
-                </div>
-              ) : null}
+                {message ? (
+                  <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-600">
+                    {message}
+                  </div>
+                ) : null}
 
-              <form onSubmit={handleCoachSubmit} className="space-y-4">
-                <input
-                  name="name"
-                  value={coachForm.name}
-                  onChange={handleCoachChange}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
-                  placeholder="Coach name"
-                />
-
-                <input
-                  name="specialty"
-                  value={coachForm.specialty}
-                  onChange={handleCoachChange}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
-                  placeholder="Specialty"
-                />
-
-                <input
-                  name="experience"
-                  value={coachForm.experience}
-                  onChange={handleCoachChange}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
-                  placeholder="Experience"
-                />
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-slate-700">
-                    Coach Image
-                  </label>
+                <form onSubmit={handleCoachSubmit} className="space-y-4">
                   <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3"
-                  />
-                  {uploadingImage ? (
-                    <p className="text-sm text-slate-500">Uploading image...</p>
-                  ) : null}
-
-                  {coachForm.image_url ? (
-                    <img
-                      src={coachForm.image_url}
-                      alt="Coach preview"
-                      className="h-36 w-36 rounded-2xl object-cover border"
-                    />
-                  ) : null}
-                </div>
-
-                <textarea
-                  name="bio"
-                  value={coachForm.bio}
-                  onChange={handleCoachChange}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
-                  rows="4"
-                  placeholder="Coach bio"
-                />
-
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    name="is_active"
-                    checked={coachForm.is_active}
+                    name="name"
+                    value={coachForm.name}
                     onChange={handleCoachChange}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                    placeholder="Coach name"
                   />
-                  Active
-                </label>
 
-                <div className="flex gap-2">
-                  <button className="w-full rounded-2xl bg-blue-600 px-4 py-3 font-semibold text-white shadow-[0_10px_25px_rgba(37,99,235,0.22)] transition hover:bg-blue-700">
-                    {editingCoachId ? "Update Coach" : "Add Coach"}
-                  </button>
+                  <input
+                    name="specialty"
+                    value={coachForm.specialty}
+                    onChange={handleCoachChange}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                    placeholder="Specialty"
+                  />
 
-                  {editingCoachId ? (
+                  <input
+                    name="experience"
+                    value={coachForm.experience}
+                    onChange={handleCoachChange}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                    placeholder="Experience"
+                  />
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-black">
+                      Coach Image
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black"
+                    />
+
+                    {uploadingImage ? (
+                      <p className="text-sm text-black">Uploading image...</p>
+                    ) : null}
+
+                    {coachForm.image_url ? (
+                      <img
+                        src={getImageSrc(coachForm.image_url)}
+                        alt="Coach preview"
+                        className="h-36 w-36 rounded-2xl border object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = COACH_FALLBACK;
+                        }}
+                      />
+                    ) : null}
+                  </div>
+
+                  <textarea
+                    name="bio"
+                    value={coachForm.bio}
+                    onChange={handleCoachChange}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                    rows="4"
+                    placeholder="Coach bio"
+                  />
+
+                  <label className="flex items-center gap-2 text-sm text-black">
+                    <input
+                      type="checkbox"
+                      name="is_active"
+                      checked={coachForm.is_active}
+                      onChange={handleCoachChange}
+                    />
+                    Active
+                  </label>
+
+                  <div className="flex gap-2">
                     <button
-                      type="button"
-                      onClick={resetCoachForm}
-                      className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-700"
+                      className="w-full rounded-2xl bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-700"
+                      type="submit"
                     >
-                      Cancel
+                      {editingCoachId ? "Update Coach" : "Add Coach"}
                     </button>
-                  ) : null}
-                </div>
-              </form>
-            </Card>
 
-            <Card className="xl:col-span-2">
+                    {editingCoachId ? (
+                      <button
+                        type="button"
+                        onClick={resetCoachForm}
+                        className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-black"
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              </Card>
+
+              <Card>
+                <div className="mb-4">
+                  <h3 className="text-xl font-bold text-black">Coach Profiles</h3>
+                  <p className="mt-1 text-sm text-black">
+                    Edit, view, or delete existing coaches.
+                  </p>
+                </div>
+
+                {loading ? (
+                  <p className="text-black">Loading coaches...</p>
+                ) : coaches.length === 0 ? (
+                  <p className="text-black">No coaches found.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {coaches.map((coach) => (
+                      <div
+                        key={coach.id}
+                        className="rounded-2xl border border-slate-200 p-4"
+                      >
+                        <div className="flex gap-4">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCoach(coach)}
+                            className="shrink-0"
+                          >
+                            <img
+                              src={getImageSrc(coach.image_url)}
+                              alt={coach.name}
+                              className="h-20 w-20 rounded-2xl border object-cover"
+                              onError={(e) => {
+                                e.currentTarget.src = COACH_FALLBACK;
+                              }}
+                            />
+                          </button>
+
+                          <div className="min-w-0 flex-1">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCoach(coach)}
+                              className="text-left"
+                            >
+                              <p className="truncate text-lg font-semibold text-black">
+                                {coach.name}
+                              </p>
+                              <p className="mt-1 text-sm text-blue-700">
+                                {coach.specialty}
+                              </p>
+                            </button>
+
+                            <p className="mt-2 line-clamp-2 text-sm text-slate-700">
+                              {coach.bio || "No bio yet."}
+                            </p>
+
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                                {coach.experience || "No experience set"}
+                              </span>
+
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                  coach.is_active
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}
+                              >
+                                {coach.is_active ? "Active" : "Inactive"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditCoach(coach)}
+                            className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-black transition hover:bg-slate-200"
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCoach(coach.id)}
+                            disabled={deletingCoachId === coach.id}
+                            className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+                          >
+                            {deletingCoachId === coach.id ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            <Card className="flex min-h-[500px] flex-col">
               <div className="mb-6">
-                <h2 className="text-2xl font-bold text-slate-900">
+                <h2 className="text-2xl font-bold text-black">
                   Coaching Requests
                 </h2>
               </div>
 
               <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-end">
                 <div className="flex-1">
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                  <label className="mb-2 block text-sm font-medium text-black">
                     Search
                   </label>
                   <input
@@ -381,18 +525,18 @@ export default function CoachingManager() {
                     placeholder="Search by coach, notes, or status"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                   />
                 </div>
 
                 <div className="w-full xl:w-52">
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                  <label className="mb-2 block text-sm font-medium text-black">
                     Status
                   </label>
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                   >
                     <option value="all">All</option>
                     <option value="pending">Pending</option>
@@ -402,13 +546,13 @@ export default function CoachingManager() {
                 </div>
 
                 <div className="w-full xl:w-60">
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                  <label className="mb-2 block text-sm font-medium text-black">
                     Coach
                   </label>
                   <select
                     value={coachFilter}
                     onChange={(e) => setCoachFilter(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                   >
                     <option value="all">All Coaches</option>
                     {coachOptions.map((coach) => (
@@ -420,14 +564,14 @@ export default function CoachingManager() {
                 </div>
 
                 <div className="w-full xl:w-52">
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                  <label className="mb-2 block text-sm font-medium text-black">
                     Date
                   </label>
                   <input
                     type="date"
                     value={dateFilter}
                     onChange={(e) => setDateFilter(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                   />
                 </div>
 
@@ -439,18 +583,18 @@ export default function CoachingManager() {
                     setCoachFilter("all");
                     setDateFilter("");
                   }}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-medium text-slate-700 transition hover:bg-slate-50"
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 font-medium text-black transition hover:bg-slate-50"
                 >
                   Reset
                 </button>
               </div>
 
               {loading ? (
-                <p className="text-slate-500">Loading coaching requests...</p>
+                <p className="text-black">Loading coaching requests...</p>
               ) : filteredBookings.length === 0 ? (
-                <p className="text-slate-500">No coaching requests found.</p>
+                <p className="text-black">No coaching requests found.</p>
               ) : (
-                <div className="space-y-4">
+                <div className="panel-scroll hide-scrollbar space-y-4 pr-2 max-h-[70vh]">
                   {filteredBookings.map((booking) => (
                     <div
                       key={booking.id}
@@ -458,18 +602,18 @@ export default function CoachingManager() {
                     >
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                          <p className="text-lg font-semibold text-slate-900">
+                          <p className="text-lg font-semibold text-black">
                             {booking.coaches?.name || "Coach"}
                           </p>
-                          <p className="mt-1 text-sm text-slate-500">
+                          <p className="mt-1 text-sm text-black">
                             {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
                             {formatTime(booking.end_time)}
                           </p>
-                          <p className="mt-2 text-sm capitalize text-slate-500">
+                          <p className="mt-2 text-sm capitalize text-black">
                             {booking.session_mode.replaceAll("_", " ")} • Participants:{" "}
                             {booking.participants}
                           </p>
-                          <p className="mt-1 text-sm text-slate-500">
+                          <p className="mt-1 text-sm text-black">
                             Notes: {booking.notes || "-"}
                           </p>
                         </div>
@@ -506,7 +650,7 @@ export default function CoachingManager() {
                               </button>
                             </div>
                           ) : (
-                            <span className="text-sm text-slate-400">Reviewed</span>
+                            <span className="text-sm text-slate-700">Reviewed</span>
                           )}
                         </div>
                       </div>
@@ -518,6 +662,95 @@ export default function CoachingManager() {
           </div>
         </div>
       </main>
+
+      {selectedCoach ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-blue-600">Coach Profile</p>
+                <h2 className="mt-1 text-2xl font-bold text-black">
+                  {selectedCoach.name}
+                </h2>
+                <p className="mt-1 text-sm font-medium text-blue-700">
+                  {selectedCoach.specialty}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setSelectedCoach(null)}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-black hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
+              <img
+                src={getImageSrc(selectedCoach.image_url)}
+                alt={selectedCoach.name}
+                className="h-72 w-full rounded-2xl border object-cover"
+                onError={(e) => {
+                  e.currentTarget.src = COACH_FALLBACK;
+                }}
+              />
+
+              <div>
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                    Experience
+                  </p>
+                  <p className="mt-1 text-base font-semibold text-black">
+                    {selectedCoach.experience || "Not specified"}
+                  </p>
+                </div>
+
+                <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                    Bio
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-black">
+                    {selectedCoach.bio || "No bio provided yet."}
+                  </p>
+                </div>
+
+                <div className="mt-4">
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      selectedCoach.is_active
+                        ? "bg-green-100 text-green-700"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {selectedCoach.is_active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCoach(null);
+                      handleEditCoach(selectedCoach);
+                    }}
+                    className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
+                  >
+                    Edit Coach
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCoach(null)}
+                    className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-black"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

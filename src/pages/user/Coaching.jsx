@@ -12,6 +12,20 @@ import {
   getApprovedCoachBookingsByDate,
 } from "../../services/coachingService";
 
+const COACH_FALLBACK =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
+      <rect width="100%" height="100%" fill="#e5e7eb"/>
+      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+        font-family="Arial, sans-serif" font-size="22" fill="#64748b">Coach</text>
+    </svg>
+  `);
+
+function getImageSrc(url) {
+  return url || COACH_FALLBACK;
+}
+
 function generateTimeSlots(startHour = 8, endHour = 20) {
   const slots = [];
 
@@ -30,6 +44,7 @@ function generateTimeSlots(startHour = 8, endHour = 20) {
 }
 
 function formatTime(time24) {
+  if (!time24) return "";
   const [hourStr, minute] = time24.split(":");
   let hour = Number(hourStr);
   const suffix = hour >= 12 ? "PM" : "AM";
@@ -46,7 +61,12 @@ function getBlockedSlotIndexes(slots, approvedBookings) {
 
   slots.forEach((slot, index) => {
     const blocked = approvedBookings.some((booking) =>
-      rangesOverlap(slot.start_time, slot.end_time, booking.start_time, booking.end_time)
+      rangesOverlap(
+        slot.start_time,
+        slot.end_time,
+        booking.start_time,
+        booking.end_time
+      )
     );
     if (blocked) blockedIndexes.add(index);
   });
@@ -60,8 +80,8 @@ export default function Coaching() {
   const [coaches, setCoaches] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [approvedBookings, setApprovedBookings] = useState([]);
-
   const [selectedCoach, setSelectedCoach] = useState(null);
+  const [showCoachModal, setShowCoachModal] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [slotLoading, setSlotLoading] = useState(false);
@@ -91,7 +111,7 @@ export default function Coaching() {
   );
 
   useEffect(() => {
-    loadBaseData();
+    if (user) loadBaseData();
   }, [user]);
 
   useEffect(() => {
@@ -157,7 +177,12 @@ export default function Coaching() {
     }
   }
 
-  function selectCoach(coach) {
+  function openCoachModal(coach) {
+    setSelectedCoach(coach);
+    setShowCoachModal(true);
+  }
+
+  function chooseCoach(coach) {
     setSelectedCoach(coach);
     setForm((prev) => ({
       ...prev,
@@ -168,6 +193,14 @@ export default function Coaching() {
     setSelectedStartIndex(null);
     setSelectedEndIndex(null);
     setConflictWarning("");
+    setShowCoachModal(false);
+
+    setTimeout(() => {
+      const bookingSection = document.getElementById("coach-booking-panel");
+      if (bookingSection) {
+        bookingSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 50);
   }
 
   function updateSelectedTimeRange() {
@@ -299,103 +332,153 @@ export default function Coaching() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] md:flex">
+    <div className="page-shell bg-[#f5f6f8] md:flex">
       <Sidebar role="user" />
 
-      <main className="flex-1 p-4 md:p-6">
-        <div className="mx-auto max-w-[1500px]">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="Coaching" />
           <ConnectionBanner />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-violet-600 via-blue-700 to-slate-900 p-6 text-white shadow-[0_18px_45px_rgba(76,29,149,0.24)] md:p-8">
-            <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-              <div>
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-violet-600 via-blue-700 to-slate-900 p-6 text-white md:p-8">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-blue-100">
                   Direct Coach Booking
                 </p>
-                <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
+                <h2 className="mt-2 break-words text-3xl font-bold tracking-tight md:text-4xl">
                   Choose a coach and view full details before booking.
                 </h2>
-                <p className="mt-3 max-w-2xl text-sm text-blue-100 md:text-base">
-                  Tap any coach card to view their profile, then pick a date and time range.
+                <p className="mt-3 max-w-3xl text-sm text-slate-100 md:text-base">
+                  Tap any coach card to open the full profile, then continue straight to booking.
                 </p>
               </div>
             </div>
           </div>
 
           <Card className="mb-6">
-            <h3 className="mb-4 text-2xl font-bold text-slate-900">Available Coaches</h3>
+            <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h3 className="text-2xl font-bold text-black">Available Coaches</h3>
+                <p className="mt-1 text-sm text-black">
+                  Browse coaches, open their profile, and select the right one for your session.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-black">
+                {selectedCoach ? (
+                  <span>
+                    Selected coach: <span className="font-semibold">{selectedCoach.name}</span>
+                  </span>
+                ) : (
+                  <span>No coach selected yet</span>
+                )}
+              </div>
+            </div>
 
             {loading ? (
-              <p className="text-slate-500">Loading coaches...</p>
+              <p className="text-black">Loading coaches...</p>
             ) : (
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {coaches.map((coach) => (
-                  <button
+                  <div
                     key={coach.id}
-                    type="button"
-                    onClick={() => selectCoach(coach)}
-                    className={`overflow-hidden rounded-3xl border text-left transition hover:-translate-y-1 hover:shadow-xl ${
+                    className={`overflow-hidden rounded-3xl border bg-white transition hover:-translate-y-1 hover:shadow-xl ${
                       form.coach_id === coach.id
                         ? "border-blue-600 ring-2 ring-blue-200"
                         : "border-slate-200"
                     }`}
                   >
-                    <div className="h-52 bg-slate-100">
-                      <img
-                        src={coach.image_url || "https://via.placeholder.com/400x400?text=Coach"}
-                        alt={coach.name}
-                        className="h-full w-full object-cover"
-                      />
+                    <button
+                      type="button"
+                      onClick={() => openCoachModal(coach)}
+                      className="block w-full text-left"
+                    >
+                      <div className="h-56 bg-slate-100">
+                        <img
+                          src={getImageSrc(coach.image_url)}
+                          alt={coach.name}
+                          className="h-full w-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.src = COACH_FALLBACK;
+                          }}
+                        />
+                      </div>
+                      <div className="p-4">
+                        <p className="break-words font-bold text-black">{coach.name}</p>
+                        <p className="mt-1 break-words text-sm text-black">
+                          {coach.specialty}
+                        </p>
+                      </div>
+                    </button>
+
+                    <div className="px-4 pb-4">
+                      <button
+                        type="button"
+                        onClick={() => chooseCoach(coach)}
+                        className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                      >
+                        Select Coach
+                      </button>
                     </div>
-                    <div className="p-4">
-                      <p className="font-bold text-slate-900">{coach.name}</p>
-                      <p className="mt-1 text-sm text-slate-500">{coach.specialty}</p>
-                    </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
           </Card>
 
           {selectedCoach ? (
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <Card className="xl:col-span-1">
+            <div
+              id="coach-booking-panel"
+              className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]"
+            >
+              <Card>
                 <div className="overflow-hidden rounded-3xl bg-slate-100">
                   <img
-                    src={selectedCoach.image_url || "https://via.placeholder.com/500x500?text=Coach"}
+                    src={getImageSrc(selectedCoach.image_url)}
                     alt={selectedCoach.name}
                     className="h-72 w-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = COACH_FALLBACK;
+                    }}
                   />
                 </div>
 
-                <h3 className="mt-5 text-2xl font-bold text-slate-900">
+                <h3 className="mt-5 break-words text-2xl font-bold text-black">
                   {selectedCoach.name}
                 </h3>
-                <p className="mt-2 text-sm font-medium text-blue-600">
+                <p className="mt-2 break-words text-sm font-medium text-blue-700">
                   {selectedCoach.specialty}
                 </p>
-                <p className="mt-3 text-sm text-slate-600">
+                <p className="mt-3 break-words text-sm leading-7 text-black">
                   {selectedCoach.bio || "No bio provided yet."}
                 </p>
 
                 <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">
+                  <p className="text-xs uppercase tracking-wide text-slate-700">
                     Experience
                   </p>
-                  <p className="mt-1 font-semibold text-slate-900">
+                  <p className="mt-1 break-words font-semibold text-black">
                     {selectedCoach.experience || "Not specified"}
                   </p>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCoachModal(true)}
+                  className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-black transition hover:bg-slate-50"
+                >
+                  View Full Profile
+                </button>
               </Card>
 
-              <Card className="xl:col-span-2">
+              <Card>
                 <div className="mb-6">
-                  <h3 className="text-2xl font-bold text-slate-900">
+                  <h3 className="text-2xl font-bold text-black">
                     Book {selectedCoach.name}
                   </h3>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Select date, session type, and a continuous time range.
+                  <p className="mt-1 text-sm text-black">
+                    Choose a date, select session mode, then highlight a continuous time range.
                   </p>
                 </div>
 
@@ -418,9 +501,9 @@ export default function Coaching() {
                 ) : null}
 
                 <form onSubmit={handleSubmit}>
-                  <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                      <label className="mb-2 block text-sm font-medium text-black">
                         Date
                       </label>
                       <input
@@ -428,20 +511,20 @@ export default function Coaching() {
                         name="booking_date"
                         value={form.booking_date}
                         onChange={handleChange}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                         required
                       />
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                      <label className="mb-2 block text-sm font-medium text-black">
                         Session Mode
                       </label>
                       <select
                         name="session_mode"
                         value={form.session_mode}
                         onChange={handleChange}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                       >
                         <option value="one_on_one">One-on-One</option>
                         <option value="group">Group</option>
@@ -449,7 +532,7 @@ export default function Coaching() {
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                      <label className="mb-2 block text-sm font-medium text-black">
                         Participants
                       </label>
                       <input
@@ -459,12 +542,12 @@ export default function Coaching() {
                         value={form.participants}
                         onChange={handleChange}
                         disabled={form.session_mode === "one_on_one"}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500 disabled:bg-slate-50"
+                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500 disabled:bg-slate-50"
                       />
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
+                      <label className="mb-2 block text-sm font-medium text-black">
                         Selected Range
                       </label>
                       <input
@@ -475,29 +558,27 @@ export default function Coaching() {
                         }
                         readOnly
                         placeholder="Choose from the slots below"
-                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-black"
                       />
                     </div>
                   </div>
 
                   <div className="mb-6">
-                    <div className="mb-3 flex items-center justify-between">
-                      <label className="block text-sm font-medium text-slate-700">
+                    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <label className="block text-sm font-medium text-black">
                         Available Time Slots
                       </label>
                       {slotLoading ? (
-                        <span className="text-sm text-slate-500">
-                          Checking availability...
-                        </span>
+                        <span className="text-sm text-black">Checking availability...</span>
                       ) : null}
                     </div>
 
                     {!form.coach_id || !form.booking_date ? (
-                      <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
+                      <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-black">
                         Select a coach and date first.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                         {slots.map((slot, index) => {
                           const blocked = blockedIndexes.has(index);
                           const selected = isSelectedRange(index);
@@ -513,7 +594,7 @@ export default function Coaching() {
                                   ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
                                   : selected
                                   ? "border-blue-600 bg-blue-600 text-white shadow-[0_10px_25px_rgba(37,99,235,0.25)]"
-                                  : "border-slate-200 bg-white text-slate-800 hover:-translate-y-0.5 hover:bg-blue-50"
+                                  : "border-slate-200 bg-white text-black hover:-translate-y-0.5 hover:bg-blue-50"
                               }`}
                             >
                               {slot.label}
@@ -525,7 +606,7 @@ export default function Coaching() {
                   </div>
 
                   <div className="mb-6">
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                    <label className="mb-2 block text-sm font-medium text-black">
                       Notes
                     </label>
                     <textarea
@@ -533,7 +614,7 @@ export default function Coaching() {
                       value={form.notes}
                       onChange={handleChange}
                       rows="4"
-                      className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-blue-500"
+                      className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                       placeholder="Optional notes for the coach or staff"
                     />
                   </div>
@@ -541,44 +622,51 @@ export default function Coaching() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="rounded-2xl bg-blue-600 px-6 py-3 font-semibold text-white shadow-[0_10px_25px_rgba(37,99,235,0.22)] transition hover:bg-blue-700 disabled:opacity-60"
+                    className="rounded-2xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
                   >
                     {submitting ? "Submitting..." : "Submit Coaching Request"}
                   </button>
                 </form>
               </Card>
             </div>
-          ) : null}
+          ) : (
+            <Card>
+              <div className="rounded-3xl border border-dashed border-slate-300 p-10 text-center">
+                <h3 className="text-2xl font-bold text-black">Select a Coach First</h3>
+                <p className="mt-2 text-sm text-black">
+                  Open a coach profile or press Select Coach to continue to booking.
+                </p>
+              </div>
+            </Card>
+          )}
 
-          <Card className="mt-6">
+          <Card className="mt-6 flex min-h-[420px] flex-col">
             <div className="mb-5">
-              <h3 className="text-xl font-bold text-slate-900">
-                My Coaching Requests
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <h3 className="text-xl font-bold text-black">My Coaching Requests</h3>
+              <p className="mt-1 text-sm text-black">
                 Your recent coach bookings and approvals.
               </p>
             </div>
 
             {loading ? (
-              <p className="text-slate-500">Loading coaching requests...</p>
+              <p className="text-black">Loading coaching requests...</p>
             ) : bookings.length === 0 ? (
-              <p className="text-slate-500">No coaching requests yet.</p>
+              <p className="text-black">No coaching requests yet.</p>
             ) : (
-              <div className="space-y-4">
+              <div className="panel-scroll hide-scrollbar space-y-4 pr-2 max-h-[55vh]">
                 {bookings.map((booking) => (
                   <div
                     key={booking.id}
                     className="rounded-2xl border border-slate-200 p-4"
                   >
-                    <p className="font-semibold text-slate-900">
+                    <p className="safe-text font-semibold text-black">
                       {booking.coaches?.name || "Coach"}
                     </p>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-black">
                       {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
                       {formatTime(booking.end_time)}
                     </p>
-                    <p className="mt-1 text-sm capitalize text-slate-500">
+                    <p className="mt-1 text-sm capitalize text-black">
                       {booking.session_mode.replaceAll("_", " ")}
                     </p>
                     <p className="mt-2 text-sm">
@@ -602,6 +690,80 @@ export default function Coaching() {
           </Card>
         </div>
       </main>
+
+      {showCoachModal && selectedCoach ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-blue-600">Coach Profile</p>
+                <h2 className="mt-1 text-2xl font-bold text-black">
+                  {selectedCoach.name}
+                </h2>
+                <p className="mt-1 text-sm font-medium text-blue-700">
+                  {selectedCoach.specialty}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowCoachModal(false)}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-black hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
+              <img
+                src={getImageSrc(selectedCoach.image_url)}
+                alt={selectedCoach.name}
+                className="h-72 w-full rounded-2xl border object-cover"
+                onError={(e) => {
+                  e.currentTarget.src = COACH_FALLBACK;
+                }}
+              />
+
+              <div>
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                    Experience
+                  </p>
+                  <p className="mt-1 text-base font-semibold text-black">
+                    {selectedCoach.experience || "Not specified"}
+                  </p>
+                </div>
+
+                <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                    Bio
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-black">
+                    {selectedCoach.bio || "No bio provided yet."}
+                  </p>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => chooseCoach(selectedCoach)}
+                    className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                  >
+                    Choose This Coach
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCoachModal(false)}
+                    className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-black transition hover:bg-slate-50"
+                  >
+                    Continue Browsing
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
