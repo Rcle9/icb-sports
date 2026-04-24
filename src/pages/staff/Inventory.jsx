@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import Card from "../../components/ui/Card";
+import { ListSkeleton } from "../../components/ui/Skeleton";
 import { useAuth } from "../../context/AuthContext";
 import { uploadImageToBucket } from "../../services/storageService";
 import {
   getInventory,
-  createInventoryItem,
+  createInventory,
   updateInventory,
   deleteInventory,
 } from "../../services/inventoryService";
@@ -14,10 +15,10 @@ import {
 const PRODUCT_FALLBACK =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
-      <rect width="100%" height="100%" fill="#e5e7eb"/>
+    <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600">
+      <rect width="100%" height="100%" fill="#f1f5f9"/>
       <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-        font-family="Arial, sans-serif" font-size="22" fill="#64748b">Product</text>
+        font-family="Arial" font-size="28" fill="#64748b">Product</text>
     </svg>
   `);
 
@@ -25,13 +26,9 @@ function getImageSrc(url) {
   return url || PRODUCT_FALLBACK;
 }
 
-function computeStatus(quantity, minThreshold) {
-  const qty = Number(quantity || 0);
-  const min = Number(minThreshold || 5);
-
-  if (qty <= 0) return "out_of_stock";
-  if (qty <= min) return "low_stock";
-  return "in_stock";
+function getProductImages(product) {
+  const images = [...(product?.image_urls || []), product?.image_url].filter(Boolean);
+  return images.length ? [...new Set(images)] : [PRODUCT_FALLBACK];
 }
 
 export default function Inventory() {
@@ -41,28 +38,30 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+
   const [editingId, setEditingId] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [previewImage, setPreviewImage] = useState("");
 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [search, setSearch] = useState("");
 
   const [form, setForm] = useState({
     name: "",
     category: "merchandise",
     description: "",
     image_url: "",
+    image_urls: [],
     price: "",
     quantity: "",
-    min_threshold: "5",
+    low_stock_threshold: 5,
   });
 
   useEffect(() => {
-    load();
+    loadInventory();
   }, []);
 
-  async function load() {
+  async function loadInventory() {
     try {
       setLoading(true);
       setError("");
@@ -77,39 +76,81 @@ export default function Inventory() {
 
   function handleChange(e) {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   }
 
-  async function handleImageUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function handleMultipleImagesUpload(e) {
+    const files = Array.from(e.target.files || []);
+
+    if (files.length === 0) return;
+
+    const currentCount = form.image_urls?.length || 0;
+    const remainingSlots = 5 - currentCount;
+
+    if (remainingSlots <= 0) {
+      setError("Maximum of 5 product preview images only.");
+      return;
+    }
+
+    const filesToUpload = files.slice(0, remainingSlots);
 
     try {
       setUploadingImage(true);
       setError("");
-      const url = await uploadImageToBucket(file, "product-images", "merchandise");
-      setForm((prev) => ({ ...prev, image_url: url }));
+
+      const uploadedUrls = [];
+
+      for (const file of filesToUpload) {
+        const url = await uploadImageToBucket(
+          file,
+          "product-images",
+          "products"
+        );
+        uploadedUrls.push(url);
+      }
+
+      setForm((prev) => {
+        const nextImages = [...new Set([...(prev.image_urls || []), ...uploadedUrls])];
+
+        return {
+          ...prev,
+          image_url: prev.image_url || uploadedUrls[0],
+          image_urls: nextImages.slice(0, 5),
+        };
+      });
+
+      if (files.length > remainingSlots) {
+        setMessage(`Only ${remainingSlots} image(s) were added. Maximum is 5.`);
+      }
     } catch (err) {
-      setError(err.message || "Failed to upload image.");
+      setError(err.message || "Failed to upload product images.");
     } finally {
       setUploadingImage(false);
     }
   }
 
-  function handleEdit(item) {
-    setEditingId(item.id);
-    setForm({
-      name: item.name || "",
-      category: item.category || "merchandise",
-      description: item.description || "",
-      image_url: item.image_url || "",
-      price: item.price || "",
-      quantity: item.quantity || "",
-      min_threshold: item.min_threshold || "5",
+  function removeImage(url) {
+    setForm((prev) => {
+      const nextImages = (prev.image_urls || []).filter((item) => item !== url);
+      const nextMain = prev.image_url === url ? nextImages[0] || "" : prev.image_url;
+
+      return {
+        ...prev,
+        image_url: nextMain,
+        image_urls: nextImages,
+      };
     });
-    setError("");
-    setMessage("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function setMainImage(url) {
+    setForm((prev) => ({
+      ...prev,
+      image_url: url,
+    }));
   }
 
   function resetForm() {
@@ -119,10 +160,36 @@ export default function Inventory() {
       category: "merchandise",
       description: "",
       image_url: "",
+      image_urls: [],
       price: "",
       quantity: "",
-      min_threshold: "5",
+      low_stock_threshold: 5,
     });
+  }
+
+  function handleEdit(item) {
+    const images = getProductImages(item).filter((img) => img !== PRODUCT_FALLBACK);
+
+    setEditingId(item.id);
+    setForm({
+      name: item.name || "",
+      category: item.category || "merchandise",
+      description: item.description || "",
+      image_url: item.image_url || images[0] || "",
+      image_urls: images.slice(0, 5),
+      price: item.price || "",
+      quantity: item.quantity || "",
+      low_stock_threshold: item.low_stock_threshold || 5,
+    });
+
+    setError("");
+    setMessage("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openProductView(item) {
+    setSelectedProduct(item);
+    setPreviewImage(getImageSrc(item.image_url || getProductImages(item)[0]));
   }
 
   async function handleSubmit(e) {
@@ -138,32 +205,31 @@ export default function Inventory() {
     try {
       setSaving(true);
 
-      const quantity = Number(form.quantity || 0);
-      const minThreshold = Number(form.min_threshold || 5);
+      const cleanImages = [...new Set(form.image_urls || [])].slice(0, 5);
 
       const payload = {
         name: form.name.trim(),
-        category: form.category,
+        category: form.category || "merchandise",
         description: form.description.trim(),
-        image_url: form.image_url,
+        image_url: form.image_url || cleanImages[0] || "",
+        image_urls: cleanImages,
         price: Number(form.price || 0),
-        quantity,
-        min_threshold: minThreshold,
-        status: computeStatus(quantity, minThreshold),
-        created_by: editingId ? undefined : user?.id || null,
+        quantity: Number(form.quantity || 0),
+        low_stock_threshold: Number(form.low_stock_threshold || 5),
         updated_by: user?.id || null,
+        ...(editingId ? {} : { created_by: user?.id || null }),
       };
 
       if (editingId) {
         await updateInventory(editingId, payload);
         setMessage("Product updated successfully.");
       } else {
-        await createInventoryItem(payload);
+        await createInventory(payload);
         setMessage("Product added successfully.");
       }
 
       resetForm();
-      await load();
+      await loadInventory();
     } catch (err) {
       setError(err.message || "Failed to save product.");
     } finally {
@@ -171,23 +237,7 @@ export default function Inventory() {
     }
   }
 
-  async function updateStock(id, quantity, minThreshold = 5) {
-    try {
-      setError("");
-      setMessage("");
-      await updateInventory(id, {
-        quantity,
-        min_threshold: minThreshold,
-        status: computeStatus(quantity, minThreshold),
-        updated_by: user?.id || null,
-      });
-      await load();
-    } catch (err) {
-      setError(err.message || "Failed to update stock.");
-    }
-  }
-
-  async function handleDeleteProduct(id, name) {
+  async function handleDelete(id, name) {
     const confirmed = window.confirm(`Delete "${name}"?`);
     if (!confirmed) return;
 
@@ -196,19 +246,36 @@ export default function Inventory() {
       setMessage("");
       await deleteInventory(id);
       setMessage("Product deleted successfully.");
-      await load();
+      if (editingId === id) resetForm();
+      await loadInventory();
     } catch (err) {
       setError(err.message || "Failed to delete product.");
     }
   }
 
-  const filtered = useMemo(() => {
-    return items.filter((item) =>
-      `${item.name} ${item.category} ${item.description || ""}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
-    );
-  }, [items, search]);
+  function getStatusBadge(item) {
+    const quantity = Number(item.quantity || 0);
+    const threshold = Number(item.low_stock_threshold || 5);
+
+    if (quantity <= 0) {
+      return "bg-red-100 text-red-700";
+    }
+
+    if (quantity <= threshold) {
+      return "bg-yellow-100 text-yellow-700";
+    }
+
+    return "bg-green-100 text-green-700";
+  }
+
+  function getStatusText(item) {
+    const quantity = Number(item.quantity || 0);
+    const threshold = Number(item.low_stock_threshold || 5);
+
+    if (quantity <= 0) return "Out of Stock";
+    if (quantity <= threshold) return "Low Stock";
+    return "Available";
+  }
 
   return (
     <div className="page-shell bg-[#f5f6f8] md:flex">
@@ -218,13 +285,15 @@ export default function Inventory() {
         <div className="page-container">
           <Topbar title="Inventory" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-blue-800 to-blue-600 p-6 text-white md:p-8">
-            <p className="text-sm font-medium text-blue-100">Merchandise Inventory</p>
+          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
+            <p className="text-sm font-medium text-blue-100">
+              Product Inventory
+            </p>
             <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
-              Manage products, images, stock, and pricing.
+              Manage products with premium image previews.
             </h2>
             <p className="mt-3 max-w-3xl text-sm text-slate-100 md:text-base">
-              Upload product images, edit details, and keep your shop catalog clean and complete.
+              Add up to 5 preview pictures per product for a Nike-style shop view.
             </p>
           </div>
 
@@ -234,7 +303,7 @@ export default function Inventory() {
                 {editingId ? "Edit Product" : "Add Product"}
               </h2>
               <p className="mt-1 mb-6 text-sm text-black">
-                Add merchandise details with image, price, and stock.
+                Upload up to 5 product preview images.
               </p>
 
               {error ? (
@@ -252,89 +321,133 @@ export default function Inventory() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <input
                   name="name"
+                  placeholder="Product Name"
                   value={form.name}
                   onChange={handleChange}
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                  placeholder="Product name"
                 />
 
-                <select
+                <input
                   name="category"
+                  placeholder="Category"
                   value={form.category}
                   onChange={handleChange}
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                >
-                  <option value="merchandise">Merchandise</option>
-                  <option value="equipment">Equipment</option>
-                  <option value="accessories">Accessories</option>
-                  <option value="gym_machine">Gym Machine</option>
-                </select>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-black">
-                    Product Image
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black"
-                  />
-
-                  {uploadingImage ? (
-                    <p className="text-sm text-black">Uploading image...</p>
-                  ) : null}
-
-                  {form.image_url ? (
-                    <img
-                      src={getImageSrc(form.image_url)}
-                      alt="Product preview"
-                      className="h-36 w-36 rounded-2xl border object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = PRODUCT_FALLBACK;
-                      }}
-                    />
-                  ) : null}
-                </div>
+                />
 
                 <textarea
                   name="description"
+                  placeholder="Product details / description"
                   value={form.description}
                   onChange={handleChange}
                   rows="4"
                   className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                  placeholder="Product description"
                 />
 
-                <input
-                  name="price"
-                  type="number"
-                  min="0"
-                  value={form.price}
-                  onChange={handleChange}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                  placeholder="Price"
-                />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <input
+                    name="price"
+                    type="number"
+                    placeholder="Price"
+                    value={form.price}
+                    onChange={handleChange}
+                    min="0"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                  />
+
+                  <input
+                    name="quantity"
+                    type="number"
+                    placeholder="Quantity"
+                    value={form.quantity}
+                    onChange={handleChange}
+                    min="0"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                  />
+                </div>
 
                 <input
-                  name="quantity"
+                  name="low_stock_threshold"
                   type="number"
-                  min="0"
-                  value={form.quantity}
-                  onChange={handleChange}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                  placeholder="Quantity"
-                />
-
-                <input
-                  name="min_threshold"
-                  type="number"
-                  min="0"
-                  value={form.min_threshold}
-                  onChange={handleChange}
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                   placeholder="Low stock threshold"
+                  value={form.low_stock_threshold}
+                  onChange={handleChange}
+                  min="1"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
                 />
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="block text-sm font-medium text-black">
+                      Product Images
+                    </label>
+
+                    <span className="text-xs font-semibold text-slate-600">
+                      {form.image_urls.length}/5 images
+                    </span>
+                  </div>
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleMultipleImagesUpload}
+                    disabled={form.image_urls.length >= 5}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black disabled:bg-slate-100"
+                  />
+
+                  {uploadingImage ? (
+                    <p className="text-sm text-black">Uploading images...</p>
+                  ) : null}
+
+                  {form.image_urls?.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      {form.image_urls.map((url) => (
+                        <div
+                          key={url}
+                          className={`relative overflow-hidden rounded-2xl border ${
+                            form.image_url === url
+                              ? "border-blue-600 ring-2 ring-blue-200"
+                              : "border-slate-200"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setMainImage(url)}
+                            className="block h-28 w-full bg-slate-100"
+                          >
+                            <img
+                              src={getImageSrc(url)}
+                              alt="Product"
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.src = PRODUCT_FALLBACK;
+                              }}
+                            />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => removeImage(url)}
+                            className="absolute right-2 top-2 rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white"
+                          >
+                            ×
+                          </button>
+
+                          {form.image_url === url ? (
+                            <span className="absolute bottom-2 left-2 rounded-full bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">
+                              Main
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm text-black">
+                      No product images uploaded yet.
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex gap-2">
                   <button
@@ -342,7 +455,11 @@ export default function Inventory() {
                     disabled={saving}
                     className="w-full rounded-2xl bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
                   >
-                    {saving ? "Saving..." : editingId ? "Update Product" : "Add Product"}
+                    {saving
+                      ? "Saving..."
+                      : editingId
+                      ? "Update Product"
+                      : "Add Product"}
                   </button>
 
                   {editingId ? (
@@ -359,95 +476,88 @@ export default function Inventory() {
             </Card>
 
             <Card className="flex min-h-[500px] flex-col">
-              <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-black">Products</h2>
                   <p className="mt-1 text-sm text-black">
-                    Manage your shop products and stock levels.
+                    Current merchandise and product inventory.
                   </p>
                 </div>
 
-                <input
-                  placeholder="Search product..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full lg:w-80 rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                />
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-black">
+                  {items.length} item(s)
+                </div>
               </div>
 
               {loading ? (
-                <p className="text-black">Loading products...</p>
-              ) : filtered.length === 0 ? (
-                <p className="text-black">No products found.</p>
+                <ListSkeleton />
+              ) : items.length === 0 ? (
+                <p className="text-black">No products yet.</p>
               ) : (
                 <div className="panel-scroll hide-scrollbar space-y-4 pr-2 max-h-[70vh]">
-                  {filtered.map((item) => (
+                  {items.map((item) => (
                     <div
                       key={item.id}
-                      className="rounded-2xl border border-slate-200 p-4"
+                      className="card-hover rounded-2xl border border-slate-200 p-5"
                     >
                       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                         <button
                           type="button"
-                          onClick={() => setSelectedProduct(item)}
+                          onClick={() => openProductView(item)}
                           className="flex min-w-0 flex-1 gap-4 text-left"
                         >
                           <img
-                            src={getImageSrc(item.image_url)}
+                            src={getImageSrc(
+                              item.image_url || getProductImages(item)[0]
+                            )}
                             alt={item.name}
-                            className="h-24 w-24 shrink-0 rounded-2xl border object-cover transition hover:scale-[1.03]"
+                            className="h-28 w-28 shrink-0 rounded-2xl border object-cover"
                             onError={(e) => {
                               e.currentTarget.src = PRODUCT_FALLBACK;
                             }}
                           />
 
                           <div className="min-w-0 flex-1">
-                            <p className="safe-text text-lg font-semibold">{item.name}</p>
+                            <p className="safe-text text-xl font-semibold">
+                              {item.name}
+                            </p>
                             <p className="safe-text mt-1 text-sm font-medium capitalize">
                               {item.category}
                             </p>
-                            <p className="safe-text mt-2 text-sm leading-6">
-                              {item.description || "No description"}
+                            <p className="safe-text mt-3 text-sm leading-6">
+                              {item.description || "No details provided."}
                             </p>
-                            <p className="mt-2 text-sm font-semibold text-blue-700">
-                              ₱ {item.price || 0}
-                            </p>
-                            <p className="safe-text mt-1 text-sm">Stock: {item.quantity}</p>
+
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                                ₱ {Number(item.price || 0).toLocaleString()}
+                              </span>
+
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                                Stock: {item.quantity || 0}
+                              </span>
+
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-bold ${getStatusBadge(
+                                  item
+                                )}`}
+                              >
+                                {getStatusText(item)}
+                              </span>
+                            </div>
                           </div>
                         </button>
 
-                        <div className="flex shrink-0 flex-col gap-2 xl:items-end">
+                        <div className="flex shrink-0 flex-col gap-3 xl:items-end">
                           <div className="flex gap-2">
                             <button
                               type="button"
-                              onClick={() =>
-                                updateStock(
-                                  item.id,
-                                  Math.max(0, Number(item.quantity || 0) - 1),
-                                  item.min_threshold || 5
-                                )
-                              }
-                              className="rounded-xl bg-red-500 px-3 py-2 text-white"
+                              onClick={() => openProductView(item)}
+                              className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
                             >
-                              -
+                              View
                             </button>
 
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateStock(
-                                  item.id,
-                                  Number(item.quantity || 0) + 1,
-                                  item.min_threshold || 5
-                                )
-                              }
-                              className="rounded-xl bg-green-600 px-3 py-2 text-white"
-                            >
-                              +
-                            </button>
-                          </div>
-
-                          <div className="flex gap-2">
                             <button
                               type="button"
                               onClick={() => handleEdit(item)}
@@ -458,24 +568,12 @@ export default function Inventory() {
 
                             <button
                               type="button"
-                              onClick={() => handleDeleteProduct(item.id, item.name)}
+                              onClick={() => handleDelete(item.id, item.name)}
                               className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
                             >
                               Delete
                             </button>
                           </div>
-
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                              item.status === "in_stock"
-                                ? "bg-green-100 text-green-700"
-                                : item.status === "low_stock"
-                                ? "bg-orange-100 text-orange-700"
-                                : "bg-red-100 text-red-700"
-                            }`}
-                          >
-                            {item.status?.replaceAll("_", " ")}
-                          </span>
                         </div>
                       </div>
                     </div>
@@ -488,76 +586,130 @@ export default function Inventory() {
       </main>
 
       {selectedProduct ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-blue-600">Product Details</p>
-                <h2 className="mt-1 text-2xl font-bold text-black">
-                  {selectedProduct.name}
-                </h2>
-              </div>
+        <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="modal-card h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[32px] bg-white p-5 shadow-2xl md:p-8">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-black">Product Preview</h2>
 
               <button
                 onClick={() => setSelectedProduct(null)}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-black hover:bg-slate-50"
+                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-black hover:bg-slate-50"
               >
                 Close
               </button>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
-              <img
-                src={getImageSrc(selectedProduct.image_url)}
-                alt={selectedProduct.name}
-                className="h-60 w-full rounded-2xl border object-cover"
-                onError={(e) => {
-                  e.currentTarget.src = PRODUCT_FALLBACK;
-                }}
-              />
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(380px,0.65fr)]">
+              <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-4">
+                <div className="flex max-h-[720px] flex-col gap-3 overflow-y-auto pr-1">
+                  {getProductImages(selectedProduct).map((img, index) => (
+                    <button
+                      key={`${img}-${index}`}
+                      type="button"
+                      onClick={() => setPreviewImage(getImageSrc(img))}
+                      className={`h-20 w-20 overflow-hidden rounded-xl border bg-slate-100 ${
+                        previewImage === getImageSrc(img)
+                          ? "border-black"
+                          : "border-slate-200"
+                      }`}
+                    >
+                      <img
+                        src={getImageSrc(img)}
+                        alt={selectedProduct.name}
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = PRODUCT_FALLBACK;
+                        }}
+                      />
+                    </button>
+                  ))}
+                </div>
 
-              <div>
-                <p className="inline-block rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
+                <div className="relative flex min-h-[560px] items-center justify-center rounded-2xl bg-[#f3f4f6]">
+                  <img
+                    src={previewImage || getImageSrc(selectedProduct.image_url)}
+                    alt={selectedProduct.name}
+                    className="h-full max-h-[680px] w-full rounded-2xl object-contain p-6"
+                    onError={(e) => {
+                      e.currentTarget.src = PRODUCT_FALLBACK;
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="lg:sticky lg:top-6 lg:self-start">
+                <h1 className="text-3xl font-bold text-black">
+                  {selectedProduct.name}
+                </h1>
+
+                <p className="mt-1 text-lg capitalize text-slate-600">
                   {selectedProduct.category}
                 </p>
 
-                <p className="mt-4 text-sm leading-7 text-black">
-                  {selectedProduct.description ||
-                    "No description available for this product yet."}
+                <p className="mt-5 text-xl font-bold text-black">
+                  ₱{Number(selectedProduct.price || 0).toLocaleString()}
                 </p>
 
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Price
-                    </p>
-                    <p className="mt-1 text-lg font-bold text-blue-700">
-                      ₱ {selectedProduct.price || 0}
-                    </p>
+                <p className="mt-5 text-sm leading-7 text-black">
+                  {selectedProduct.description || "No product description yet."}
+                </p>
+
+                <div className="mt-8 rounded-3xl bg-slate-50 p-5 text-sm text-black">
+                  <div className="flex justify-between border-b border-slate-200 pb-3">
+                    <span>Stock</span>
+                    <span className="font-bold">
+                      {selectedProduct.quantity || 0}
+                    </span>
                   </div>
 
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Stock
-                    </p>
-                    <p className="mt-1 text-lg font-bold text-black">
-                      {selectedProduct.quantity || 0}
-                    </p>
+                  <div className="flex justify-between border-b border-slate-200 py-3">
+                    <span>Status</span>
+                    <span className="font-bold">
+                      {getStatusText(selectedProduct)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between pt-3">
+                    <span>Preview Images</span>
+                    <span className="font-bold">
+                      {getProductImages(selectedProduct).filter(
+                        (img) => img !== PRODUCT_FALLBACK
+                      ).length}
+                      /5
+                    </span>
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                      selectedProduct.status === "in_stock"
-                        ? "bg-green-100 text-green-700"
-                        : selectedProduct.status === "low_stock"
-                        ? "bg-orange-100 text-orange-700"
-                        : "bg-red-100 text-red-700"
-                    }`}
+                <div className="mt-8 space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedProduct(null);
+                      handleEdit(selectedProduct);
+                    }}
+                    className="w-full rounded-full bg-black px-6 py-5 text-base font-bold text-white transition hover:bg-slate-800"
                   >
-                    {(selectedProduct.status || "unknown").replaceAll("_", " ")}
-                  </span>
+                    Edit Product
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProduct(null)}
+                    className="w-full rounded-full border border-slate-300 bg-white px-6 py-5 text-base font-bold text-black transition hover:border-black"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div className="mt-6 space-y-4 text-sm text-black">
+                  <details className="border-t border-slate-200 pt-4">
+                    <summary className="cursor-pointer font-bold">
+                      Product Details
+                    </summary>
+                    <p className="mt-3 leading-7">
+                      {selectedProduct.description || "No additional details."}
+                    </p>
+                  </details>
                 </div>
               </div>
             </div>

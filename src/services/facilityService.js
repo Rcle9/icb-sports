@@ -16,6 +16,7 @@ export async function createFacility(payload) {
     type: payload.type,
     description: payload.description || "",
     image_url: payload.image_url || "",
+    image_urls: payload.image_urls || [],
     price: Number(payload.price || 0),
     is_active: payload.is_active ?? true,
     created_by: payload.created_by || null,
@@ -35,6 +36,7 @@ export async function createFacility(payload) {
 export async function updateFacility(id, payload) {
   const cleanPayload = {
     ...payload,
+    image_urls: payload.image_urls || [],
     price:
       payload.price !== undefined ? Number(payload.price || 0) : undefined,
     updated_at: new Date().toISOString(),
@@ -56,10 +58,7 @@ export async function updateFacility(id, payload) {
 }
 
 export async function deleteFacility(id) {
-  const { error } = await supabase
-    .from("facilities")
-    .delete()
-    .eq("id", id);
+  const { error } = await supabase.from("facilities").delete().eq("id", id);
 
   if (error) throw error;
   return true;

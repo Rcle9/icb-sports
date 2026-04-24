@@ -1,6 +1,4 @@
 import { supabase } from "./supabaseClient";
-import { createNotification } from "./notificationService";
-import { createActivityLog } from "./activityLogService";
 
 export async function getFacilities() {
   const { data, error } = await supabase
@@ -10,54 +8,7 @@ export async function getFacilities() {
     .order("name", { ascending: true });
 
   if (error) throw error;
-  return data;
-}
-
-export async function createBooking(payload) {
-  const { data, error } = await supabase
-    .from("bookings")
-    .insert([payload])
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await createActivityLog({
-    actor_id: payload.user_id,
-    actor_role: "user",
-    action_type: "create",
-    entity_type: "booking",
-    entity_id: data.id,
-    description: "User submitted a facility booking request.",
-    metadata: {
-      booking_date: data.booking_date,
-      start_time: data.start_time,
-      end_time: data.end_time,
-      facility_id: data.facility_id,
-    },
-  });
-
-  const { data: staffProfiles, error: staffError } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("role", "staff");
-
-  if (staffError) throw staffError;
-
-  if (staffProfiles?.length) {
-    await Promise.all(
-      staffProfiles.map((staff) =>
-        createNotification({
-          user_id: staff.id,
-          title: "New Booking Request",
-          message: "A new facility booking request was submitted and needs review.",
-          type: "booking_staff",
-        })
-      )
-    );
-  }
-
-  return data;
+  return data || [];
 }
 
 export async function getUserBookings(userId) {
@@ -68,31 +19,67 @@ export async function getUserBookings(userId) {
       facilities (
         id,
         name,
-        type
+        type,
+        price,
+        image_url,
+        image_urls,
+        description
       )
     `)
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data;
+  return data || [];
 }
 
 export async function getAllBookings() {
-  const { data, error } = await supabase
+  const { data: bookings, error: bookingsError } = await supabase
     .from("bookings")
     .select(`
       *,
       facilities (
         id,
         name,
-        type
+        type,
+        price,
+        image_url,
+        image_urls,
+        description
       )
     `)
     .order("created_at", { ascending: false });
 
-  if (error) throw error;
-  return data;
+  if (bookingsError) throw bookingsError;
+
+  const bookingRows = bookings || [];
+
+  const userIds = [
+    ...new Set(bookingRows.map((item) => item.user_id).filter(Boolean)),
+  ];
+
+  if (userIds.length === 0) {
+    return bookingRows.map((item) => ({
+      ...item,
+      profiles: null,
+    }));
+  }
+
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, full_name, role")
+    .in("id", userIds);
+
+  if (profilesError) throw profilesError;
+
+  const profileMap = new Map(
+    (profiles || []).map((profile) => [profile.id, profile])
+  );
+
+  return bookingRows.map((booking) => ({
+    ...booking,
+    profiles: profileMap.get(booking.user_id) || null,
+  }));
 }
 
 export async function getApprovedBookingsByDate(facilityId, bookingDate) {
@@ -101,149 +88,107 @@ export async function getApprovedBookingsByDate(facilityId, bookingDate) {
     .select("*")
     .eq("facility_id", facilityId)
     .eq("booking_date", bookingDate)
-    .eq("status", "approved")
-    .order("start_time", { ascending: true });
+    .eq("status", "approved");
 
   if (error) throw error;
-  return data;
+  return data || [];
 }
 
-export async function checkApprovedOverlap({
-  facility_id,
-  booking_date,
-  start_time,
-  end_time,
-  excludeId = null,
-}) {
-  let query = supabase
+export async function createBooking(payload) {
+  const cleanPayload = {
+    user_id: payload.user_id,
+    facility_id: payload.facility_id,
+    booking_date: payload.booking_date,
+    start_time: payload.start_time,
+    end_time: payload.end_time,
+    session_type: payload.session_type || "facility",
+    notes: payload.notes || "",
+    status: "pending",
+    total_hours: Number(payload.total_hours || 0),
+    rate_per_hour: Number(payload.rate_per_hour || 0),
+    coach_rate_per_hour: Number(payload.coach_rate_per_hour || 0),
+    total_amount: Number(payload.total_amount || 0),
+    includes_coach: payload.includes_coach || false,
+    linked_coach_id: payload.linked_coach_id || null,
+  };
+
+  const { data, error } = await supabase
     .from("bookings")
-    .select("*")
-    .eq("facility_id", facility_id)
-    .eq("booking_date", booking_date)
-    .eq("status", "approved")
-    .lt("start_time", end_time)
-    .gt("end_time", start_time);
-
-  if (excludeId) {
-    query = query.neq("id", excludeId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-  return data;
-}
-
-export async function approveBooking(bookingId, reviewerId) {
-  const { data: booking, error: bookingError } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("id", bookingId)
+    .insert([cleanPayload])
+    .select()
     .single();
 
-  if (bookingError) throw bookingError;
+  if (error) throw error;
+  return data;
+}
 
-  const overlaps = await checkApprovedOverlap({
-    facility_id: booking.facility_id,
-    booking_date: booking.booking_date,
-    start_time: booking.start_time,
-    end_time: booking.end_time,
-    excludeId: booking.id,
-  });
+export async function cancelBooking(bookingId, userId, reason) {
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({
+      status: "cancelled",
+      cancellation_reason: reason,
+      cancelled_by: userId,
+      cancelled_at: new Date().toISOString(),
+    })
+    .eq("id", bookingId)
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .select();
 
-  if (overlaps.length > 0) {
-    throw new Error(
-      "Cannot approve this booking because the slot overlaps with an approved booking."
-    );
+  if (error) throw error;
+
+  if (!data || data.length === 0) {
+    throw new Error("Only pending bookings can be cancelled.");
   }
 
+  return data[0];
+}
+
+export async function approveBooking(id, reviewedBy) {
   const { data, error } = await supabase
     .from("bookings")
     .update({
       status: "approved",
-      reviewed_by: reviewerId,
+      reviewed_by: reviewedBy || null,
       reviewed_at: new Date().toISOString(),
     })
-    .eq("id", bookingId)
+    .eq("id", id)
     .select()
     .single();
 
   if (error) throw error;
-
-  await createNotification({
-    user_id: data.user_id,
-    title: "Booking Approved",
-    message: "Your facility booking has been approved.",
-    type: "booking",
-  });
-
-  const { data: reviewer } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", reviewerId)
-    .maybeSingle();
-
-  await createActivityLog({
-    actor_id: reviewerId,
-    actor_role: reviewer?.role || "staff",
-    action_type: "approve",
-    entity_type: "booking",
-    entity_id: data.id,
-    description: "Facility booking approved.",
-    metadata: {
-      booking_date: data.booking_date,
-      start_time: data.start_time,
-      end_time: data.end_time,
-      facility_id: data.facility_id,
-      user_id: data.user_id,
-    },
-  });
-
   return data;
 }
 
-export async function rejectBooking(bookingId, reviewerId) {
+export async function rejectBooking(id, reviewedBy) {
   const { data, error } = await supabase
     .from("bookings")
     .update({
       status: "rejected",
-      reviewed_by: reviewerId,
+      reviewed_by: reviewedBy || null,
       reviewed_at: new Date().toISOString(),
     })
-    .eq("id", bookingId)
+    .eq("id", id)
     .select()
     .single();
 
   if (error) throw error;
-
-  await createNotification({
-    user_id: data.user_id,
-    title: "Booking Rejected",
-    message: "Your facility booking was rejected.",
-    type: "booking",
-  });
-
-  const { data: reviewer } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", reviewerId)
-    .maybeSingle();
-
-  await createActivityLog({
-    actor_id: reviewerId,
-    actor_role: reviewer?.role || "staff",
-    action_type: "reject",
-    entity_type: "booking",
-    entity_id: data.id,
-    description: "Facility booking rejected.",
-    metadata: {
-      booking_date: data.booking_date,
-      start_time: data.start_time,
-      end_time: data.end_time,
-      facility_id: data.facility_id,
-      user_id: data.user_id,
-    },
-  });
-
   return data;
+}
+
+export async function getBookingStats() {
+  const { data, error } = await supabase.from("bookings").select("status");
+
+  if (error) throw error;
+
+  const rows = data || [];
+
+  return {
+    total: rows.length,
+    approved: rows.filter((item) => item.status === "approved").length,
+    pending: rows.filter((item) => item.status === "pending").length,
+    rejected: rows.filter((item) => item.status === "rejected").length,
+    cancelled: rows.filter((item) => item.status === "cancelled").length,
+  };
 }

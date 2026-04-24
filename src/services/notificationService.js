@@ -1,12 +1,22 @@
 import { supabase } from "./supabaseClient";
 
 export async function createNotification(payload) {
-  const { error } = await supabase
+  const cleanPayload = {
+    user_id: payload.user_id,
+    title: payload.title || "Notification",
+    message: payload.message || "",
+    type: payload.type || "general",
+    is_read: false,
+  };
+
+  const { data, error } = await supabase
     .from("notifications")
-    .insert([payload]);
+    .insert([cleanPayload])
+    .select()
+    .single();
 
   if (error) throw error;
-  return true;
+  return data;
 }
 
 export async function getUserNotifications(userId) {
@@ -17,7 +27,7 @@ export async function getUserNotifications(userId) {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data;
+  return data || [];
 }
 
 export async function getUnreadNotificationCount(userId) {
@@ -31,11 +41,11 @@ export async function getUnreadNotificationCount(userId) {
   return count || 0;
 }
 
-export async function markAsRead(id) {
+export async function markAsRead(notificationId) {
   const { data, error } = await supabase
     .from("notifications")
     .update({ is_read: true })
-    .eq("id", id)
+    .eq("id", notificationId)
     .select()
     .single();
 
@@ -52,5 +62,5 @@ export async function markAllAsRead(userId) {
     .select();
 
   if (error) throw error;
-  return data;
+  return data || [];
 }

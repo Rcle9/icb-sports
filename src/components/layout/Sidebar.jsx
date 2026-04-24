@@ -10,67 +10,50 @@ export default function Sidebar({ role = "user" }) {
   }
 
   function linkClass(path) {
-    const active = isActive(path);
-
-    return `group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
-      active
-        ? "bg-blue-600 text-white shadow-[0_10px_25px_rgba(37,99,235,0.28)]"
-        : "text-black hover:bg-slate-100 hover:text-black"
+    return `group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
+      isActive(path)
+        ? "bg-blue-600 text-white shadow-[0_12px_30px_rgba(37,99,235,0.30)] scale-[1.02]"
+        : "text-slate-700 hover:bg-slate-100 hover:text-black hover:translate-x-1"
     }`;
   }
 
   async function handleLogout() {
-    try {
-      await signOutUser();
-      navigate("/login");
-    } catch (error) {
-      console.error("Logout failed:", error.message);
-    }
+    await signOutUser();
+    navigate("/login");
   }
 
   return (
-    <aside className="hidden md:flex w-72 min-h-screen flex-col justify-between border-r border-slate-200 bg-white px-5 py-6">
+    <aside className="fixed left-0 top-0 z-50 hidden h-screen w-[320px] flex-col justify-between border-r border-slate-200 bg-white/90 px-5 py-6 shadow-[8px_0_30px_rgba(15,23,42,0.04)] backdrop-blur-xl md:flex">
       <div>
-        <div className="mb-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-xl text-white shadow-[0_10px_25px_rgba(37,99,235,0.28)]">
-              🏟️
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-black">InCredoBall</h1>
-              <p className="text-xs text-black">Sports Management</p>
-            </div>
+        <div className="mb-8 flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-xl text-white shadow-[0_10px_25px_rgba(37,99,235,0.28)]">
+            🏟️
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-black">InCredoBall</h1>
+            <p className="text-xs text-black">Sports Management</p>
           </div>
         </div>
 
         {role === "user" && (
           <div className="space-y-2">
             <Link to="/dashboard" className={linkClass("/dashboard")}>
-              <span>📊</span>
-              <span>Dashboard</span>
+              📊 Dashboard
             </Link>
-
             <Link to="/booking" className={linkClass("/booking")}>
-              <span>📅</span>
-              <span>Booking</span>
+              📅 Booking
             </Link>
-
             <Link to="/coaching" className={linkClass("/coaching")}>
-              <span>🏸</span>
-              <span>Coaching</span>
+              🏸 Coaching
             </Link>
-
             <Link to="/shop" className={linkClass("/shop")}>
-              <span>🛒</span>
-              <span>Shop</span>
+              🛒 Shop
             </Link>
-
             <Link
               to="/profile-settings"
               className={linkClass("/profile-settings")}
             >
-              <span>⚙️</span>
-              <span>Profile Settings</span>
+              ⚙️ Profile Settings
             </Link>
           </div>
         )}
@@ -78,47 +61,34 @@ export default function Sidebar({ role = "user" }) {
         {role === "staff" && (
           <div className="space-y-2">
             <Link to="/staff" className={linkClass("/staff")}>
-              <span>📊</span>
-              <span>Dashboard</span>
+              📊 Dashboard
             </Link>
-
             <Link to="/staff/bookings" className={linkClass("/staff/bookings")}>
-              <span>📅</span>
-              <span>Bookings</span>
+              📅 Bookings
             </Link>
-
             <Link to="/staff/coaching" className={linkClass("/staff/coaching")}>
-              <span>🏸</span>
-              <span>Coaching</span>
+              🏸 Coaching
             </Link>
-
             <Link
               to="/staff/inventory"
               className={linkClass("/staff/inventory")}
             >
-              <span>📦</span>
-              <span>Inventory</span>
+              📦 Inventory
             </Link>
-
             <Link
               to="/staff/maintenance"
               className={linkClass("/staff/maintenance")}
             >
-              <span>🛠️</span>
-              <span>Maintenance</span>
+              🛠️ Maintenance
             </Link>
-
             <Link to="/staff/logs" className={linkClass("/staff/logs")}>
-              <span>🧾</span>
-              <span>Activity Logs</span>
+              🧾 Activity Logs
             </Link>
-
             <Link
               to="/profile-settings"
               className={linkClass("/profile-settings")}
             >
-              <span>⚙️</span>
-              <span>Profile Settings</span>
+              ⚙️ Profile Settings
             </Link>
           </div>
         )}
@@ -126,43 +96,32 @@ export default function Sidebar({ role = "user" }) {
         {role === "admin" && (
           <div className="space-y-2">
             <Link to="/admin" className={linkClass("/admin")}>
-              <span>📊</span>
-              <span>System Overview</span>
+              📊 System Overview
             </Link>
-
             <Link to="/admin/users" className={linkClass("/admin/users")}>
-              <span>👥</span>
-              <span>User Management</span>
+              👥 User Management
             </Link>
-
             <Link to="/admin/facility" className={linkClass("/admin/facility")}>
-              <span>🏟️</span>
-              <span>Facility Control</span>
+              🏟️ Facility Control
             </Link>
-
             <Link to="/admin/reports" className={linkClass("/admin/reports")}>
-              <span>📈</span>
-              <span>Reports</span>
+              📈 Reports
             </Link>
-
             <Link to="/admin/settings" className={linkClass("/admin/settings")}>
-              <span>⚙️</span>
-              <span>Settings</span>
+              ⚙️ Settings
             </Link>
-
             <Link
               to="/profile-settings"
               className={linkClass("/profile-settings")}
             >
-              <span>👤</span>
-              <span>Profile Settings</span>
+              👤 Profile Settings
             </Link>
           </div>
         )}
       </div>
 
-      <div className="space-y-4">
-        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-600 to-blue-700 p-4 text-white shadow-[0_12px_30px_rgba(37,99,235,0.25)]">
+      <div className="space-y-3">
+        <div className="rounded-3xl bg-gradient-to-br from-blue-600 to-slate-900 p-4 text-white shadow-[0_12px_30px_rgba(37,99,235,0.25)]">
           <p className="text-xs uppercase tracking-[0.2em] text-blue-100">
             Quick Access
           </p>
@@ -171,22 +130,13 @@ export default function Sidebar({ role = "user" }) {
           </p>
         </div>
 
-        <div className="space-y-2 rounded-3xl border border-slate-200 bg-slate-50 p-3">
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            Logout
-          </button>
-
-          <Link
-            to="/help"
-            className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-semibold text-black transition hover:bg-slate-100"
-          >
-            Help Center
-          </Link>
-        </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800"
+        >
+          Logout
+        </button>
       </div>
     </aside>
   );
