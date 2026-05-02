@@ -1,62 +1,98 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../services/supabaseClient";
-import { getUserProfile } from "../services/authService";
 
 const AuthContext = createContext(null);
 
+function fallbackProfile(user) {
+  return {
+    id: user?.id,
+    full_name: user?.email || "User",
+    email: user?.email || "",
+    role: "user",
+  };
+}
+
+async function withTimeout(promise, ms = 6000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Request timeout")), ms)
+    ),
+  ]);
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState({ role: "user" });
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  async function fetchProfile(userId) {
+  async function loadProfile(currentUser) {
+    if (!currentUser?.id) {
+      setProfile(null);
+      return null;
+    }
+
     try {
-      const profileData = await getUserProfile(userId);
-      if (profileData) {
-        setProfile(profileData);
-      } else {
-        setProfile({ role: "user" });
+      const { data, error } = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", currentUser.id)
+          .limit(1)
+      );
+
+      if (error) {
+        console.error("Profile load error:", error.message);
+        const fallback = fallbackProfile(currentUser);
+        setProfile(fallback);
+        return fallback;
       }
-    } catch (error) {
-      console.error("Profile fetch failed:", error.message);
-      setProfile({ role: "user" });
+
+      const currentProfile = data?.[0] || fallbackProfile(currentUser);
+      setProfile(currentProfile);
+      return currentProfile;
+    } catch (err) {
+      console.error("Profile timeout/error:", err.message);
+      const fallback = fallbackProfile(currentUser);
+      setProfile(fallback);
+      return fallback;
     }
   }
 
   useEffect(() => {
-    let isMounted = true;
+    let mounted = true;
 
     async function initAuth() {
       try {
+        setLoading(true);
+
         const {
           data: { session },
           error,
-        } = await supabase.auth.getSession();
+        } = await withTimeout(supabase.auth.getSession());
 
-        if (error) {
-          console.error("getSession error:", error.message);
-        }
+        if (error) throw error;
 
-        if (!isMounted) return;
+        const currentUser = session?.user || null;
 
-        const sessionUser = session?.user ?? null;
-        setUser(sessionUser);
+        if (!mounted) return;
 
-        // stop loading immediately after session check
-        setLoading(false);
+        setUser(currentUser);
 
-        // fetch profile after UI is already allowed to continue
-        if (sessionUser) {
-          fetchProfile(sessionUser.id);
+        if (currentUser) {
+          await loadProfile(currentUser);
         } else {
-          setProfile({ role: "user" });
+          setProfile(null);
         }
-      } catch (error) {
-        console.error("initAuth error:", error.message);
-        if (!isMounted) return;
-        setUser(null);
-        setProfile({ role: "user" });
-        setLoading(false);
+      } catch (err) {
+        console.error("Auth init error:", err.message);
+
+        if (mounted) {
+          setUser(null);
+          setProfile(null);
+        }
+      } finally {
+        if (mounted) setLoading(false);
       }
     }
 
@@ -65,27 +101,40 @@ export function AuthProvider({ children }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!isMounted) return;
+      const currentUser = session?.user || null;
 
-      const sessionUser = session?.user ?? null;
-      setUser(sessionUser);
-      setLoading(false);
+      setUser(currentUser);
 
-      if (sessionUser) {
-        fetchProfile(sessionUser.id);
+      if (currentUser) {
+        loadProfile(currentUser).finally(() => {
+          if (mounted) setLoading(false);
+        });
       } else {
-        setProfile({ role: "user" });
+        setProfile(null);
+        setLoading(false);
       }
     });
 
     return () => {
-      isMounted = false;
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
 
+  async function refreshProfile() {
+    if (!user) return null;
+    return loadProfile(user);
+  }
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        loading,
+        refreshProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

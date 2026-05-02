@@ -54,7 +54,7 @@ export default function Inventory() {
     image_urls: [],
     price: "",
     quantity: "",
-    low_stock_threshold: 5,
+    
   });
 
   useEffect(() => {
@@ -163,7 +163,7 @@ export default function Inventory() {
       image_urls: [],
       price: "",
       quantity: "",
-      low_stock_threshold: 5,
+      
     });
   }
 
@@ -179,7 +179,7 @@ export default function Inventory() {
       image_urls: images.slice(0, 5),
       price: item.price || "",
       quantity: item.quantity || "",
-      low_stock_threshold: item.low_stock_threshold || 5,
+      
     });
 
     setError("");
@@ -215,7 +215,7 @@ export default function Inventory() {
         image_urls: cleanImages,
         price: Number(form.price || 0),
         quantity: Number(form.quantity || 0),
-        low_stock_threshold: Number(form.low_stock_threshold || 5),
+        
         updated_by: user?.id || null,
         ...(editingId ? {} : { created_by: user?.id || null }),
       };
@@ -366,15 +366,7 @@ export default function Inventory() {
                   />
                 </div>
 
-                <input
-                  name="low_stock_threshold"
-                  type="number"
-                  placeholder="Low stock threshold"
-                  value={form.low_stock_threshold}
-                  onChange={handleChange}
-                  min="1"
-                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                />
+                
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">

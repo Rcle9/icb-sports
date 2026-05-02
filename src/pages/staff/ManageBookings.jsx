@@ -5,9 +5,9 @@ import Card from "../../components/ui/Card";
 import { supabase } from "../../services/supabaseClient";
 import { useAuth } from "../../context/AuthContext";
 import {
-  approveBooking,
   getAllBookings,
-  rejectBooking,
+  approveBooking,
+  rejectBooking
 } from "../../services/bookingService";
 
 function formatTime(time24) {

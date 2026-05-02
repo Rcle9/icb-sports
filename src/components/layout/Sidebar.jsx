@@ -1,131 +1,100 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { signOutUser } from "../../services/authService";
+import { NavLink, useNavigate } from "react-router-dom";
+import { supabase } from "../../services/supabaseClient";
+import { useAuth } from "../../context/AuthContext";
 
-export default function Sidebar({ role = "user" }) {
-  const location = useLocation();
+const userLinks = [
+  { label: "📊 Dashboard", path: "/dashboard" },
+  { label: "🗓️ Booking", path: "/booking" },
+  { label: "🏸 Coaching", path: "/coaching" },
+  { label: "🛒 Shop", path: "/shop" },
+  
+  { label: "⚙️ Profile Settings", path: "/profile-settings" },
+];
+
+const staffLinks = [
+  { label: "📊 Dashboard", path: "/staff" },
+  { label: "🗓️ Bookings", path: "/staff/bookings" },
+  { label: "🏸 Coaching", path: "/staff/coaching" },
+  { label: "📦 Inventory", path: "/staff/inventory" },
+  { label: "🛠️ Maintenance", path: "/staff/maintenance" },
+  { label: "📋 Activity Logs", path: "/staff/logs" },
+  
+  { label: "⚙️ Profile Settings", path: "/profile-settings" },
+];
+
+const adminLinks = [
+  { label: "📊 System Overview", path: "/admin" },
+  { label: "👥 User Management", path: "/admin/users" },
+  { label: "🏟️ Facility Control", path: "/admin/facility" },
+  { label: "📈 Reports", path: "/admin/reports" },
+  { label: "⚙️ Settings", path: "/admin/settings" },
+  
+  { label: "👤 Profile Settings", path: "/profile-settings" },
+];
+
+export default function Sidebar({ role }) {
   const navigate = useNavigate();
+  const { profile } = useAuth();
 
-  function isActive(path) {
-    return location.pathname === path;
-  }
+  const currentRole = role || profile?.role || "user";
 
-  function linkClass(path) {
-    return `group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
-      isActive(path)
-        ? "bg-blue-600 text-white shadow-[0_12px_30px_rgba(37,99,235,0.30)] scale-[1.02]"
-        : "text-slate-700 hover:bg-slate-100 hover:text-black hover:translate-x-1"
-    }`;
-  }
+  const links =
+    currentRole === "admin"
+      ? adminLinks
+      : currentRole === "staff"
+      ? staffLinks
+      : userLinks;
 
   async function handleLogout() {
-    await signOutUser();
-    navigate("/login");
+    await supabase.auth.signOut();
+    navigate("/login", { replace: true });
   }
 
   return (
-    <aside className="fixed left-0 top-0 z-50 hidden h-screen w-[320px] flex-col justify-between border-r border-slate-200 bg-white/90 px-5 py-6 shadow-[8px_0_30px_rgba(15,23,42,0.04)] backdrop-blur-xl md:flex">
+    <aside
+      className="fixed left-0 top-0 z-40 flex h-screen flex-col justify-between border-r border-slate-200 bg-white px-5 py-6 shadow-sm"
+      style={{ width: "320px" }}
+    >
       <div>
         <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-xl text-white shadow-[0_10px_25px_rgba(37,99,235,0.28)]">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-xl text-white shadow-lg">
             🏟️
           </div>
+
           <div>
-            <h1 className="text-lg font-bold text-black">InCredoBall</h1>
-            <p className="text-xs text-black">Sports Management</p>
+            <h1 className="text-xl font-black text-slate-950">InCredoBall</h1>
+            <p className="text-xs font-medium text-slate-600">
+              Sports Management
+            </p>
           </div>
         </div>
 
-        {role === "user" && (
-          <div className="space-y-2">
-            <Link to="/dashboard" className={linkClass("/dashboard")}>
-              📊 Dashboard
-            </Link>
-            <Link to="/booking" className={linkClass("/booking")}>
-              📅 Booking
-            </Link>
-            <Link to="/coaching" className={linkClass("/coaching")}>
-              🏸 Coaching
-            </Link>
-            <Link to="/shop" className={linkClass("/shop")}>
-              🛒 Shop
-            </Link>
-            <Link
-              to="/profile-settings"
-              className={linkClass("/profile-settings")}
+        <nav className="space-y-2">
+          {links.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              end={item.path === "/staff" || item.path === "/admin" || item.path === "/dashboard"}
+              className={({ isActive }) =>
+                `block rounded-2xl px-5 py-3 text-sm font-bold transition ${
+                  isActive
+                    ? "bg-blue-600 text-white shadow-[0_12px_28px_rgba(37,99,235,0.35)]"
+                    : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                }`
+              }
             >
-              ⚙️ Profile Settings
-            </Link>
-          </div>
-        )}
-
-        {role === "staff" && (
-          <div className="space-y-2">
-            <Link to="/staff" className={linkClass("/staff")}>
-              📊 Dashboard
-            </Link>
-            <Link to="/staff/bookings" className={linkClass("/staff/bookings")}>
-              📅 Bookings
-            </Link>
-            <Link to="/staff/coaching" className={linkClass("/staff/coaching")}>
-              🏸 Coaching
-            </Link>
-            <Link
-              to="/staff/inventory"
-              className={linkClass("/staff/inventory")}
-            >
-              📦 Inventory
-            </Link>
-            <Link
-              to="/staff/maintenance"
-              className={linkClass("/staff/maintenance")}
-            >
-              🛠️ Maintenance
-            </Link>
-            <Link to="/staff/logs" className={linkClass("/staff/logs")}>
-              🧾 Activity Logs
-            </Link>
-            <Link
-              to="/profile-settings"
-              className={linkClass("/profile-settings")}
-            >
-              ⚙️ Profile Settings
-            </Link>
-          </div>
-        )}
-
-        {role === "admin" && (
-          <div className="space-y-2">
-            <Link to="/admin" className={linkClass("/admin")}>
-              📊 System Overview
-            </Link>
-            <Link to="/admin/users" className={linkClass("/admin/users")}>
-              👥 User Management
-            </Link>
-            <Link to="/admin/facility" className={linkClass("/admin/facility")}>
-              🏟️ Facility Control
-            </Link>
-            <Link to="/admin/reports" className={linkClass("/admin/reports")}>
-              📈 Reports
-            </Link>
-            <Link to="/admin/settings" className={linkClass("/admin/settings")}>
-              ⚙️ Settings
-            </Link>
-            <Link
-              to="/profile-settings"
-              className={linkClass("/profile-settings")}
-            >
-              👤 Profile Settings
-            </Link>
-          </div>
-        )}
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
       </div>
 
       <div className="space-y-3">
-        <div className="rounded-3xl bg-gradient-to-br from-blue-600 to-slate-900 p-4 text-white shadow-[0_12px_30px_rgba(37,99,235,0.25)]">
-          <p className="text-xs uppercase tracking-[0.2em] text-blue-100">
+        <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-slate-900 p-5 text-white">
+          <p className="text-xs font-bold uppercase tracking-[0.2em]">
             Quick Access
           </p>
-          <p className="mt-2 text-sm font-semibold">
+          <p className="mt-2 text-sm font-semibold leading-6">
             Manage sports operations with real-time tools and notifications.
           </p>
         </div>
@@ -133,7 +102,7 @@ export default function Sidebar({ role = "user" }) {
         <button
           type="button"
           onClick={handleLogout}
-          className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800"
+          className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"
         >
           Logout
         </button>

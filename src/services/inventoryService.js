@@ -10,6 +10,14 @@ export async function getInventory() {
   return data || [];
 }
 
+function getInventoryStatus(quantity) {
+  const qty = Number(quantity || 0);
+
+  if (qty <= 0) return "out_of_stock";
+  if (qty <= 5) return "low_stock";
+  return "in_stock";
+}
+
 export async function createInventory(payload) {
   const quantity = Number(payload.quantity || 0);
 
@@ -21,8 +29,7 @@ export async function createInventory(payload) {
     image_urls: payload.image_urls || [],
     price: Number(payload.price || 0),
     quantity,
-    low_stock_threshold: Number(payload.low_stock_threshold || 5),
-    status: quantity <= 0 ? "out_of_stock" : quantity <= 5 ? "low_stock" : "available",
+    status: getInventoryStatus(quantity),
     created_by: payload.created_by || null,
     updated_by: payload.updated_by || null,
   };
@@ -43,19 +50,17 @@ export async function updateInventory(id, payload) {
 
   const cleanPayload = {
     ...payload,
-    image_urls: payload.image_urls || [],
     price: payload.price !== undefined ? Number(payload.price || 0) : undefined,
     quantity,
-    status:
-      quantity === undefined
-        ? undefined
-        : quantity <= 0
-        ? "out_of_stock"
-        : quantity <= 5
-        ? "low_stock"
-        : "available",
+    image_urls: payload.image_urls || [],
     updated_at: new Date().toISOString(),
   };
+
+  if (quantity !== undefined) {
+    cleanPayload.status = getInventoryStatus(quantity);
+  }
+
+  delete cleanPayload.low_stock_threshold;
 
   Object.keys(cleanPayload).forEach((key) => {
     if (cleanPayload[key] === undefined) delete cleanPayload[key];

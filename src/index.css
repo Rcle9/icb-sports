@@ -6,41 +6,29 @@
   --sidebar-width: 320px;
 }
 
-* {
+body {
   margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: sans-serif;
   background: #f5f6f8;
-  color: #000;
 }
 
+/* Layout Fix */
 .page-shell {
+  display: flex;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: #f5f6f8;
 }
 
 .page-main {
+  flex: 1;
   height: 100vh;
-  width: 100%;
   overflow-y: auto;
-  overflow-x: hidden;
   padding: 24px;
-  background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 32%),
-    #f5f6f8;
+  background: #f5f6f8;
 }
 
+/* Desktop offset */
 @media (min-width: 768px) {
   .page-main {
     margin-left: var(--sidebar-width);
@@ -50,116 +38,6 @@ body,
 
 .page-container {
   width: 100%;
-  max-width: 1600px;
+  max-width: 1500px;
   margin: 0 auto;
-  padding-top: 8px;
-  animation: fadeSlideUp 0.45s ease both;
-}
-
-.topbar-card {
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  margin-bottom: 24px;
-}
-
-.panel-scroll {
-  overflow-y: auto;
-}
-
-.hide-scrollbar::-webkit-scrollbar,
-.page-main::-webkit-scrollbar {
-  width: 6px;
-}
-
-.hide-scrollbar::-webkit-scrollbar-thumb,
-.page-main::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 999px;
-}
-
-.safe-text {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.card-hover {
-  transition:
-    transform 0.22s ease,
-    box-shadow 0.22s ease,
-    border-color 0.22s ease;
-}
-
-.card-hover:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.12);
-}
-
-.modal-backdrop {
-  animation: fadeIn 0.2s ease both;
-}
-
-.modal-card {
-  animation: scaleIn 0.25s ease both;
-}
-
-.skeleton {
-  position: relative;
-  overflow: hidden;
-  background: #e5e7eb;
-  border-radius: 16px;
-}
-
-.skeleton::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.65),
-    transparent
-  );
-  animation: shimmer 1.25s infinite;
-}
-
-@keyframes shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes fadeSlideUp {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(8px);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
 }

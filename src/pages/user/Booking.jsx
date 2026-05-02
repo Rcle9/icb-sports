@@ -1,252 +1,326 @@
 import { useEffect, useMemo, useState } from "react";
+import { Navigate, useLocation } from "react-router-dom";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
-import ConnectionBanner from "../../components/layout/ConnectionBanner";
-import Card from "../../components/ui/Card";
-import { CardSkeleton, ListSkeleton } from "../../components/ui/Skeleton";
+import { supabase } from "../../services/supabaseClient";
+import { createBooking } from "../../services/bookingService";
 import { useAuth } from "../../context/AuthContext";
-import { addOfflineAction } from "../../services/syncService";
-import {
-  createBooking,
-  getFacilities,
-  getUserBookings,
-  getApprovedBookingsByDate,
-  cancelBooking,
-} from "../../services/bookingService";
-import {
-  createCoachBooking,
-  getCoaches,
-  getApprovedCoachBookingsByDate,
-} from "../../services/coachingService";
 
-const FACILITY_FALLBACK =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="800" height="800">
-      <rect width="100%" height="100%" fill="#f1f5f9"/>
-      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-        font-family="Arial" font-size="34" fill="#64748b">Facility</text>
-    </svg>
-  `);
+const FACILITY_FALLBACK = "https://via.placeholder.com/800x500?text=Facility";
+const COACH_FALLBACK = "https://via.placeholder.com/300x300?text=Coach";
 
-function getImageSrc(url) {
-  return url || FACILITY_FALLBACK;
+const SESSION_TYPES = [
+  { value: "training", label: "Training" },
+  { value: "instructional", label: "Instructional" },
+  { value: "recreational", label: "Recreational" },
+];
+
+function money(value) {
+  return `₱${Number(value || 0).toLocaleString()}`;
 }
 
-function getFacilityImages(facility) {
-  const images = [...(facility?.image_urls || []), facility?.image_url].filter(Boolean);
-  return images.length ? [...new Set(images)] : [FACILITY_FALLBACK];
+function getFacilityImages(item) {
+  const images = [
+    ...(Array.isArray(item?.image_urls) ? item.image_urls : []),
+    ...(Array.isArray(item?.images) ? item.images : []),
+    item?.image_url,
+    item?.image,
+  ].filter(Boolean);
+
+  const unique = [...new Set(images)];
+  return unique.length ? unique : [FACILITY_FALLBACK];
 }
 
 function formatTime(time24) {
   if (!time24) return "";
-  const [hourStr, minute] = time24.split(":");
-  let hour = Number(hourStr);
+
+  const [h, m] = time24.split(":");
+  let hour = Number(h);
   const suffix = hour >= 12 ? "PM" : "AM";
+
   hour = hour % 12 || 12;
-  return `${hour}:${minute} ${suffix}`;
+
+  return `${hour}:${m} ${suffix}`;
 }
 
-function getHoursBetween(startTime, endTime) {
-  if (!startTime || !endTime) return 0;
-  const [startHour, startMinute] = startTime.split(":").map(Number);
-  const [endHour, endMinute] = endTime.split(":").map(Number);
-  return Math.max(0, ((endHour * 60 + endMinute) - (startHour * 60 + startMinute)) / 60);
-}
+function generateSlots() {
+  return Array.from({ length: 12 }, (_, index) => {
+    const startHour = 8 + index;
+    const endHour = startHour + 1;
 
-function generateTimeSlots(startHour = 8, endHour = 20) {
-  return Array.from({ length: endHour - startHour }, (_, i) => {
-    const hour = startHour + i;
-    const start = `${String(hour).padStart(2, "0")}:00`;
-    const end = `${String(hour + 1).padStart(2, "0")}:00`;
+    const start = `${String(startHour).padStart(2, "0")}:00`;
+    const end = `${String(endHour).padStart(2, "0")}:00`;
+
     return {
-      label: `${formatTime(start)} - ${formatTime(end)}`,
       start_time: start,
       end_time: end,
+      label: `${formatTime(start)} - ${formatTime(end)}`,
     };
   });
 }
 
-function rangesOverlap(aStart, aEnd, bStart, bEnd) {
+function hoursBetween(start, end) {
+  if (!start || !end) return 0;
+
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+
+  return Math.max(0, (eh * 60 + em - (sh * 60 + sm)) / 60);
+}
+
+function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && aEnd > bStart;
 }
 
-function getBlockedSlotIndexes(slots, approvedBookings) {
-  const blockedIndexes = new Set();
-
-  slots.forEach((slot, index) => {
-    const blocked = approvedBookings.some((booking) =>
-      rangesOverlap(slot.start_time, slot.end_time, booking.start_time, booking.end_time)
-    );
-
-    if (blocked) blockedIndexes.add(index);
-  });
-
-  return blockedIndexes;
-}
-
 export default function Booking() {
-  const { user } = useAuth();
+  const { user, profile: authProfile } = useAuth();
+  const location = useLocation();
 
+  const highlightId = new URLSearchParams(location.search).get("highlight");
+
+  if (authProfile?.role === "staff") return <Navigate to="/staff" replace />;
+  if (authProfile?.role === "admin") return <Navigate to="/admin" replace />;
+
+  const [profile, setProfile] = useState(null);
   const [facilities, setFacilities] = useState([]);
   const [coaches, setCoaches] = useState([]);
   const [bookings, setBookings] = useState([]);
 
-  const [approvedFacilityBookings, setApprovedFacilityBookings] = useState([]);
-  const [approvedCoachBookings, setApprovedCoachBookings] = useState([]);
-
   const [selectedFacility, setSelectedFacility] = useState(null);
-  const [showFacilityModal, setShowFacilityModal] = useState(false);
-  const [facilityPreviewImage, setFacilityPreviewImage] = useState("");
+  const [selectedImage, setSelectedImage] = useState(FACILITY_FALLBACK);
+
+  const [approvedBookings, setApprovedBookings] = useState([]);
+  const [approvedCoachBookings, setApprovedCoachBookings] = useState([]);
 
   const [selectedStartIndex, setSelectedStartIndex] = useState(null);
   const [selectedEndIndex, setSelectedEndIndex] = useState(null);
 
-  const [cancelModalOpen, setCancelModalOpen] = useState(false);
-  const [cancelTarget, setCancelTarget] = useState(null);
-  const [cancelReason, setCancelReason] = useState("");
-
-  const [loading, setLoading] = useState(true);
-  const [slotLoading, setSlotLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [conflictWarning, setConflictWarning] = useState("");
-
   const [form, setForm] = useState({
-    facility_id: "",
     booking_date: "",
-    start_time: "",
-    end_time: "",
-    session_type: "facility",
-    notes: "",
+    session_type: "training",
     include_coach: false,
     coach_id: "",
     coach_session_mode: "one_on_one",
     coach_participants: 1,
+    notes: "",
   });
 
-  const slots = useMemo(() => generateTimeSlots(8, 20), []);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const facilityBlockedIndexes = useMemo(
-    () => getBlockedSlotIndexes(slots, approvedFacilityBookings),
-    [slots, approvedFacilityBookings]
-  );
-
-  const coachBlockedIndexes = useMemo(
-    () => getBlockedSlotIndexes(slots, approvedCoachBookings),
-    [slots, approvedCoachBookings]
-  );
+  const slots = useMemo(() => generateSlots(), []);
 
   const selectedCoach = useMemo(
     () => coaches.find((coach) => coach.id === form.coach_id) || null,
     [coaches, form.coach_id]
   );
 
-  const totalHours = useMemo(
-    () => getHoursBetween(form.start_time, form.end_time),
-    [form.start_time, form.end_time]
+  const selectedRange = useMemo(() => {
+    if (selectedStartIndex === null || selectedEndIndex === null) return [];
+
+    const start = Math.min(selectedStartIndex, selectedEndIndex);
+    const end = Math.max(selectedStartIndex, selectedEndIndex);
+
+    return slots.slice(start, end + 1);
+  }, [selectedStartIndex, selectedEndIndex, slots]);
+
+  const startTime = selectedRange[0]?.start_time || "";
+  const endTime = selectedRange[selectedRange.length - 1]?.end_time || "";
+
+  const totalHours = hoursBetween(startTime, endTime);
+
+  const facilityRate = Number(
+    selectedFacility?.price_per_hour || selectedFacility?.price || 0
   );
 
-  const facilityRate = Number(selectedFacility?.price || 0);
   const coachRate = Number(selectedCoach?.rate_per_hour || 0);
-  const facilityAmount = totalHours * facilityRate;
-  const coachAmount = form.include_coach ? totalHours * coachRate : 0;
-  const totalAmount = facilityAmount + coachAmount;
+
+  const facilityTotal = totalHours * facilityRate;
+  const coachTotal = form.include_coach ? totalHours * coachRate : 0;
+  const totalAmount = facilityTotal + coachTotal;
 
   useEffect(() => {
-    if (user?.id) loadBaseData();
+    if (user?.id) loadInitialData();
   }, [user?.id]);
 
   useEffect(() => {
-    if (form.facility_id && form.booking_date) {
-      loadApprovedFacilitySlots(form.facility_id, form.booking_date);
+    if (selectedFacility?.id && form.booking_date) {
+      loadApprovedBookings();
     } else {
-      setApprovedFacilityBookings([]);
+      setApprovedBookings([]);
     }
-  }, [form.facility_id, form.booking_date]);
+  }, [selectedFacility?.id, form.booking_date]);
 
   useEffect(() => {
     if (form.include_coach && form.coach_id && form.booking_date) {
-      loadApprovedCoachSlots(form.coach_id, form.booking_date);
+      loadApprovedCoachBookings();
     } else {
       setApprovedCoachBookings([]);
     }
   }, [form.include_coach, form.coach_id, form.booking_date]);
 
   useEffect(() => {
-    updateSelectedTimeRange();
+    const channel = supabase
+      .channel(`booking-live-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookings" },
+        () => {
+          if (user?.id) loadInitialData();
+          if (selectedFacility?.id && form.booking_date) loadApprovedBookings();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "coach_bookings" },
+        () => {
+          if (form.include_coach && form.coach_id && form.booking_date) {
+            loadApprovedCoachBookings();
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "facilities" },
+        () => {
+          if (user?.id) loadInitialData();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "coaches" },
+        () => {
+          if (user?.id) loadInitialData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [
-    selectedStartIndex,
-    selectedEndIndex,
-    facilityBlockedIndexes,
-    coachBlockedIndexes,
+    user?.id,
+    selectedFacility?.id,
+    form.booking_date,
     form.include_coach,
     form.coach_id,
   ]);
 
-  async function loadBaseData() {
+  async function loadInitialData() {
     try {
-      setLoading(true);
       setError("");
 
-      const [facilityData, coachData, bookingData] = await Promise.all([
-        getFacilities(),
-        getCoaches(),
-        getUserBookings(user.id),
-      ]);
+      if (!user?.id) return;
 
-      setFacilities(facilityData || []);
-      setCoaches((coachData || []).filter((coach) => coach.is_active !== false));
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      const currentProfile = profileData || {
+        id: user.id,
+        role: "user",
+        full_name: user.email,
+        email: user.email,
+      };
+
+      setProfile(currentProfile);
+
+      const { data: facilitiesData, error: facilitiesError } = await supabase
+        .from("facilities")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (facilitiesError) throw facilitiesError;
+
+      const visibleFacilities = (facilitiesData || []).filter((facility) => {
+        if (facility.is_active === false) return false;
+
+        if (
+          facility.status &&
+          !["active", "available", "Active", "Available"].includes(
+            facility.status
+          )
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+
+      setFacilities(visibleFacilities);
+
+      const { data: coachesData, error: coachesError } = await supabase
+        .from("coaches")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (coachesError) throw coachesError;
+
+      setCoaches(
+        (coachesData || []).filter((coach) => coach.is_active !== false)
+      );
+
+      const { data: bookingData, error: bookingError } = await supabase
+        .from("bookings")
+        .select("*, facilities (*)")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (bookingError) throw bookingError;
+
       setBookings(bookingData || []);
     } catch (err) {
-      setError(err.message || "Failed to load booking data.");
-    } finally {
-      setLoading(false);
+      console.error(err);
+      setError(err.message || "Failed to load booking page.");
     }
   }
 
-  async function loadApprovedFacilitySlots(facilityId, bookingDate) {
-    try {
-      setSlotLoading(true);
-      setError("");
-      const data = await getApprovedBookingsByDate(facilityId, bookingDate);
-      setApprovedFacilityBookings(data || []);
-    } catch (err) {
-      setError(err.message || "Failed to load facility availability.");
-    } finally {
-      setSlotLoading(false);
-    }
+  async function loadApprovedBookings() {
+    if (!selectedFacility?.id || !form.booking_date) return;
+
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("facility_id", selectedFacility.id)
+      .eq("booking_date", form.booking_date)
+      .in("status", ["approved", "pending"]);
+
+    if (!error) setApprovedBookings(data || []);
   }
 
-  async function loadApprovedCoachSlots(coachId, bookingDate) {
-    try {
-      setSlotLoading(true);
-      setError("");
-      const data = await getApprovedCoachBookingsByDate(coachId, bookingDate);
-      setApprovedCoachBookings(data || []);
-    } catch (err) {
-      setError(err.message || "Failed to load coach availability.");
-    } finally {
-      setSlotLoading(false);
-    }
+  async function loadApprovedCoachBookings() {
+    if (!form.coach_id || !form.booking_date) return;
+
+    const { data, error } = await supabase
+      .from("coach_bookings")
+      .select("*")
+      .eq("coach_id", form.coach_id)
+      .eq("booking_date", form.booking_date)
+      .in("status", ["approved", "pending"]);
+
+    if (!error) setApprovedCoachBookings(data || []);
+  }
+
+  function handleFacilitySelect(facility) {
+    setSelectedFacility(facility);
+    setSelectedImage(getFacilityImages(facility)[0]);
+    setSelectedStartIndex(null);
+    setSelectedEndIndex(null);
+    setError("");
+    setMessage("");
   }
 
   function handleChange(event) {
     const { name, value, type, checked } = event.target;
-    const nextValue = type === "checkbox" ? checked : value;
 
     setForm((prev) => ({
       ...prev,
-      [name]: nextValue,
-      ...(name === "booking_date" ||
-      name === "facility_id" ||
-      name === "coach_id" ||
-      name === "include_coach"
-        ? { start_time: "", end_time: "" }
-        : {}),
+      [name]: type === "checkbox" ? checked : value,
       ...(name === "include_coach" && !checked
         ? {
             coach_id: "",
@@ -256,87 +330,64 @@ export default function Booking() {
         : {}),
     }));
 
-    if (
-      name === "booking_date" ||
-      name === "facility_id" ||
-      name === "coach_id" ||
-      name === "include_coach"
-    ) {
+    if (["booking_date", "coach_id", "include_coach"].includes(name)) {
       setSelectedStartIndex(null);
       setSelectedEndIndex(null);
-      setConflictWarning("");
     }
   }
 
-  function chooseFacility(facility) {
-    setSelectedFacility(facility);
-    setForm((prev) => ({
-      ...prev,
-      facility_id: facility.id,
-      start_time: "",
-      end_time: "",
-    }));
-    setSelectedStartIndex(null);
-    setSelectedEndIndex(null);
-    setConflictWarning("");
-    setShowFacilityModal(false);
-
-    setTimeout(() => {
-      document
-        .getElementById("facility-booking-panel")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-  }
-
-  function openFacilityModal(facility) {
-    setSelectedFacility(facility);
-    setFacilityPreviewImage(getImageSrc(facility.image_url || getFacilityImages(facility)[0]));
-    setShowFacilityModal(true);
-  }
-
-  function updateSelectedTimeRange() {
-    if (selectedStartIndex === null || selectedEndIndex === null) {
-      setForm((prev) => ({ ...prev, start_time: "", end_time: "" }));
-      return;
-    }
-
-    const startIndex = Math.min(selectedStartIndex, selectedEndIndex);
-    const endIndex = Math.max(selectedStartIndex, selectedEndIndex);
-    const selectedSlots = slots.slice(startIndex, endIndex + 1);
-
-    if (!selectedSlots.length) return;
-
-    const hasFacilityConflict = selectedSlots.some((_, offset) =>
-      facilityBlockedIndexes.has(startIndex + offset)
+  function isSlotBlocked(slot) {
+    const facilityBlocked = approvedBookings.some((booking) =>
+      overlaps(slot.start_time, slot.end_time, booking.start_time, booking.end_time)
     );
 
-    const hasCoachConflict =
+    let coachOutsideWorkingHours = false;
+
+    if (form.include_coach && selectedCoach) {
+      const coachStart = selectedCoach.available_start_time || "08:00";
+      const coachEnd = selectedCoach.available_end_time || "20:00";
+
+      coachOutsideWorkingHours =
+        slot.start_time < coachStart || slot.end_time > coachEnd;
+    }
+
+    const coachAlreadyBooked =
       form.include_coach &&
       form.coach_id &&
-      selectedSlots.some((_, offset) => coachBlockedIndexes.has(startIndex + offset));
+      approvedCoachBookings.some((booking) =>
+        overlaps(slot.start_time, slot.end_time, booking.start_time, booking.end_time)
+      );
 
-    if (hasFacilityConflict) {
-      setConflictWarning("Your selected range includes unavailable facility slots.");
-      setForm((prev) => ({ ...prev, start_time: "", end_time: "" }));
-      return;
+    return facilityBlocked || coachOutsideWorkingHours || coachAlreadyBooked;
+  }
+
+  function getSlotLabel(slot) {
+    if (!form.include_coach || !selectedCoach) return "Available";
+
+    const coachStart = selectedCoach.available_start_time || "08:00";
+    const coachEnd = selectedCoach.available_end_time || "20:00";
+
+    if (slot.start_time < coachStart || slot.end_time > coachEnd) {
+      return "Coach unavailable";
     }
 
-    if (hasCoachConflict) {
-      setConflictWarning("Your selected range includes unavailable coach slots.");
-      setForm((prev) => ({ ...prev, start_time: "", end_time: "" }));
-      return;
-    }
+    const coachBooked = approvedCoachBookings.some((booking) =>
+      overlaps(slot.start_time, slot.end_time, booking.start_time, booking.end_time)
+    );
 
-    setConflictWarning("");
-    setForm((prev) => ({
-      ...prev,
-      start_time: selectedSlots[0].start_time,
-      end_time: selectedSlots[selectedSlots.length - 1].end_time,
-    }));
+    if (coachBooked) return "Coach booked";
+
+    const facilityBooked = approvedBookings.some((booking) =>
+      overlaps(slot.start_time, slot.end_time, booking.start_time, booking.end_time)
+    );
+
+    if (facilityBooked) return "Facility booked";
+
+    return "Available";
   }
 
   function handleSlotClick(index) {
-    if (isSlotBlocked(index)) return;
+    if (isSlotBlocked(slots[index])) return;
 
     if (selectedStartIndex === null) {
       setSelectedStartIndex(index);
@@ -347,343 +398,240 @@ export default function Booking() {
     setSelectedEndIndex(index);
   }
 
-  function isSelectedRange(index) {
+  function isSlotSelected(index) {
     if (selectedStartIndex === null || selectedEndIndex === null) return false;
+
     const start = Math.min(selectedStartIndex, selectedEndIndex);
     const end = Math.max(selectedStartIndex, selectedEndIndex);
+
     return index >= start && index <= end;
-  }
-
-  function isSlotBlocked(index) {
-    const facilityBlocked = facilityBlockedIndexes.has(index);
-    const coachBlocked =
-      form.include_coach && form.coach_id && coachBlockedIndexes.has(index);
-
-    return facilityBlocked || coachBlocked;
-  }
-
-  function getSlotBlockedReason(index) {
-    const facilityBlocked = facilityBlockedIndexes.has(index);
-    const coachBlocked =
-      form.include_coach && form.coach_id && coachBlockedIndexes.has(index);
-
-    if (facilityBlocked && coachBlocked) return "Facility + Coach unavailable";
-    if (facilityBlocked) return "Facility unavailable";
-    if (coachBlocked) return "Coach unavailable";
-    return "";
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
+
     setError("");
     setMessage("");
 
-    if (!user) return setError("You must be logged in.");
-    if (!form.facility_id || !form.booking_date || !form.start_time || !form.end_time) {
-      return setError("Please select facility, date, and time range.");
-    }
+    if (!profile?.id) return setError("Please login first.");
+    if (!selectedFacility) return setError("Please select a facility.");
+    if (!form.booking_date) return setError("Please select a booking date.");
+    if (!startTime || !endTime) return setError("Please select time slots.");
+
     if (form.include_coach && !form.coach_id) {
-      return setError("Please select a coach or turn off the coach booking option.");
-    }
-    if (totalHours <= 0) return setError("Please select a valid time range.");
-    if (conflictWarning && navigator.onLine) {
-      return setError("Please fix the selected time range first.");
+      return setError("Please select a coach.");
     }
 
-    const facilityPayload = {
-      user_id: user.id,
-      facility_id: form.facility_id,
-      booking_date: form.booking_date,
-      start_time: form.start_time,
-      end_time: form.end_time,
-      session_type: form.session_type,
-      notes: form.notes,
-      status: "pending",
-      total_hours: totalHours,
-      rate_per_hour: facilityRate,
-      coach_rate_per_hour: form.include_coach ? coachRate : 0,
-      total_amount: totalAmount,
-      includes_coach: form.include_coach,
-      linked_coach_id: form.include_coach ? form.coach_id : null,
-    };
+    const selectedHasBlockedSlot = selectedRange.some((slot) =>
+      isSlotBlocked(slot)
+    );
 
-    const coachPayload = {
-      user_id: user.id,
-      coach_id: form.coach_id,
-      booking_date: form.booking_date,
-      start_time: form.start_time,
-      end_time: form.end_time,
-      session_mode: form.coach_session_mode,
-      participants: Number(
-        form.coach_session_mode === "one_on_one" ? 1 : form.coach_participants
-      ),
-      notes: `Booked together with facility: ${selectedFacility?.name || "Facility"}${
-        form.notes ? ` | Notes: ${form.notes}` : ""
-      }`,
-      status: "pending",
-      total_hours: totalHours,
-      rate_per_hour: coachRate,
-      total_amount: coachAmount,
-    };
+    if (selectedHasBlockedSlot) {
+      return setError("Selected time includes unavailable slots.");
+    }
 
     try {
       setSubmitting(true);
 
-      if (!navigator.onLine) {
-        addOfflineAction({ type: "booking", payload: facilityPayload });
+      await createBooking({
+        user_id: profile.id,
+        facility_id: selectedFacility.id,
+        booking_date: form.booking_date,
+        start_time: startTime,
+        end_time: endTime,
+        session_type: form.session_type,
+        notes: form.notes || "",
 
-        if (form.include_coach) {
-          addOfflineAction({ type: "coaching", payload: coachPayload });
-        }
+        total_hours: totalHours,
+        rate_per_hour: facilityRate,
+        total_amount: totalAmount,
 
-        setMessage("You are offline. Booking request saved and will sync automatically.");
-      } else {
-        await createBooking(facilityPayload);
+        includes_coach: form.include_coach,
+        linked_coach_id: form.include_coach ? form.coach_id : null,
+        coach_rate_per_hour: form.include_coach ? coachRate : 0,
+        coach_session_mode: form.coach_session_mode,
+        coach_participants: form.coach_participants,
+      });
 
-        if (form.include_coach) await createCoachBooking(coachPayload);
+      setMessage("Booking submitted successfully. Staff and admin were notified.");
 
-        setMessage(
-          form.include_coach
-            ? `Facility and coach booking submitted. Total: ₱${totalAmount}`
-            : `Facility booking submitted. Total: ₱${totalAmount}`
-        );
-      }
+      setSelectedStartIndex(null);
+      setSelectedEndIndex(null);
 
       setForm({
-        facility_id: "",
         booking_date: "",
-        start_time: "",
-        end_time: "",
-        session_type: "facility",
-        notes: "",
+        session_type: "training",
         include_coach: false,
         coach_id: "",
         coach_session_mode: "one_on_one",
         coach_participants: 1,
+        notes: "",
       });
 
-      setSelectedFacility(null);
-      setSelectedStartIndex(null);
-      setSelectedEndIndex(null);
-      setApprovedFacilityBookings([]);
-      setApprovedCoachBookings([]);
-      setConflictWarning("");
-
-      await loadBaseData();
+      await loadInitialData();
     } catch (err) {
+      console.error(err);
       setError(err.message || "Failed to submit booking.");
     } finally {
       setSubmitting(false);
     }
   }
 
-  function openCancelModal(booking) {
-    setCancelTarget(booking);
-    setCancelReason("");
-    setCancelModalOpen(true);
-  }
-
-  async function handleCancelBooking() {
-    setError("");
-    setMessage("");
-
-    if (!cancelReason.trim()) {
-      setError("Please enter a cancellation reason.");
-      return;
-    }
-
-    try {
-      setCancelling(true);
-      await cancelBooking(cancelTarget.id, user.id, cancelReason.trim());
-      setMessage("Booking cancelled successfully.");
-      setCancelModalOpen(false);
-      setCancelTarget(null);
-      setCancelReason("");
-      await loadBaseData();
-    } catch (err) {
-      setError(err.message || "Failed to cancel booking.");
-    } finally {
-      setCancelling(false);
-    }
-  }
-
   return (
-    <div className="page-shell bg-[#f5f6f8] md:flex">
+    <div className="page-shell">
       <Sidebar role="user" />
 
       <main className="page-main">
         <div className="page-container">
           <Topbar title="Facility Booking" />
-          <ConnectionBanner />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-blue-600 via-blue-700 to-slate-900 p-6 text-white md:p-8">
-            <p className="text-sm font-medium text-blue-100">Direct Facility Booking</p>
-            <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
+          {error && (
+            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+
+          {message && (
+            <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
+              {message}
+            </div>
+          )}
+
+          <section className="mb-6 rounded-[28px] bg-gradient-to-br from-blue-600 to-slate-900 p-8 text-white">
+            <p className="text-sm">Direct Facility Booking</p>
+            <h2 className="mt-2 text-3xl font-black">
               Choose a facility, preview details, then book instantly.
             </h2>
-            <p className="mt-3 max-w-3xl text-sm text-slate-100 md:text-base">
-              Tap a facility to view images, hourly rate, description, and booking options.
+            <p className="mt-2 text-sm">
+              Select a facility, choose time slots, and optionally book a coach.
             </p>
-          </div>
+          </section>
 
-          <Card className="mb-6">
-            <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div className="mb-6 rounded-[28px] bg-white p-6 shadow-sm">
+            <div className="mb-5 flex items-center justify-between">
               <div>
-                <h3 className="text-2xl font-bold text-black">Available Facilities</h3>
-                <p className="mt-1 text-sm text-black">
-                  Open a facility view or select a facility to continue booking.
+                <h3 className="text-2xl font-black">Available Facilities</h3>
+                <p className="text-sm text-slate-500">
+                  Select a facility to continue booking.
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-black">
-                {selectedFacility ? (
-                  <span>
-                    Selected facility:{" "}
-                    <span className="font-semibold">{selectedFacility.name}</span>
-                  </span>
-                ) : (
-                  <span>No facility selected yet</span>
-                )}
-              </div>
+              <span className="rounded-2xl bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700">
+                {selectedFacility
+                  ? selectedFacility.name
+                  : "No facility selected yet"}
+              </span>
             </div>
 
-            {loading ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                <CardSkeleton />
-                <CardSkeleton />
-                <CardSkeleton />
-                <CardSkeleton />
-              </div>
-            ) : facilities.length === 0 ? (
-              <p className="text-black">No facilities available.</p>
+            {facilities.length === 0 ? (
+              <p>No facilities available.</p>
             ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {facilities.map((facility) => (
                   <div
                     key={facility.id}
-                    className={`card-hover overflow-hidden rounded-3xl border bg-white transition ${
-                      form.facility_id === facility.id
+                    className={`overflow-hidden rounded-3xl border bg-white ${
+                      selectedFacility?.id === facility.id
                         ? "border-blue-600 ring-2 ring-blue-200"
                         : "border-slate-200"
                     }`}
                   >
-                    <button
-                      type="button"
-                      onClick={() => openFacilityModal(facility)}
-                      className="block w-full text-left"
-                    >
-                      <div className="h-56 bg-slate-100">
-                        <img
-                          src={getImageSrc(facility.image_url || getFacilityImages(facility)[0])}
-                          alt={facility.name}
-                          className="h-full w-full object-cover"
-                          onError={(e) => {
-                            e.currentTarget.src = FACILITY_FALLBACK;
-                          }}
-                        />
-                      </div>
+                    <img
+                      src={getFacilityImages(facility)[0]}
+                      alt={facility.name}
+                      className="h-48 w-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = FACILITY_FALLBACK;
+                      }}
+                    />
 
-                      <div className="p-4">
-                        <p className="break-words font-bold text-black">{facility.name}</p>
-                        <p className="mt-1 break-words text-sm text-black">{facility.type}</p>
-                        <p className="mt-2 text-sm font-semibold text-blue-700">
-                          ₱ {facility.price || 0} / hour
-                        </p>
-                      </div>
-                    </button>
+                    <div className="p-4">
+                      <h4 className="text-lg font-black">{facility.name}</h4>
+                      <p className="text-sm text-slate-500">{facility.type}</p>
 
-                    <div className="grid grid-cols-2 gap-2 px-4 pb-4">
-                      <button
-                        type="button"
-                        onClick={() => openFacilityModal(facility)}
-                        className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-black transition hover:bg-slate-50"
-                      >
-                        View
-                      </button>
+                      <p className="mt-2 text-sm font-bold text-blue-700">
+                        {money(facility.price_per_hour || facility.price || 0)} / hour
+                      </p>
 
                       <button
                         type="button"
-                        onClick={() => chooseFacility(facility)}
-                        className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                        onClick={() => handleFacilitySelect(facility)}
+                        className="mt-4 w-full rounded-2xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700"
                       >
-                        Book
+                        View / Book
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </Card>
+          </div>
 
-          {selectedFacility ? (
-            <div
-              id="facility-booking-panel"
-              className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]"
-            >
-              <Card>
-                <div className="overflow-hidden rounded-3xl bg-slate-100">
-                  <img
-                    src={getImageSrc(selectedFacility.image_url)}
-                    alt={selectedFacility.name}
-                    className="h-72 w-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.src = FACILITY_FALLBACK;
-                    }}
-                  />
+          {selectedFacility && (
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_1fr]">
+              <aside className="rounded-[28px] bg-white p-6 shadow-sm">
+                <img
+                  src={selectedImage}
+                  alt={selectedFacility.name}
+                  className="h-72 w-full rounded-3xl object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = FACILITY_FALLBACK;
+                  }}
+                />
+
+                <div className="mt-4 flex gap-2 overflow-x-auto">
+                  {getFacilityImages(selectedFacility).map((img, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => setSelectedImage(img)}
+                      className={`h-16 w-16 shrink-0 overflow-hidden rounded-xl border ${
+                        selectedImage === img
+                          ? "border-blue-600"
+                          : "border-slate-200"
+                      }`}
+                    >
+                      <img
+                        src={img}
+                        alt="Facility preview"
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
+                  ))}
                 </div>
 
-                <h3 className="mt-5 break-words text-2xl font-bold text-black">
+                <h3 className="mt-5 text-2xl font-black">
                   {selectedFacility.name}
                 </h3>
-                <p className="mt-2 break-words text-sm font-medium text-blue-700">
-                  {selectedFacility.type}
-                </p>
-                <p className="mt-3 break-words text-sm leading-7 text-black">
-                  {selectedFacility.description || "No description provided yet."}
+
+                <p className="mt-1 text-blue-700">{selectedFacility.type}</p>
+
+                <p className="mt-3 text-sm leading-7">
+                  {selectedFacility.description || "No description provided."}
                 </p>
 
-                <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs uppercase tracking-wide text-slate-700">
+                <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs uppercase text-slate-500">
                     Facility Rate
                   </p>
-                  <p className="mt-1 break-words font-semibold text-black">
-                    ₱ {facilityRate} / hour
-                  </p>
+                  <p className="font-bold">{money(facilityRate)} / hour</p>
                 </div>
-              </Card>
+              </aside>
 
-              <Card>
-                <div className="mb-6">
-                  <h3 className="text-2xl font-bold text-black">
-                    Book {selectedFacility.name}
-                  </h3>
-                  <p className="mt-1 text-sm text-black">
-                    Select a date, optional coach, then highlight a continuous time range.
-                  </p>
-                </div>
+              <section className="rounded-[28px] bg-white p-6 shadow-sm">
+                <h3 className="text-2xl font-black">
+                  Book {selectedFacility.name}
+                </h3>
 
-                {error && (
-                  <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
-                    {error}
-                  </div>
-                )}
+                <p className="text-sm text-slate-500">
+                  Select a date, optional coach, then highlight a continuous
+                  time range.
+                </p>
 
-                {message && (
-                  <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-600">
-                    {message}
-                  </div>
-                )}
-
-                {conflictWarning && (
-                  <div className="mb-4 rounded-2xl bg-yellow-50 px-4 py-3 text-sm text-yellow-700">
-                    {conflictWarning}
-                  </div>
-                )}
-
-                <form onSubmit={handleSubmit}>
-                  <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <form onSubmit={handleSubmit} className="mt-6">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-black">
+                      <label className="mb-2 block text-sm font-semibold">
                         Date
                       </label>
                       <input
@@ -691,171 +639,163 @@ export default function Booking() {
                         name="booking_date"
                         value={form.booking_date}
                         onChange={handleChange}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                        required
+                        className="w-full rounded-2xl border px-4 py-3"
                       />
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-black">
+                      <label className="mb-2 block text-sm font-semibold">
                         Session Type
                       </label>
                       <select
                         name="session_type"
                         value={form.session_type}
                         onChange={handleChange}
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                        className="w-full rounded-2xl border px-4 py-3"
                       >
-                        <option value="facility">Facility</option>
-                        <option value="training">Training</option>
-                        <option value="practice">Practice</option>
+                        {SESSION_TYPES.map((type) => (
+                          <option key={type.value} value={type.value}>
+                            {type.label}
+                          </option>
+                        ))}
                       </select>
-                    </div>
-
-                    <div className="lg:col-span-2 rounded-3xl border border-blue-100 bg-blue-50/70 p-4">
-                      <label className="flex items-start gap-3 text-black">
-                        <input
-                          type="checkbox"
-                          name="include_coach"
-                          checked={form.include_coach}
-                          onChange={handleChange}
-                          className="mt-1"
-                        />
-                        <div>
-                          <p className="font-semibold">Book a coach with this facility</p>
-                          <p className="mt-1 text-sm">
-                            The same date and selected time range will be used for the coach booking.
-                          </p>
-                        </div>
-                      </label>
-
-                      {form.include_coach && (
-                        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                          <div>
-                            <label className="mb-2 block text-sm font-medium text-black">
-                              Coach
-                            </label>
-                            <select
-                              name="coach_id"
-                              value={form.coach_id}
-                              onChange={handleChange}
-                              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                            >
-                              <option value="">Select coach</option>
-                              {coaches.map((coach) => (
-                                <option key={coach.id} value={coach.id}>
-                                  {coach.name} - {coach.specialty} - ₱
-                                  {coach.rate_per_hour || 0}/hr
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="mb-2 block text-sm font-medium text-black">
-                              Coach Session
-                            </label>
-                            <select
-                              name="coach_session_mode"
-                              value={form.coach_session_mode}
-                              onChange={handleChange}
-                              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                            >
-                              <option value="one_on_one">One-on-One</option>
-                              <option value="group">Group</option>
-                            </select>
-                          </div>
-
-                          <div>
-                            <label className="mb-2 block text-sm font-medium text-black">
-                              Participants
-                            </label>
-                            <input
-                              type="number"
-                              min="1"
-                              name="coach_participants"
-                              value={form.coach_participants}
-                              onChange={handleChange}
-                              disabled={form.coach_session_mode === "one_on_one"}
-                              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500 disabled:bg-slate-100"
-                            />
-                          </div>
-
-                          <div className="rounded-2xl bg-white p-4 text-sm text-black">
-                            {selectedCoach ? (
-                              <>
-                                <p className="font-semibold">{selectedCoach.name}</p>
-                                <p className="mt-1">{selectedCoach.specialty}</p>
-                                <p className="mt-2 font-semibold text-blue-700">
-                                  ₱ {coachRate} / hour
-                                </p>
-                              </>
-                            ) : (
-                              <p>Select a coach to check availability and rate.</p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="lg:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-black">
-                        Selected Range
-                      </label>
-                      <input
-                        value={
-                          form.start_time && form.end_time
-                            ? `${formatTime(form.start_time)} - ${formatTime(form.end_time)}`
-                            : ""
-                        }
-                        readOnly
-                        placeholder="Choose from the slots below"
-                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-black"
-                      />
                     </div>
                   </div>
 
-                  <div className="mb-6">
-                    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <label className="block text-sm font-medium text-black">
-                        Available Time Slots
-                      </label>
-                      {slotLoading && (
-                        <span className="text-sm text-black">Checking availability...</span>
-                      )}
-                    </div>
+                  <div className="mt-5 rounded-3xl border border-blue-100 bg-blue-50 p-4">
+                    <label className="flex gap-3">
+                      <input
+                        type="checkbox"
+                        name="include_coach"
+                        checked={form.include_coach}
+                        onChange={handleChange}
+                      />
 
-                    {!form.facility_id || !form.booking_date ? (
-                      <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-black">
-                        Select a facility and date first.
+                      <div>
+                        <p className="font-bold">
+                          Book a coach with this facility
+                        </p>
+                        <p className="text-sm">
+                          Coach availability and existing coach bookings will be checked.
+                        </p>
+                      </div>
+                    </label>
+
+                    {form.include_coach && (
+                      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="mb-2 block text-sm font-semibold">
+                            Select Coach
+                          </label>
+
+                          <select
+                            name="coach_id"
+                            value={form.coach_id}
+                            onChange={handleChange}
+                            className="w-full rounded-2xl border px-4 py-3"
+                          >
+                            <option value="">Select coach</option>
+
+                            {coaches.map((coach) => (
+                              <option key={coach.id} value={coach.id}>
+                                {coach.name} - {money(coach.rate_per_hour || 0)} / hour •{" "}
+                                {coach.available_start_time || "08:00"} -{" "}
+                                {coach.available_end_time || "20:00"}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm font-semibold">
+                            Coach Session Mode
+                          </label>
+
+                          <select
+                            name="coach_session_mode"
+                            value={form.coach_session_mode}
+                            onChange={handleChange}
+                            className="w-full rounded-2xl border px-4 py-3"
+                          >
+                            <option value="one_on_one">One-on-One</option>
+                            <option value="group">Group</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {form.include_coach && selectedCoach && (
+                      <div className="mt-4 flex gap-4 rounded-2xl bg-white p-4">
+                        <img
+                          src={
+                            selectedCoach.image_path ||
+                            selectedCoach.image_url ||
+                            COACH_FALLBACK
+                          }
+                          alt={selectedCoach.name}
+                          className="h-24 w-24 rounded-2xl object-cover"
+                          onError={(e) => {
+                            e.currentTarget.src = COACH_FALLBACK;
+                          }}
+                        />
+
+                        <div className="flex-1">
+                          <p className="font-black text-slate-950">
+                            {selectedCoach.name}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {selectedCoach.specialty || "Coach"}
+                          </p>
+                          <p className="mt-1 text-sm">
+                            <b>Rate:</b> {money(coachRate)} / hour
+                          </p>
+                          <p className="text-sm">
+                            <b>Available Time:</b>{" "}
+                            {selectedCoach.available_start_time || "08:00"} -{" "}
+                            {selectedCoach.available_end_time || "20:00"}
+                          </p>
+                          <p className="text-sm">
+                            <b>Coach Total:</b> {money(coachTotal)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-6">
+                    <h4 className="text-lg font-black">Available Time Slots</h4>
+                    <p className="text-sm text-slate-500">
+                      Unavailable slots are disabled automatically.
+                    </p>
+
+                    {!form.booking_date ? (
+                      <div className="mt-4 rounded-2xl border border-dashed p-6">
+                        Select a date first.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
                         {slots.map((slot, index) => {
-                          const blocked = isSlotBlocked(index);
-                          const selected = isSelectedRange(index);
+                          const blocked = isSlotBlocked(slot);
+                          const selected = isSlotSelected(index);
 
                           return (
                             <button
-                              key={slot.start_time}
                               type="button"
+                              key={slot.start_time}
                               disabled={blocked}
-                              title={getSlotBlockedReason(index)}
                               onClick={() => handleSlotClick(index)}
-                              className={`rounded-2xl border px-4 py-3 text-sm font-medium transition ${
+                              className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${
                                 blocked
-                                  ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                                  ? "cursor-not-allowed bg-slate-100 text-slate-400"
                                   : selected
-                                  ? "border-blue-600 bg-blue-600 text-white shadow-[0_10px_25px_rgba(37,99,235,0.25)]"
-                                  : "border-slate-200 bg-white text-black hover:-translate-y-0.5 hover:bg-blue-50"
+                                  ? "bg-blue-600 text-white"
+                                  : "bg-white hover:bg-blue-50"
                               }`}
                             >
                               <span>{slot.label}</span>
-                              {blocked && (
-                                <span className="mt-1 block text-[11px]">
-                                  {getSlotBlockedReason(index)}
-                                </span>
-                              )}
+                              <span className="mt-1 block text-xs">
+                                {blocked ? getSlotLabel(slot) : "Available"}
+                              </span>
                             </button>
                           );
                         })}
@@ -863,334 +803,116 @@ export default function Booking() {
                     )}
                   </div>
 
-                  <div className="mb-6 rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                    <h4 className="text-lg font-bold text-black">Payment Summary</h4>
+                  <div className="mt-6 rounded-3xl border bg-slate-50 p-5">
+                    <h4 className="text-lg font-black">Payment Summary</h4>
 
-                    <div className="mt-4 space-y-3 text-sm text-black">
-                      <div className="flex justify-between gap-4">
+                    <div className="mt-4 space-y-3 text-sm">
+                      <div className="flex justify-between">
                         <span>Selected Hours</span>
-                        <span className="font-semibold">{totalHours} hour(s)</span>
+                        <b>{totalHours} hour(s)</b>
                       </div>
 
-                      <div className="flex justify-between gap-4">
+                      <div className="flex justify-between">
                         <span>Facility Rate</span>
-                        <span className="font-semibold">
-                          ₱ {facilityRate} × {totalHours} hr = ₱ {facilityAmount}
-                        </span>
+                        <b>
+                          {money(facilityRate)} × {totalHours} hr ={" "}
+                          {money(facilityTotal)}
+                        </b>
                       </div>
 
                       {form.include_coach && (
-                        <div className="flex justify-between gap-4">
-                          <span>Coach Rate</span>
-                          <span className="font-semibold">
-                            ₱ {coachRate} × {totalHours} hr = ₱ {coachAmount}
-                          </span>
-                        </div>
+                        <>
+                          <div className="flex justify-between">
+                            <span>Coach</span>
+                            <b>{selectedCoach?.name || "No coach selected"}</b>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span>Coach Rate</span>
+                            <b>
+                              {money(coachRate)} × {totalHours} hr ={" "}
+                              {money(coachTotal)}
+                            </b>
+                          </div>
+                        </>
                       )}
 
-                      <div className="flex justify-between gap-4 border-t border-slate-200 pt-3 text-base">
-                        <span className="font-bold">Total Amount</span>
-                        <span className="font-bold text-blue-700">₱ {totalAmount}</span>
+                      <div className="flex justify-between border-t pt-3 text-base">
+                        <span className="font-black">Total Amount</span>
+                        <b className="text-blue-700">{money(totalAmount)}</b>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mb-6">
-                    <label className="mb-2 block text-sm font-medium text-black">
-                      Notes
-                    </label>
-                    <textarea
-                      name="notes"
-                      value={form.notes}
-                      onChange={handleChange}
-                      rows="4"
-                      className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-                      placeholder="Optional notes about your booking"
-                    />
-                  </div>
+                  <textarea
+                    name="notes"
+                    value={form.notes}
+                    onChange={handleChange}
+                    placeholder="Optional notes about your booking"
+                    className="mt-5 min-h-[120px] w-full rounded-2xl border px-4 py-3"
+                  />
 
                   <button
-                    type="submit"
                     disabled={submitting}
-                    className="rounded-2xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                    className="mt-5 rounded-2xl bg-blue-600 px-6 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-60"
                   >
                     {submitting
                       ? "Submitting..."
                       : form.include_coach
-                      ? `Submit Facility + Coach Booking — ₱ ${totalAmount}`
-                      : `Submit Facility Booking — ₱ ${totalAmount}`}
+                      ? `Submit Facility + Coach Booking — ${money(totalAmount)}`
+                      : `Submit Facility Booking — ${money(totalAmount)}`}
                   </button>
                 </form>
-              </Card>
+              </section>
             </div>
-          ) : (
-            <Card>
-              <div className="rounded-3xl border border-dashed border-slate-300 p-10 text-center">
-                <h3 className="text-2xl font-bold text-black">Select a Facility First</h3>
-                <p className="mt-2 text-sm text-black">
-                  Open a facility profile or press Book to continue.
-                </p>
-              </div>
-            </Card>
           )}
 
-          <Card className="mt-6 flex min-h-[420px] flex-col">
-            <div className="mb-5">
-              <h3 className="text-xl font-bold text-black">My Bookings</h3>
-              <p className="mt-1 text-sm text-black">
-                Your recent facility requests and approvals.
-              </p>
-            </div>
+          <div className="mt-6 rounded-[28px] bg-white p-6 shadow-sm">
+            <h3 className="text-xl font-black">My Bookings</h3>
 
-            {loading ? (
-              <ListSkeleton />
-            ) : bookings.length === 0 ? (
-              <p className="text-black">No booking requests yet.</p>
+            {bookings.length === 0 ? (
+              <p className="mt-4 text-slate-500">No booking requests yet.</p>
             ) : (
-              <div className="panel-scroll hide-scrollbar space-y-4 pr-2 max-h-[55vh]">
+              <div className="mt-4 space-y-4">
                 {bookings.map((booking) => (
                   <div
                     key={booking.id}
-                    className="card-hover rounded-2xl border border-slate-200 p-4"
+                    className={`rounded-2xl border p-4 ${
+                      booking.id === highlightId
+                        ? "border-blue-600 bg-blue-50"
+                        : "border-slate-200 bg-white"
+                    }`}
                   >
-                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <p className="safe-text font-semibold text-black">
-                          {booking.facilities?.name || "Facility"}
-                        </p>
-                        <p className="mt-1 text-sm text-black">
-                          {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
-                          {formatTime(booking.end_time)}
-                        </p>
+                    <h4 className="font-bold">
+                      {booking.facilities?.name || "Facility Booking"}
+                    </h4>
 
-                        <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm text-black">
-                          <p>
-                            Hours:{" "}
-                            <span className="font-semibold">{booking.total_hours || 0}</span>
-                          </p>
-                          <p>
-                            Facility Rate:{" "}
-                            <span className="font-semibold">
-                              ₱ {booking.rate_per_hour || 0}/hr
-                            </span>
-                          </p>
-                          {booking.includes_coach && (
-                            <p>
-                              Coach Rate:{" "}
-                              <span className="font-semibold">
-                                ₱ {booking.coach_rate_per_hour || 0}/hr
-                              </span>
-                            </p>
-                          )}
-                          <p className="mt-1 font-bold text-blue-700">
-                            Total Amount: ₱ {booking.total_amount || 0}
-                          </p>
-                        </div>
+                    <p className="text-sm text-slate-500">
+                      {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
+                      {formatTime(booking.end_time)}
+                    </p>
 
-                        <p className="mt-2 text-sm">
-                          Status:{" "}
-                          <span
-                            className={
-                              booking.status === "approved"
-                                ? "font-semibold text-green-600"
-                                : booking.status === "rejected" ||
-                                  booking.status === "cancelled"
-                                ? "font-semibold text-red-600"
-                                : "font-semibold text-orange-500"
-                            }
-                          >
-                            {booking.status}
-                          </span>
-                        </p>
+                    <p className="mt-2 text-sm capitalize">
+                      Status: <b>{booking.status}</b>
+                    </p>
 
-                        {booking.cancellation_reason && (
-                          <p className="mt-2 text-sm text-red-600">
-                            Reason: {booking.cancellation_reason}
-                          </p>
-                        )}
-                      </div>
+                    {booking.includes_coach && (
+                      <p className="mt-1 text-sm text-blue-700">
+                        Coach included • Coach Rate:{" "}
+                        {money(booking.coach_rate_per_hour || 0)} / hour
+                      </p>
+                    )}
 
-                      {booking.status === "pending" && (
-                        <button
-                          type="button"
-                          onClick={() => openCancelModal(booking)}
-                          className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
-                        >
-                          Cancel Booking
-                        </button>
-                      )}
-                    </div>
+                    <p className="mt-1 text-sm font-bold">
+                      Total: {money(booking.total_amount || 0)}
+                    </p>
                   </div>
                 ))}
               </div>
             )}
-          </Card>
+          </div>
         </div>
       </main>
-
-      {showFacilityModal && selectedFacility && (
-        <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="modal-card h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[32px] bg-white p-5 shadow-2xl md:p-8">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-black">Facility View</h2>
-
-              <button
-                onClick={() => setShowFacilityModal(false)}
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-black hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(380px,0.65fr)]">
-              <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-4">
-                <div className="flex max-h-[720px] flex-col gap-3 overflow-y-auto pr-1">
-                  {getFacilityImages(selectedFacility).map((img, index) => (
-                    <button
-                      key={`${img}-${index}`}
-                      type="button"
-                      onClick={() => setFacilityPreviewImage(getImageSrc(img))}
-                      className={`h-20 w-20 overflow-hidden rounded-xl border bg-slate-100 ${
-                        facilityPreviewImage === getImageSrc(img)
-                          ? "border-black"
-                          : "border-slate-200"
-                      }`}
-                    >
-                      <img
-                        src={getImageSrc(img)}
-                        alt={selectedFacility.name}
-                        className="h-full w-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.src = FACILITY_FALLBACK;
-                        }}
-                      />
-                    </button>
-                  ))}
-                </div>
-
-                <div className="relative flex min-h-[560px] items-center justify-center rounded-2xl bg-[#f3f4f6]">
-                  <img
-                    src={facilityPreviewImage || getImageSrc(selectedFacility.image_url)}
-                    alt={selectedFacility.name}
-                    className="h-full max-h-[680px] w-full rounded-2xl object-contain p-6"
-                    onError={(e) => {
-                      e.currentTarget.src = FACILITY_FALLBACK;
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="lg:sticky lg:top-6 lg:self-start">
-                <h1 className="text-3xl font-bold text-black">{selectedFacility.name}</h1>
-                <p className="mt-1 text-lg capitalize text-slate-600">
-                  {selectedFacility.type}
-                </p>
-
-                <p className="mt-5 text-xl font-bold text-black">
-                  ₱{Number(selectedFacility.price || 0).toLocaleString()} / hour
-                </p>
-
-                <p className="mt-5 text-sm leading-7 text-black">
-                  {selectedFacility.description || "No facility description yet."}
-                </p>
-
-                <div className="mt-8 rounded-3xl bg-slate-50 p-5 text-sm text-black">
-                  <div className="flex justify-between border-b border-slate-200 pb-3">
-                    <span>Hourly Rate</span>
-                    <span className="font-bold">
-                      ₱{Number(selectedFacility.price || 0).toLocaleString()}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between border-b border-slate-200 py-3">
-                    <span>Status</span>
-                    <span className="font-bold">
-                      {selectedFacility.is_active === false ? "Unavailable" : "Available"}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between pt-3">
-                    <span>Facility Type</span>
-                    <span className="font-bold capitalize">
-                      {selectedFacility.type || "Facility"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-8 space-y-3">
-                  <button
-                    type="button"
-                    onClick={() => chooseFacility(selectedFacility)}
-                    className="w-full rounded-full bg-black px-6 py-5 text-base font-bold text-white transition hover:bg-slate-800"
-                  >
-                    Book This Facility
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowFacilityModal(false)}
-                    className="w-full rounded-full border border-slate-300 bg-white px-6 py-5 text-base font-bold text-black transition hover:border-black"
-                  >
-                    Continue Browsing
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {cancelModalOpen && cancelTarget && (
-        <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="modal-card w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
-            <h2 className="text-2xl font-bold text-black">Cancel Booking</h2>
-            <p className="mt-2 text-sm text-black">
-              Please enter your reason for cancelling this pending booking.
-            </p>
-
-            <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-black">
-              <p className="font-semibold">
-                {cancelTarget.facilities?.name || "Facility Booking"}
-              </p>
-              <p className="mt-1">
-                {cancelTarget.booking_date} • {formatTime(cancelTarget.start_time)} -{" "}
-                {formatTime(cancelTarget.end_time)}
-              </p>
-            </div>
-
-            <textarea
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              rows="5"
-              placeholder="Example: Change of schedule, emergency, wrong date..."
-              className="mt-4 w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
-            />
-
-            <div className="mt-5 flex gap-3">
-              <button
-                type="button"
-                onClick={handleCancelBooking}
-                disabled={cancelling}
-                className="w-full rounded-2xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
-              >
-                {cancelling ? "Cancelling..." : "Confirm Cancellation"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCancelModalOpen(false);
-                  setCancelTarget(null);
-                  setCancelReason("");
-                }}
-                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-black transition hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

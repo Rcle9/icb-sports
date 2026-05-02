@@ -55,7 +55,10 @@ export default function StaffLogs() {
       const matchesType =
         typeFilter === "all" ? true : log.entity_type === typeFilter;
 
-      const source = `${log.description} ${log.action_type} ${log.entity_type} ${log.actor_role || ""}`.toLowerCase();
+      const source = `${log.description} ${log.action_type} ${log.entity_type} ${
+        log.actor_role || ""
+      }`.toLowerCase();
+
       const matchesSearch = searchTerm
         ? source.includes(searchTerm.toLowerCase())
         : true;
@@ -65,11 +68,11 @@ export default function StaffLogs() {
   }, [logs, typeFilter, searchTerm]);
 
   return (
-    <div className="flex min-h-screen bg-[#f5f6f8]">
+    <div className="page-shell">
       <Sidebar role="staff" />
 
-      <main className="flex-1 p-8">
-        <div className="max-w-7xl mx-auto">
+      <main className="page-main">
+        <div className="page-container">
           <Topbar title="Activity Logs" />
 
           <Card className="mb-6">
@@ -86,7 +89,9 @@ export default function StaffLogs() {
               </div>
 
               <div className="w-full md:w-56">
-                <label className="block text-sm font-medium mb-2">Entity Type</label>
+                <label className="block text-sm font-medium mb-2">
+                  Entity Type
+                </label>
                 <select
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
@@ -122,11 +127,11 @@ export default function StaffLogs() {
               Real Activity Logs
             </h2>
 
-            {error ? (
+            {error && (
               <div className="mb-4 rounded-xl bg-red-50 text-red-600 px-4 py-3 text-sm">
                 {error}
               </div>
-            ) : null}
+            )}
 
             {loading ? (
               <p className="text-gray-500">Loading activity logs...</p>
@@ -137,7 +142,7 @@ export default function StaffLogs() {
                 {filteredLogs.map((log) => (
                   <div
                     key={log.id}
-                    className="border rounded-xl p-4 flex flex-col md:flex-row md:items-start md:justify-between gap-4"
+                    className="border rounded-xl p-4 flex flex-col md:flex-row md:items-start md:justify-between gap-4 bg-white"
                   >
                     <div>
                       <p className="font-semibold text-[#0f172a]">
@@ -151,7 +156,7 @@ export default function StaffLogs() {
                       </p>
                     </div>
 
-                    <div className="text-left md:text-right">
+                    <div className="text-left md:text-right md:max-w-[360px]">
                       <p className="text-xs text-gray-400">
                         {formatDateTime(log.created_at)}
                       </p>

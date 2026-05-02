@@ -1,31 +1,61 @@
 import { supabase } from "./supabaseClient";
+import { createNotification } from "./notificationService";
 
+export const SESSION_TYPES = ["training", "instructional", "recreational"];
+
+// ==============================
+// FACILITIES
+// ==============================
 export async function getFacilities() {
   const { data, error } = await supabase
     .from("facilities")
     .select("*")
-    .eq("is_active", true)
-    .order("name", { ascending: true });
+    .order("created_at", { ascending: false });
 
   if (error) throw error;
   return data || [];
 }
 
-export async function getUserBookings(userId) {
+export async function getFacilityById(id) {
+  if (!id) return null;
+
+  const { data, error } = await supabase
+    .from("facilities")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+// ==============================
+// BOOKINGS GETTERS
+// ==============================
+export async function getAllBookings() {
   const { data, error } = await supabase
     .from("bookings")
-    .select(`
-      *,
-      facilities (
-        id,
-        name,
-        type,
-        price,
-        image_url,
-        image_urls,
-        description
-      )
-    `)
+    .select("*, facilities (*)")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getBookings() {
+  return getAllBookings();
+}
+
+export async function fetchBookings() {
+  return getAllBookings();
+}
+
+export async function getUserBookings(userId) {
+  if (!userId) return [];
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*, facilities (*)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -33,56 +63,24 @@ export async function getUserBookings(userId) {
   return data || [];
 }
 
-export async function getAllBookings() {
-  const { data: bookings, error: bookingsError } = await supabase
+export async function getMyBookings(userId) {
+  return getUserBookings(userId);
+}
+
+export async function getPendingBookings() {
+  const { data, error } = await supabase
     .from("bookings")
-    .select(`
-      *,
-      facilities (
-        id,
-        name,
-        type,
-        price,
-        image_url,
-        image_urls,
-        description
-      )
-    `)
+    .select("*, facilities (*)")
+    .eq("status", "pending")
     .order("created_at", { ascending: false });
 
-  if (bookingsError) throw bookingsError;
-
-  const bookingRows = bookings || [];
-
-  const userIds = [
-    ...new Set(bookingRows.map((item) => item.user_id).filter(Boolean)),
-  ];
-
-  if (userIds.length === 0) {
-    return bookingRows.map((item) => ({
-      ...item,
-      profiles: null,
-    }));
-  }
-
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, full_name, role")
-    .in("id", userIds);
-
-  if (profilesError) throw profilesError;
-
-  const profileMap = new Map(
-    (profiles || []).map((profile) => [profile.id, profile])
-  );
-
-  return bookingRows.map((booking) => ({
-    ...booking,
-    profiles: profileMap.get(booking.user_id) || null,
-  }));
+  if (error) throw error;
+  return data || [];
 }
 
 export async function getApprovedBookingsByDate(facilityId, bookingDate) {
+  if (!facilityId || !bookingDate) return [];
+
   const { data, error } = await supabase
     .from("bookings")
     .select("*")
@@ -94,101 +92,220 @@ export async function getApprovedBookingsByDate(facilityId, bookingDate) {
   return data || [];
 }
 
+export async function getAvailableSlots(facilityId, bookingDate) {
+  return getApprovedBookingsByDate(facilityId, bookingDate);
+}
+
+// ==============================
+// NOTIFICATION HELPERS
+// ==============================
+async function notifyStaffAndAdmin({ title, message, type, reference_id }) {
+  const { data: receivers, error } = await supabase
+    .from("profiles")
+    .select("id, role")
+    .in("role", ["staff", "admin"]);
+
+  if (error) throw error;
+
+  await Promise.all(
+    (receivers || []).map((person) =>
+      createNotification({
+        user_id: person.id,
+        target_role: person.role,
+        title,
+        message,
+        type,
+        reference_id,
+      })
+    )
+  );
+}
+
+async function notifyBookingOwner({ userId, title, message, type, reference_id }) {
+  if (!userId) return;
+
+  await createNotification({
+    user_id: userId,
+    target_role: "user",
+    title,
+    message,
+    type,
+    reference_id,
+  });
+}
+
+// ==============================
+// CREATE BOOKING
+// Booking Request = Staff/Admin only
+// ==============================
 export async function createBooking(payload) {
+  const sessionType = payload.session_type || "training";
+
+  if (!SESSION_TYPES.includes(sessionType)) {
+    throw new Error("Invalid session type.");
+  }
+
   const cleanPayload = {
     user_id: payload.user_id,
     facility_id: payload.facility_id,
     booking_date: payload.booking_date,
     start_time: payload.start_time,
     end_time: payload.end_time,
-    session_type: payload.session_type || "facility",
+    session_type: sessionType,
     notes: payload.notes || "",
-    status: "pending",
+    status: payload.status || "pending",
+
     total_hours: Number(payload.total_hours || 0),
     rate_per_hour: Number(payload.rate_per_hour || 0),
-    coach_rate_per_hour: Number(payload.coach_rate_per_hour || 0),
     total_amount: Number(payload.total_amount || 0),
-    includes_coach: payload.includes_coach || false,
+
+    includes_coach: Boolean(payload.includes_coach),
     linked_coach_id: payload.linked_coach_id || null,
+    coach_rate_per_hour: Number(payload.coach_rate_per_hour || 0),
+
+    created_at: new Date().toISOString(),
   };
 
   const { data, error } = await supabase
     .from("bookings")
     .insert([cleanPayload])
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
-  return data;
+
+  const booking = data;
+
+  if (cleanPayload.includes_coach && cleanPayload.linked_coach_id) {
+    const coachPayload = {
+      user_id: cleanPayload.user_id,
+      coach_id: cleanPayload.linked_coach_id,
+      booking_date: cleanPayload.booking_date,
+      start_time: cleanPayload.start_time,
+      end_time: cleanPayload.end_time,
+      session_mode: payload.coach_session_mode || "one_on_one",
+      participants: Number(payload.coach_participants || 1),
+      notes: `Booked with facility booking${booking?.id ? `: ${booking.id}` : ""}`,
+      status: "pending",
+      total_hours: cleanPayload.total_hours,
+      rate_per_hour: cleanPayload.coach_rate_per_hour,
+      total_amount:
+        cleanPayload.total_hours * Number(cleanPayload.coach_rate_per_hour || 0),
+      created_at: new Date().toISOString(),
+    };
+
+    const { error: coachError } = await supabase
+      .from("coach_bookings")
+      .insert([coachPayload]);
+
+    if (coachError) throw coachError;
+  }
+
+  await notifyStaffAndAdmin({
+    title: "New Booking Request",
+    message: cleanPayload.includes_coach
+      ? "A user submitted a facility and coach booking request."
+      : "A user submitted a facility booking request.",
+    type: "booking_request",
+    reference_id: booking?.id || null,
+  });
+
+  return booking;
 }
 
-export async function cancelBooking(bookingId, userId, reason) {
+// ==============================
+// UPDATE / APPROVE / REJECT
+// Booking Update = User only
+// ==============================
+export async function updateBookingStatus(bookingId, status) {
+  if (!bookingId) throw new Error("Booking ID is required.");
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({ status })
+    .eq("id", bookingId)
+    .select("*, facilities (*)")
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const booking = data;
+
+  await notifyBookingOwner({
+    userId: booking?.user_id,
+    title: "Booking Update",
+    message:
+      status === "approved"
+        ? "Your booking has been approved."
+        : status === "rejected"
+        ? "Your booking has been rejected."
+        : status === "cancelled"
+        ? "Your booking has been cancelled."
+        : `Your booking status was updated to ${status}.`,
+    type: "booking_update",
+    reference_id: booking?.id || bookingId,
+  });
+
+  return booking;
+}
+
+export async function approveBooking(bookingId) {
+  return updateBookingStatus(bookingId, "approved");
+}
+
+export async function rejectBooking(bookingId) {
+  return updateBookingStatus(bookingId, "rejected");
+}
+
+// ==============================
+// CANCEL BOOKING
+// User + Staff/Admin
+// ==============================
+export async function cancelBooking(bookingId, userId = null, reason = "") {
+  if (!bookingId) throw new Error("Booking ID is required.");
+
   const { data, error } = await supabase
     .from("bookings")
     .update({
       status: "cancelled",
       cancellation_reason: reason,
-      cancelled_by: userId,
-      cancelled_at: new Date().toISOString(),
     })
     .eq("id", bookingId)
-    .eq("user_id", userId)
-    .eq("status", "pending")
-    .select();
+    .select("*, facilities (*)")
+    .maybeSingle();
 
   if (error) throw error;
 
-  if (!data || data.length === 0) {
-    throw new Error("Only pending bookings can be cancelled.");
-  }
+  const booking = data;
 
-  return data[0];
+  await notifyBookingOwner({
+    userId: userId || booking?.user_id,
+    title: "Booking Cancelled",
+    message: "Your booking cancellation has been recorded.",
+    type: "booking_update",
+    reference_id: booking?.id || bookingId,
+  });
+
+  await notifyStaffAndAdmin({
+    title: "Booking Cancelled",
+    message: reason
+      ? `A user cancelled a booking. Reason: ${reason}`
+      : "A user cancelled a booking.",
+    type: "booking_request",
+    reference_id: booking?.id || bookingId,
+  });
+
+  return booking;
 }
 
-export async function approveBooking(id, reviewedBy) {
-  const { data, error } = await supabase
-    .from("bookings")
-    .update({
-      status: "approved",
-      reviewed_by: reviewedBy || null,
-      reviewed_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .select()
-    .single();
+// ==============================
+// DELETE BOOKING
+// ==============================
+export async function deleteBooking(id) {
+  if (!id) throw new Error("Booking ID is required.");
+
+  const { error } = await supabase.from("bookings").delete().eq("id", id);
 
   if (error) throw error;
-  return data;
-}
-
-export async function rejectBooking(id, reviewedBy) {
-  const { data, error } = await supabase
-    .from("bookings")
-    .update({
-      status: "rejected",
-      reviewed_by: reviewedBy || null,
-      reviewed_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-export async function getBookingStats() {
-  const { data, error } = await supabase.from("bookings").select("status");
-
-  if (error) throw error;
-
-  const rows = data || [];
-
-  return {
-    total: rows.length,
-    approved: rows.filter((item) => item.status === "approved").length,
-    pending: rows.filter((item) => item.status === "pending").length,
-    rejected: rows.filter((item) => item.status === "rejected").length,
-    cancelled: rows.filter((item) => item.status === "cancelled").length,
-  };
+  return true;
 }

@@ -1,247 +1,179 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
-import Card from "../../components/ui/Card";
-import { CardSkeleton } from "../../components/ui/Skeleton";
-import { getInventory } from "../../services/inventoryService";
+import { supabase } from "../../services/supabaseClient";
 
 const PRODUCT_FALLBACK =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600">
-      <rect width="100%" height="100%" fill="#f1f5f9"/>
-      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
-        font-family="Arial" font-size="28" fill="#64748b">Product</text>
-    </svg>
-  `);
-
-const SIZES = ["XS", "S", "M", "L", "XL", "XXL"];
+  "https://via.placeholder.com/400x400?text=No+Image";
 
 function getImage(url) {
-  return url || PRODUCT_FALLBACK;
+  if (!url) return PRODUCT_FALLBACK;
+  return url;
+}
+
+function getProductImages(product) {
+  const images = [
+    ...(Array.isArray(product?.image_urls) ? product.image_urls : []),
+    product?.image_url,
+  ].filter(Boolean);
+
+  return [...new Set(images)].length
+    ? [...new Set(images)]
+    : [PRODUCT_FALLBACK];
 }
 
 export default function Shop() {
   const [products, setProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [selectedImage, setSelectedImage] = useState("");
+  const [selectedImage, setSelectedImage] = useState(null);
   const [selectedSize, setSelectedSize] = useState("");
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadProducts();
+    fetchProducts();
+
+    // 🔥 REALTIME SUBSCRIPTION
+    const channel = supabase
+      .channel("inventory-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "inventory",
+        },
+        (payload) => {
+          console.log("Realtime update:", payload);
+          fetchProducts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  async function loadProducts() {
-    try {
-      setLoading(true);
-      const data = await getInventory();
-      setProducts(data || []);
-    } catch (err) {
-      console.error(err.message);
-    } finally {
-      setLoading(false);
-    }
+  async function fetchProducts() {
+    const { data, error } = await supabase
+      .from("inventory")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (!error) setProducts(data || []);
   }
 
   function openProduct(product) {
+    const images = getProductImages(product);
+
     setSelectedProduct(product);
-    setSelectedImage(getImage(product.image_url));
+    setSelectedImage(getImage(images[0]));
     setSelectedSize("");
   }
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((item) =>
-      `${item.name} ${item.category} ${item.description || ""}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
-    );
-  }, [products, search]);
+  function closeModal() {
+    setSelectedProduct(null);
+    setSelectedImage(null);
+    setSelectedSize("");
+  }
 
   return (
-    <div className="page-shell bg-[#f5f6f8] md:flex">
+    <div className="page-shell">
       <Sidebar role="user" />
 
       <main className="page-main">
         <div className="page-container">
           <Topbar title="Shop" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
-            <p className="text-sm font-medium text-blue-100">
-              InCredoBall Store
-            </p>
-            <h2 className="mt-2 text-3xl font-bold md:text-4xl">
-              Shop sports merchandise.
-            </h2>
-            <p className="mt-3 text-sm text-slate-100">
-              Tap a product to view full details, size options, and price.
-            </p>
-          </div>
+          {/* PRODUCT GRID */}
+          <div className="grid grid-cols-3 gap-4">
+            {products.map((item) => (
+              <div
+                key={item.id}
+                className="bg-white p-4 rounded-xl shadow cursor-pointer hover:scale-105 transition"
+                onClick={() => openProduct(item)}
+              >
+                <img
+                  src={getImage(
+                    item.image_urls?.[0] || item.image_url
+                  )}
+                  className="h-40 w-full object-cover rounded-lg mb-3"
+                />
 
-          <Card>
-            <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-black">Products</h2>
-                <p className="mt-1 text-sm text-black">
-                  Nike-style product browsing.
+                <h3 className="font-bold">{item.name}</h3>
+                <p className="text-sm text-gray-500">{item.category}</p>
+                <p className="font-semibold mt-2">₱{item.price}</p>
+
+                <p className="text-xs mt-1">
+                  {item.status === "in_stock"
+                    ? "In Stock"
+                    : item.status}
                 </p>
               </div>
-
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search product..."
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none focus:border-blue-500 md:w-80"
-              />
-            </div>
-
-            {loading ? (
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                <CardSkeleton />
-                <CardSkeleton />
-                <CardSkeleton />
-                <CardSkeleton />
-              </div>
-            ) : filteredProducts.length === 0 ? (
-              <p className="text-black">No products found.</p>
-            ) : (
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {filteredProducts.map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => openProduct(product)}
-                    className="card-hover overflow-hidden rounded-3xl border border-slate-200 bg-white text-left"
-                  >
-                    <div className="flex h-72 items-center justify-center bg-slate-100">
-                      <img
-                        src={getImage(product.image_url)}
-                        alt={product.name}
-                        className="h-full w-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.src = PRODUCT_FALLBACK;
-                        }}
-                      />
-                    </div>
-
-                    <div className="p-4">
-                      <p className="text-lg font-bold text-black">
-                        {product.name}
-                      </p>
-                      <p className="mt-1 text-sm capitalize text-slate-600">
-                        {product.category}
-                      </p>
-                      <p className="mt-2 line-clamp-2 text-sm text-black">
-                        {product.description || "No description"}
-                      </p>
-                      <p className="mt-3 text-base font-bold text-black">
-                        ₱{Number(product.price || 0).toLocaleString()}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        Stock: {product.quantity || 0}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </Card>
+            ))}
+          </div>
         </div>
-      </main>
 
-      {selectedProduct ? (
-        <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="modal-card h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[32px] bg-white p-5 shadow-2xl md:p-8">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-black">Product Details</h2>
-
-              <button
-                onClick={() => setSelectedProduct(null)}
-                className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-black hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(380px,0.65fr)]">
-              <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-4">
-                <div className="flex max-h-[720px] flex-col gap-3 overflow-y-auto pr-1">
-                  {[
-                    selectedProduct.image_url,
-                    selectedProduct.image_url,
-                    selectedProduct.image_url,
-                    selectedProduct.image_url,
-                  ].map((img, index) => (
+        {/* MODAL */}
+        {selectedProduct && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white w-[90%] max-w-5xl rounded-2xl p-6 flex gap-6">
+              {/* LEFT */}
+              <div className="flex gap-4">
+                <div className="flex flex-col gap-2">
+                  {getProductImages(selectedProduct).map((img, i) => (
                     <button
-                      key={index}
-                      type="button"
+                      key={i}
                       onClick={() => setSelectedImage(getImage(img))}
-                      className={`h-20 w-20 overflow-hidden rounded-xl border bg-slate-100 ${
+                      className={`h-16 w-16 rounded-lg overflow-hidden border ${
                         selectedImage === getImage(img)
                           ? "border-black"
-                          : "border-slate-200"
+                          : "border-gray-200"
                       }`}
                     >
                       <img
                         src={getImage(img)}
-                        alt={selectedProduct.name}
                         className="h-full w-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.src = PRODUCT_FALLBACK;
-                        }}
                       />
                     </button>
                   ))}
                 </div>
 
-                <div className="relative flex min-h-[560px] items-center justify-center rounded-2xl bg-[#f3f4f6]">
+                <div className="w-[400px] h-[400px] bg-gray-100 rounded-xl flex items-center justify-center">
                   <img
                     src={selectedImage}
-                    alt={selectedProduct.name}
-                    className="h-full max-h-[680px] w-full rounded-2xl object-contain p-6"
-                    onError={(e) => {
-                      e.currentTarget.src = PRODUCT_FALLBACK;
-                    }}
+                    className="max-h-full max-w-full object-contain"
                   />
                 </div>
               </div>
 
-              <div className="lg:sticky lg:top-6 lg:self-start">
-                <h1 className="text-3xl font-bold text-black">
+              {/* RIGHT */}
+              <div className="flex-1">
+                <h2 className="text-2xl font-bold">
                   {selectedProduct.name}
-                </h1>
-
-                <p className="mt-1 text-lg capitalize text-slate-600">
+                </h2>
+                <p className="text-gray-500 mb-2">
                   {selectedProduct.category}
                 </p>
 
-                <p className="mt-5 text-xl font-bold text-black">
-                  ₱{Number(selectedProduct.price || 0).toLocaleString()}
+                <p className="text-xl font-semibold mb-3">
+                  ₱{selectedProduct.price}
                 </p>
 
-                <p className="mt-5 text-sm leading-7 text-black">
-                  {selectedProduct.description || "No product description yet."}
-                </p>
+                <p className="mb-4">{selectedProduct.description}</p>
 
-                <div className="mt-8">
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="font-bold text-black">Select Size</p>
-                    <p className="text-sm font-semibold text-black">
-                      📏 Size Guide
-                    </p>
-                  </div>
+                {/* SIZE */}
+                <div className="mb-4">
+                  <p className="font-semibold mb-2">Select Size</p>
 
-                  <div className="grid grid-cols-3 gap-3">
-                    {SIZES.map((size) => (
+                  <div className="grid grid-cols-3 gap-2">
+                    {["XS", "S", "M", "L", "XL", "XXL"].map((size) => (
                       <button
                         key={size}
-                        type="button"
                         onClick={() => setSelectedSize(size)}
-                        className={`rounded-xl border px-4 py-4 text-base font-semibold transition ${
+                        className={`border rounded-lg p-2 ${
                           selectedSize === size
-                            ? "border-black bg-black text-white"
-                            : "border-slate-300 bg-white text-black hover:border-black"
+                            ? "bg-black text-white"
+                            : ""
                         }`}
                       >
                         {size}
@@ -250,57 +182,43 @@ export default function Shop() {
                   </div>
                 </div>
 
-                <div className="mt-8 space-y-3">
-                  <button
-                    type="button"
-                    disabled={
-                      !selectedSize || Number(selectedProduct.quantity || 0) <= 0
-                    }
-                    className="w-full rounded-full bg-black px-6 py-5 text-base font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    {Number(selectedProduct.quantity || 0) <= 0
-                      ? "Out of Stock"
-                      : selectedSize
-                      ? "Add to Bag"
-                      : "Select Size First"}
-                  </button>
+                <button
+                  disabled={!selectedSize}
+                  className={`w-full p-3 rounded-xl ${
+                    selectedSize
+                      ? "bg-black text-white"
+                      : "bg-gray-300"
+                  }`}
+                >
+                  {selectedSize ? "Add to Cart" : "Select Size First"}
+                </button>
 
-                  <button
-                    type="button"
-                    className="w-full rounded-full border border-slate-300 bg-white px-6 py-5 text-base font-bold text-black transition hover:border-black"
-                  >
-                    Favourite ♡
-                  </button>
+                {/* INFO */}
+                <div className="mt-6 text-sm">
+                  <p>
+                    Stock: <b>{selectedProduct.quantity}</b>
+                  </p>
+                  <p>
+                    Status:{" "}
+                    <b>
+                      {selectedProduct.status === "in_stock"
+                        ? "In Stock"
+                        : selectedProduct.status}
+                    </b>
+                  </p>
                 </div>
 
-                <div className="mt-8 rounded-3xl bg-slate-50 p-5 text-sm text-black">
-                  <div className="flex justify-between border-b border-slate-200 pb-3">
-                    <span>Stock</span>
-                    <span className="font-bold">
-                      {selectedProduct.quantity || 0}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between border-b border-slate-200 py-3">
-                    <span>Status</span>
-                    <span className="font-bold capitalize">
-                      {selectedProduct.status?.replaceAll("_", " ") ||
-                        "Available"}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between pt-3">
-                    <span>Category</span>
-                    <span className="font-bold capitalize">
-                      {selectedProduct.category}
-                    </span>
-                  </div>
-                </div>
+                <button
+                  onClick={closeModal}
+                  className="mt-4 w-full border p-3 rounded-xl"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        )}
+      </main>
     </div>
   );
 }

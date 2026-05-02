@@ -1,271 +1,274 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
-import Card from "../../components/ui/Card";
 import { supabase } from "../../services/supabaseClient";
-import { getAllBookings } from "../../services/bookingService";
-import { getAllCoachBookings } from "../../services/coachingService";
-import { getInventory } from "../../services/inventoryService";
-import { getMaintenanceRequests } from "../../services/maintenanceService";
 
 export default function StaffDashboard() {
-  const [bookingCount, setBookingCount] = useState(0);
-  const [coachingCount, setCoachingCount] = useState(0);
-  const [lowStockCount, setLowStockCount] = useState(0);
-  const [maintenanceCount, setMaintenanceCount] = useState(0);
+  const channelRef = useRef(null);
+  const intervalRef = useRef(null);
 
-  const [recentBookings, setRecentBookings] = useState([]);
-  const [recentMaintenance, setRecentMaintenance] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  const [stats, setStats] = useState({
+    facility: 0,
+    coaching: 0,
+    inventory: 0,
+    maintenance: 0,
+  });
+
+  const [recentBookings, setRecentBookings] = useState([]);
+  const [maintenanceAlerts, setMaintenanceAlerts] = useState([]);
 
   useEffect(() => {
-    const channel = supabase
-      .channel("staff-dashboard-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "bookings" },
-        () => loadDashboardData()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "coach_bookings" },
-        () => loadDashboardData()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "inventory" },
-        () => loadDashboardData()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "maintenance_requests" },
-        () => loadDashboardData()
-      )
-      .subscribe();
+    let mounted = true;
+
+    async function startRealtimeDashboard() {
+      await loadDashboardData(mounted);
+
+      if (channelRef.current) {
+        await supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+
+      const channel = supabase
+        .channel(`staff-dashboard-realtime-${Date.now()}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "bookings" },
+          () => loadDashboardData(mounted)
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "coach_bookings" },
+          () => loadDashboardData(mounted)
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "inventory" },
+          () => loadDashboardData(mounted)
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "maintenance_requests" },
+          () => loadDashboardData(mounted)
+        )
+        .subscribe();
+
+      channelRef.current = channel;
+
+      intervalRef.current = setInterval(() => {
+        loadDashboardData(mounted);
+      }, 3000);
+    }
+
+    startRealtimeDashboard();
 
     return () => {
-      supabase.removeChannel(channel);
+      mounted = false;
+
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     };
   }, []);
 
-  async function loadDashboardData() {
+  async function loadDashboardData(mounted = true) {
     try {
-      setLoading(true);
+      if (mounted) setLoading(true);
 
-      const [bookings, coachBookings, inventory, maintenance] =
-        await Promise.all([
-          getAllBookings(),
-          getAllCoachBookings(),
-          getInventory(),
-          getMaintenanceRequests(),
-        ]);
+      const [
+        pendingFacility,
+        pendingCoaching,
+        inventoryItems,
+        maintenanceOpen,
+        recentPendingBookings,
+        activeMaintenance,
+      ] = await Promise.all([
+        supabase
+          .from("bookings")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending"),
 
-      const pendingBookings =
-        (bookings || []).filter((item) => item.status === "pending") || [];
+        supabase
+          .from("coach_bookings")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending"),
 
-      const pendingCoachBookings =
-        (coachBookings || []).filter((item) => item.status === "pending") || [];
+        supabase
+          .from("inventory")
+          .select("*", { count: "exact", head: true }),
 
-      const lowStockItems =
-        (inventory || []).filter(
-          (item) =>
-            item.status === "low_stock" || item.status === "out_of_stock"
-        ) || [];
+        supabase
+          .from("maintenance_requests")
+          .select("*", { count: "exact", head: true })
+          .in("status", ["pending", "open", "in_progress"]),
 
-      const activeMaintenance =
-        (maintenance || []).filter(
-          (item) =>
-            item.status === "pending" ||
-            item.status === "in_progress" ||
-            item.status === "replacement_requested"
-        ) || [];
+        supabase
+          .from("bookings")
+          .select("*, facilities (*)")
+          .eq("status", "pending")
+          .order("created_at", { ascending: false })
+          .limit(5),
 
-      setBookingCount(pendingBookings.length);
-      setCoachingCount(pendingCoachBookings.length);
-      setLowStockCount(lowStockItems.length);
-      setMaintenanceCount(activeMaintenance.length);
+        supabase
+          .from("maintenance_requests")
+          .select("*")
+          .in("status", ["pending", "open", "in_progress"])
+          .order("created_at", { ascending: false })
+          .limit(5),
+      ]);
 
-      setRecentBookings(pendingBookings.slice(0, 5));
-      setRecentMaintenance(activeMaintenance.slice(0, 5));
+      if (!mounted) return;
+
+      setStats({
+        facility: pendingFacility.count || 0,
+        coaching: pendingCoaching.count || 0,
+        inventory: inventoryItems.count || 0,
+        maintenance: maintenanceOpen.count || 0,
+      });
+
+      setRecentBookings(recentPendingBookings.data || []);
+      setMaintenanceAlerts(activeMaintenance.data || []);
     } catch (error) {
-      console.error("Failed to load staff dashboard:", error.message);
+      console.error("Staff dashboard update error:", error.message);
     } finally {
-      setLoading(false);
+      if (mounted) setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8] md:flex">
+    <div className="page-shell">
       <Sidebar role="staff" />
 
-      <main className="flex-1 p-4 md:p-6">
-        <div className="mx-auto max-w-[1500px]">
-          <Topbar title="Staff Dashboard" />
+      <main className="page-main">
+        <div className="page-container">
+          <Topbar title="Dashboard" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-blue-700 p-6 text-white shadow-[0_18px_45px_rgba(15,23,42,0.22)] md:p-8">
-            <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+          <section className="mb-6 rounded-[28px] bg-gradient-to-br from-blue-700 to-blue-500 p-8 text-white">
+            <div className="flex items-center justify-between gap-6">
               <div>
-                <p className="text-sm font-medium text-blue-100">
-                  Operations Control Center
-                </p>
-                <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
+                <p className="text-sm font-semibold">Operations Control Center</p>
+
+                <h2 className="mt-2 text-3xl font-black">
                   Review requests and keep daily operations moving.
                 </h2>
-                <p className="mt-3 max-w-2xl text-sm text-slate-200 md:text-base">
-                  Monitor pending approvals, low stock alerts, and maintenance
-                  issues in one unified dashboard.
+
+                <p className="mt-2 text-sm text-blue-50">
+                  Monitor approvals, alerts, and issues.
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 md:w-[360px]">
-                <div className="rounded-2xl bg-white/10 p-4 backdrop-blur">
-                  <p className="text-xs uppercase tracking-[0.18em] text-blue-100">
+              <div className="hidden gap-4 md:flex">
+                <div className="rounded-2xl bg-white/10 px-6 py-4">
+                  <p className="text-xs font-bold uppercase tracking-widest">
                     Pending
                   </p>
-                  <p className="mt-2 text-2xl font-bold">{bookingCount}</p>
-                  <p className="text-xs text-blue-100">Facility requests</p>
+                  <p className="text-2xl font-black">{stats.facility}</p>
                 </div>
 
-                <div className="rounded-2xl bg-white/10 p-4 backdrop-blur">
-                  <p className="text-xs uppercase tracking-[0.18em] text-blue-100">
+                <div className="rounded-2xl bg-white/10 px-6 py-4">
+                  <p className="text-xs font-bold uppercase tracking-widest">
                     Coaching
                   </p>
-                  <p className="mt-2 text-2xl font-bold">{coachingCount}</p>
-                  <p className="text-xs text-blue-100">Pending reviews</p>
+                  <p className="text-2xl font-black">{stats.coaching}</p>
                 </div>
               </div>
             </div>
-          </div>
+          </section>
 
-          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card>
-              <p className="text-sm text-slate-500">Pending Facility Bookings</p>
-              <h2 className="mt-2 text-3xl font-bold text-slate-900">
-                {loading ? "..." : bookingCount}
-              </h2>
-              <p className="mt-2 text-xs text-slate-400">
-                New member requests awaiting action
-              </p>
-            </Card>
+          <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+            <StatCard title="Facility" value={stats.facility} />
+            <StatCard title="Coaching" value={stats.coaching} />
+            <StatCard title="Inventory" value={stats.inventory} />
+            <StatCard title="Maintenance" value={stats.maintenance} />
+          </section>
 
-            <Card>
-              <p className="text-sm text-slate-500">Pending Coaching Requests</p>
-              <h2 className="mt-2 text-3xl font-bold text-slate-900">
-                {loading ? "..." : coachingCount}
-              </h2>
-              <p className="mt-2 text-xs text-slate-400">
-                Review coach session submissions
-              </p>
-            </Card>
-
-            <Card>
-              <p className="text-sm text-slate-500">Low Stock Alerts</p>
-              <h2 className="mt-2 text-3xl font-bold text-slate-900">
-                {loading ? "..." : lowStockCount}
-              </h2>
-              <p className="mt-2 text-xs text-slate-400">
-                Inventory requires attention
-              </p>
-            </Card>
-
-            <Card>
-              <p className="text-sm text-slate-500">Active Maintenance Issues</p>
-              <h2 className="mt-2 text-3xl font-bold text-slate-900">
-                {loading ? "..." : maintenanceCount}
-              </h2>
-              <p className="mt-2 text-xs text-slate-400">
-                Open repairs and replacements
-              </p>
-            </Card>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-            <Card>
-              <div className="mb-5">
-                <h3 className="text-xl font-bold text-slate-900">
-                  Recent Pending Bookings
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Requests that need review right now.
-                </p>
-              </div>
+          <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="rounded-[24px] bg-white p-6 shadow-sm">
+              <h3 className="text-lg font-black">Recent Bookings</h3>
 
               {loading ? (
-                <p className="text-slate-500">Loading pending bookings...</p>
+                <p className="mt-4 text-sm text-slate-500">Updating...</p>
               ) : recentBookings.length === 0 ? (
-                <p className="text-slate-500">No pending facility bookings.</p>
+                <p className="mt-4 text-sm text-slate-500">
+                  No pending bookings.
+                </p>
               ) : (
-                <div className="space-y-3">
+                <div className="mt-4 space-y-3">
                   {recentBookings.map((booking) => (
                     <div
                       key={booking.id}
                       className="rounded-2xl border border-slate-200 p-4"
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-semibold text-slate-900">
-                            {booking.facilities?.name || "Facility"}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {booking.booking_date} • {booking.start_time} - {booking.end_time}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700">
-                          {booking.status}
-                        </span>
-                      </div>
+                      <h4 className="font-bold">
+                        {booking.facilities?.name || "Facility Booking"}
+                      </h4>
+
+                      <p className="text-sm text-slate-500">
+                        {booking.booking_date} • {booking.start_time} -{" "}
+                        {booking.end_time}
+                      </p>
+
+                      <p className="mt-1 text-xs font-bold uppercase text-orange-500">
+                        {booking.status}
+                      </p>
                     </div>
                   ))}
                 </div>
               )}
-            </Card>
+            </div>
 
-            <Card>
-              <div className="mb-5">
-                <h3 className="text-xl font-bold text-slate-900">
-                  Maintenance Alerts
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Open issues currently affecting operations.
-                </p>
-              </div>
+            <div className="rounded-[24px] bg-white p-6 shadow-sm">
+              <h3 className="text-lg font-black">Maintenance Alerts</h3>
 
               {loading ? (
-                <p className="text-slate-500">Loading maintenance alerts...</p>
-              ) : recentMaintenance.length === 0 ? (
-                <p className="text-slate-500">No active maintenance issues.</p>
+                <p className="mt-4 text-sm text-slate-500">Updating...</p>
+              ) : maintenanceAlerts.length === 0 ? (
+                <p className="mt-4 text-sm text-slate-500">No issues found.</p>
               ) : (
-                <div className="space-y-3">
-                  {recentMaintenance.map((request) => (
+                <div className="mt-4 space-y-3">
+                  {maintenanceAlerts.map((item) => (
                     <div
-                      key={request.id}
+                      key={item.id}
                       className="rounded-2xl border border-slate-200 p-4"
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-semibold text-slate-900">
-                            {request.item_name}
-                          </p>
-                          <p className="mt-1 text-sm capitalize text-slate-500">
-                            {request.request_type.replaceAll("_", " ")} • {request.priority}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold capitalize text-red-700">
-                          {request.status.replaceAll("_", " ")}
-                        </span>
-                      </div>
+                      <h4 className="font-bold">
+                        {item.title ||
+                          item.issue ||
+                          item.request_type ||
+                          "Maintenance Request"}
+                      </h4>
+
+                      <p className="text-sm text-slate-500">
+                        {item.description || item.details || "No description"}
+                      </p>
+
+                      <p className="mt-1 text-xs font-bold uppercase text-orange-500">
+                        {item.status}
+                      </p>
                     </div>
                   ))}
                 </div>
               )}
-            </Card>
-          </div>
+            </div>
+          </section>
         </div>
       </main>
+    </div>
+  );
+}
+
+function StatCard({ title, value }) {
+  return (
+    <div className="rounded-2xl bg-white p-5 shadow-sm">
+      <p className="text-sm text-slate-500">{title}</p>
+      <h3 className="mt-2 text-2xl font-black text-slate-950">{value}</h3>
     </div>
   );
 }
