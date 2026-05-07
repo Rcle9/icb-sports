@@ -1,355 +1,372 @@
 import { useEffect, useMemo, useState } from "react";
-import Sidebar from "../../components/layout/Sidebar";
-import Topbar from "../../components/layout/Topbar";
-import Card from "../../components/ui/Card";
-import { supabase } from "../../services/supabaseClient";
 import {
-  ResponsiveContainer,
   LineChart,
   Line,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
 } from "recharts";
+import Sidebar from "../../components/layout/Sidebar";
+import Topbar from "../../components/layout/Topbar";
+import { supabase } from "../../services/supabaseClient";
+
+const FACILITY_COLORS = [
+  "#C97B6C",
+  "#16a34a",
+  "#dc2626",
+  "#f97316",
+  "#7c3aed",
+  "#0891b2",
+  "#db2777",
+  "#65a30d",
+];
 
 function formatDateLabel(dateString) {
+  if (!dateString) return "Unknown";
+
   const date = new Date(dateString);
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
 }
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState({
-    users: 0,
-    staff: 0,
-    admins: 0,
-    facilities: 0,
-    bookings: 0,
-    approvedBookings: 0,
-    pendingBookings: 0,
-    rejectedBookings: 0,
-    coachBookings: 0,
-    pendingCoachBookings: 0,
-    inventoryItems: 0,
-    lowStockItems: 0,
-    maintenanceOpen: 0,
-  });
-
-  const [bookingTrend, setBookingTrend] = useState([]);
-  const [facilityUsage, setFacilityUsage] = useState([]);
-  const [bookingStatusData, setBookingStatusData] = useState([]);
-  const [maintenancePriorityData, setMaintenancePriorityData] = useState([]);
-  const [recentLogs, setRecentLogs] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [coachBookings, setCoachBookings] = useState([]);
+  const [maintenance, setMaintenance] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadDashboard();
+
     const channel = supabase
-      .channel("admin-dashboard-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, loadDashboard)
-      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, loadDashboard)
-      .on("postgres_changes", { event: "*", schema: "public", table: "coach_bookings" }, loadDashboard)
-      .on("postgres_changes", { event: "*", schema: "public", table: "facilities" }, loadDashboard)
-      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, loadDashboard)
-      .on("postgres_changes", { event: "*", schema: "public", table: "maintenance_requests" }, loadDashboard)
+      .channel(`admin-dashboard-live-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookings" },
+        () => loadDashboard()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "coach_bookings" },
+        () => loadDashboard()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "maintenance_requests" },
+        () => loadDashboard()
+      )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   async function loadDashboard() {
     try {
       setLoading(true);
 
-      const [
-        profilesRes,
-        facilitiesRes,
-        bookingsRes,
-        coachBookingsRes,
-        inventoryRes,
-        maintenanceRes,
-      ] = await Promise.all([
-        supabase.from("profiles").select("*"),
-        supabase.from("facilities").select("*"),
-        supabase.from("bookings").select(`*, facilities (id, name, type)`),
-        supabase.from("coach_bookings").select("*"),
-        supabase.from("inventory").select("*"),
-        supabase.from("maintenance_requests").select("*"),
-      ]);
+      const [bookingsRes, coachRes, maintenanceRes, usersRes] =
+        await Promise.all([
+          supabase
+            .from("bookings")
+            .select("*, facilities (*)")
+            .order("booking_date", { ascending: true }),
 
-      const profiles = profilesRes.data || [];
-      const facilities = facilitiesRes.data || [];
-      const bookings = bookingsRes.data || [];
-      const coachBookings = coachBookingsRes.data || [];
-      const inventory = inventoryRes.data || [];
-      const maintenance = maintenanceRes.data || [];
+          supabase
+            .from("coach_bookings")
+            .select("*")
+            .order("booking_date", { ascending: true }),
 
-      setStats({
-        users: profiles.filter((p) => p.role === "user").length,
-        staff: profiles.filter((p) => p.role === "staff").length,
-        admins: profiles.filter((p) => p.role === "admin").length,
-        facilities: facilities.length,
-        bookings: bookings.length,
-        approvedBookings: bookings.filter((b) => b.status === "approved").length,
-        pendingBookings: bookings.filter((b) => b.status === "pending").length,
-        rejectedBookings: bookings.filter((b) => b.status === "rejected").length,
-        coachBookings: coachBookings.length,
-        pendingCoachBookings: coachBookings.filter((b) => b.status === "pending").length,
-        inventoryItems: inventory.length,
-        lowStockItems: inventory.filter((i) => i.status === "low_stock" || i.status === "out_of_stock").length,
-        maintenanceOpen: maintenance.filter((m) =>
-          m.status === "pending" || m.status === "in_progress" || m.status === "replacement_requested"
-        ).length,
-      });
+          supabase
+            .from("maintenance_requests")
+            .select("*")
+            .order("created_at", { ascending: false }),
 
-      const groupedTrend = {};
-      bookings.forEach((booking) => {
-        const key = booking.booking_date || booking.created_at?.split("T")[0];
-        if (!key) return;
-        groupedTrend[key] = (groupedTrend[key] || 0) + 1;
-      });
+          supabase.from("profiles").select("*"),
+        ]);
 
-      setBookingTrend(
-        Object.keys(groupedTrend)
-          .sort((a, b) => new Date(a) - new Date(b))
-          .slice(-7)
-          .map((date) => ({
-            date: formatDateLabel(date),
-            bookings: groupedTrend[date],
-          }))
-      );
-
-      const groupedFacility = {};
-      bookings.forEach((booking) => {
-        const name = booking.facilities?.name || "Unknown";
-        groupedFacility[name] = (groupedFacility[name] || 0) + 1;
-      });
-
-      setFacilityUsage(
-        Object.keys(groupedFacility).map((name) => ({
-          name,
-          bookings: groupedFacility[name],
-        }))
-      );
-
-      setBookingStatusData([
-        { name: "Approved", value: bookings.filter((b) => b.status === "approved").length },
-        { name: "Pending", value: bookings.filter((b) => b.status === "pending").length },
-        { name: "Rejected", value: bookings.filter((b) => b.status === "rejected").length },
-      ]);
-
-      const priority = { low: 0, medium: 0, high: 0, critical: 0 };
-      maintenance.forEach((m) => {
-        if (priority[m.priority] !== undefined) priority[m.priority] += 1;
-      });
-
-      setMaintenancePriorityData([
-        { name: "Low", value: priority.low },
-        { name: "Medium", value: priority.medium },
-        { name: "High", value: priority.high },
-        { name: "Critical", value: priority.critical },
-      ]);
-
-      setRecentLogs(
-        [
-          ...bookings.slice(-4).map((item) => ({
-            type: "Facility Booking",
-            text: `Booking ${item.status} on ${item.booking_date}`,
-            date: item.created_at,
-          })),
-          ...coachBookings.slice(-3).map((item) => ({
-            type: "Coaching",
-            text: `Coaching request ${item.status}`,
-            date: item.created_at,
-          })),
-          ...maintenance.slice(-3).map((item) => ({
-            type: "Maintenance",
-            text: `${item.item_name} is ${item.status.replaceAll("_", " ")}`,
-            date: item.created_at,
-          })),
-          ...inventory.slice(-2).map((item) => ({
-            type: "Inventory",
-            text: `${item.name} stock status is ${item.status.replaceAll("_", " ")}`,
-            date: item.created_at,
-          })),
-        ]
-          .filter((log) => log.date)
-          .sort((a, b) => new Date(b.date) - new Date(a.date))
-          .slice(0, 8)
-      );
+      setBookings(bookingsRes.data || []);
+      setCoachBookings(coachRes.data || []);
+      setMaintenance(maintenanceRes.data || []);
+      setUsers(usersRes.data || []);
+    } catch (error) {
+      console.error("Admin dashboard error:", error.message);
     } finally {
       setLoading(false);
     }
   }
 
-  const pieColors = useMemo(() => ["#16a34a", "#f59e0b", "#dc2626", "#2563eb"], []);
+  const facilityNames = useMemo(() => {
+    const names = bookings.map(
+      (booking) => booking.facilities?.name || "Unknown Facility"
+    );
+
+    return [...new Set(names)];
+  }, [bookings]);
+
+  const bookingTrendByFacility = useMemo(() => {
+    const grouped = {};
+
+    bookings.forEach((booking) => {
+      const dateKey = booking.booking_date || "Unknown";
+      const dateLabel = formatDateLabel(dateKey);
+      const facilityName = booking.facilities?.name || "Unknown Facility";
+
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = {
+          date: dateLabel,
+          rawDate: dateKey,
+        };
+
+        facilityNames.forEach((name) => {
+          grouped[dateKey][name] = 0;
+        });
+      }
+
+      grouped[dateKey][facilityName] =
+        Number(grouped[dateKey][facilityName] || 0) + 1;
+    });
+
+    return Object.values(grouped).sort(
+      (a, b) => new Date(a.rawDate) - new Date(b.rawDate)
+    );
+  }, [bookings, facilityNames]);
+
+  const facilityUsage = useMemo(() => {
+    const grouped = {};
+
+    bookings.forEach((booking) => {
+      const facilityName = booking.facilities?.name || "Unknown Facility";
+
+      grouped[facilityName] = (grouped[facilityName] || 0) + 1;
+    });
+
+    return Object.entries(grouped).map(([name, count]) => ({
+      name,
+      bookings: count,
+    }));
+  }, [bookings]);
+
+  const bookingStatus = useMemo(() => {
+    const approved = bookings.filter((b) => b.status === "approved").length;
+    const pending = bookings.filter((b) => b.status === "pending").length;
+    const rejected = bookings.filter((b) => b.status === "rejected").length;
+
+    return [
+      { name: "Approved", value: approved, color: "#16a34a" },
+      { name: "Pending", value: pending, color: "#f59e0b" },
+      { name: "Rejected", value: rejected, color: "#dc2626" },
+    ];
+  }, [bookings]);
+
+  const maintenancePriority = useMemo(() => {
+    const critical = maintenance.filter((m) => m.priority === "critical").length;
+    const high = maintenance.filter((m) => m.priority === "high").length;
+    const medium = maintenance.filter((m) => m.priority === "medium").length;
+    const low = maintenance.filter((m) => m.priority === "low").length;
+
+    return [
+      { name: "Critical", value: critical, color: "#C97B6C" },
+      { name: "High", value: high, color: "#dc2626" },
+      { name: "Medium", value: medium, color: "#f59e0b" },
+      { name: "Low", value: low, color: "#16a34a" },
+    ];
+  }, [maintenance]);
+
+  const stats = useMemo(() => {
+    return {
+      users: users.length,
+      staff: users.filter((u) => u.role === "staff").length,
+      admins: users.filter((u) => u.role === "admin").length,
+      bookings: bookings.length,
+      approved: bookings.filter((b) => b.status === "approved").length,
+      pending: bookings.filter((b) => b.status === "pending").length,
+      coachRequests: coachBookings.length,
+      pendingCoach: coachBookings.filter((b) => b.status === "pending").length,
+      openMaintenance: maintenance.filter((m) =>
+        ["pending", "open", "in_progress"].includes(m.status)
+      ).length,
+    };
+  }, [users, bookings, coachBookings, maintenance]);
 
   return (
-    <div className="page-shell bg-[#f5f6f8] md:flex">
+    <div className="page-shell">
       <Sidebar role="admin" />
 
       <main className="page-main">
         <div className="page-container">
           <Topbar title="Admin Dashboard" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
-            <p className="text-sm font-medium text-blue-100">Executive System Overview</p>
-            <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
-              Monitor the entire InCredoBall ecosystem.
+          <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white">
+            <p className="text-sm font-semibold">Admin Analytics</p>
+            <h2 className="mt-2 text-3xl font-black">
+              Track booking trends, facility usage, and system activity.
             </h2>
-          </div>
+            <p className="mt-2 text-sm text-blue-50">
+              Facility booking trends are now separated by facility using
+              different colors.
+            </p>
+          </section>
 
-          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card>
-              <p className="text-sm text-black">Users</p>
-              <h2 className="mt-2 text-3xl font-bold text-black">
-                {loading ? "..." : stats.users}
-              </h2>
-              <p className="mt-2 text-xs text-slate-700">
-                Staff: {stats.staff} • Admins: {stats.admins}
-              </p>
-            </Card>
+          <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+            <StatCard
+              title="Users"
+              value={stats.users}
+              sub={`Staff: ${stats.staff} • Admins: ${stats.admins}`}
+            />
+            <StatCard
+              title="Facility Bookings"
+              value={stats.bookings}
+              sub={`Approved: ${stats.approved} • Pending: ${stats.pending}`}
+            />
+            <StatCard
+              title="Coach Requests"
+              value={stats.coachRequests}
+              sub={`Pending: ${stats.pendingCoach}`}
+            />
+            <StatCard
+              title="Open Maintenance"
+              value={stats.openMaintenance}
+              sub="Active repair requests"
+            />
+          </section>
 
-            <Card>
-              <p className="text-sm text-black">Facility Bookings</p>
-              <h2 className="mt-2 text-3xl font-bold text-black">
-                {loading ? "..." : stats.bookings}
-              </h2>
-              <p className="mt-2 text-xs text-slate-700">
-                Approved: {stats.approvedBookings} • Pending: {stats.pendingBookings}
-              </p>
-            </Card>
+          {loading ? (
+            <div className="rounded-[28px] bg-white p-8 shadow-sm">
+              Loading dashboard...
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
+              <section className="rounded-[28px] bg-white p-6 shadow-sm">
+                <h3 className="text-2xl font-black text-slate-950">
+                  Booking Trend by Facility
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Each color represents a different facility.
+                </p>
 
-            <Card>
-              <p className="text-sm text-black">Coach Requests</p>
-              <h2 className="mt-2 text-3xl font-bold text-black">
-                {loading ? "..." : stats.coachBookings}
-              </h2>
-              <p className="mt-2 text-xs text-slate-700">
-                Pending: {stats.pendingCoachBookings}
-              </p>
-            </Card>
+                <div className="mt-6 h-[360px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={bookingTrendByFacility}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Legend />
 
-            <Card>
-              <p className="text-sm text-black">Open Maintenance</p>
-              <h2 className="mt-2 text-3xl font-bold text-black">
-                {loading ? "..." : stats.maintenanceOpen}
-              </h2>
-              <p className="mt-2 text-xs text-slate-700">
-                Inventory alerts: {stats.lowStockItems}
-              </p>
-            </Card>
-          </div>
-
-          <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <Card className="xl:col-span-2 chart-wrap">
-              <h3 className="mb-4 text-xl font-bold text-black">Booking Trend</h3>
-              <div style={{ width: "100%", height: 320 }}>
-                <ResponsiveContainer>
-                  <LineChart data={bookingTrend}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="bookings"
-                      stroke="#2563eb"
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-
-            <Card className="chart-wrap">
-              <h3 className="mb-4 text-xl font-bold text-black">Booking Status</h3>
-              <div style={{ width: "100%", height: 320 }}>
-                <ResponsiveContainer>
-                  <PieChart>
-                    <Pie data={bookingStatusData} dataKey="value" nameKey="name" outerRadius={100} label>
-                      {bookingStatusData.map((entry, index) => (
-                        <Cell key={entry.name} fill={pieColors[index % pieColors.length]} />
+                      {facilityNames.map((facilityName, index) => (
+                        <Line
+                          key={facilityName}
+                          type="monotone"
+                          dataKey={facilityName}
+                          name={facilityName}
+                          stroke={FACILITY_COLORS[index % FACILITY_COLORS.length]}
+                          strokeWidth={3}
+                          dot={{ r: 4 }}
+                          activeDot={{ r: 7 }}
+                        />
                       ))}
-                    </Pie>
-                    <Tooltip />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-          </div>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
 
-          <div className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <Card className="xl:col-span-2 chart-wrap">
-              <h3 className="mb-4 text-xl font-bold text-black">Facility Usage</h3>
-              <div style={{ width: "100%", height: 320 }}>
-                <ResponsiveContainer>
-                  <BarChart data={facilityUsage}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="bookings" fill="#2563eb" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
+              <section className="rounded-[28px] bg-white p-6 shadow-sm">
+                <h3 className="text-2xl font-black text-slate-950">
+                  Booking Status
+                </h3>
 
-            <Card className="chart-wrap">
-              <h3 className="mb-4 text-xl font-bold text-black">Maintenance Priority</h3>
-              <div style={{ width: "100%", height: 320 }}>
-                <ResponsiveContainer>
-                  <PieChart>
-                    <Pie data={maintenancePriorityData} dataKey="value" nameKey="name" outerRadius={100} label>
-                      {maintenancePriorityData.map((entry, index) => (
-                        <Cell key={entry.name} fill={pieColors[index % pieColors.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-          </div>
+                <div className="mt-6 h-[360px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={bookingStatus}
+                        dataKey="value"
+                        nameKey="name"
+                        outerRadius={120}
+                        label
+                      >
+                        {bookingStatus.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
 
-          <Card>
-            <h3 className="mb-4 text-xl font-bold text-black">Recent System Activity</h3>
-            {recentLogs.length === 0 ? (
-              <p className="text-black">No recent activity found.</p>
-            ) : (
-              <div className="space-y-3">
-                {recentLogs.map((log, index) => (
-                  <div key={`${log.type}-${index}`} className="rounded-2xl border border-slate-200 p-4">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <p className="font-semibold text-black">{log.type}</p>
-                        <p className="mt-1 text-sm text-black">{log.text}</p>
-                      </div>
-                      <p className="text-xs text-slate-700">
-                        {new Date(log.date).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+              <section className="rounded-[28px] bg-white p-6 shadow-sm">
+                <h3 className="text-2xl font-black text-slate-950">
+                  Facility Usage
+                </h3>
+
+                <div className="mt-6 h-[360px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={facilityUsage}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="bookings" name="Bookings" fill="#C97B6C" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+
+              <section className="rounded-[28px] bg-white p-6 shadow-sm">
+                <h3 className="text-2xl font-black text-slate-950">
+                  Maintenance Priority
+                </h3>
+
+                <div className="mt-6 h-[360px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={maintenancePriority}
+                        dataKey="value"
+                        nameKey="name"
+                        outerRadius={120}
+                        label
+                      >
+                        {maintenancePriority.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+            </div>
+          )}
         </div>
       </main>
+    </div>
+  );
+}
+
+function StatCard({ title, value, sub }) {
+  return (
+    <div className="rounded-2xl bg-white p-6 shadow-sm">
+      <p className="text-sm font-semibold text-slate-500">{title}</p>
+      <h3 className="mt-2 text-3xl font-black text-slate-950">{value}</h3>
+      <p className="mt-2 text-xs text-slate-500">{sub}</p>
     </div>
   );
 }

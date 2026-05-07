@@ -109,14 +109,14 @@ export default function Register() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold hover:bg-blue-700 disabled:opacity-60"
+            className="w-full bg-[#C97B6C] text-white rounded-xl py-3 font-semibold hover:bg-[#B96A5D] disabled:opacity-60"
           >
             {loading ? "Creating account..." : "Register"}
           </button>
         </form>
 
         <div className="mt-6 text-sm text-center">
-          <Link to="/login" className="text-blue-600">
+          <Link to="/login" className="text-[#C97B6C]">
             Already have an account?
           </Link>
         </div>

@@ -1,142 +1,113 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
+import LandingLayout from "./LandingLayout";
 
 export default function Contact() {
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    subject: "",
-    message: "",
-  });
-
-  const [submitted, setSubmitted] = useState(false);
-
-  function handleChange(e) {
-    const { name, value } = e.target;
-    setForm((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-  }
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    setSubmitted(true);
-
-    setForm({
-      name: "",
-      email: "",
-      subject: "",
-      message: "",
-    });
-  }
-
   return (
-    <div className="min-h-screen bg-[#f5f6f8]">
-      <div className="max-w-5xl mx-auto px-6 py-10">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-[#0f172a]">Contact Us</h1>
-            <p className="text-gray-600 mt-2">
-              Reach out for system support, questions, or assistance.
-            </p>
-          </div>
+    <LandingLayout>
+      <section className="mx-auto max-w-7xl px-6 py-20">
+        <div className="mb-10">
+          <p className="font-black uppercase tracking-[0.25em] text-[#C97B6C]">
+            Contact
+          </p>
 
-          <Link
-            to="/"
-            className="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50"
-          >
-            Back to Home
-          </Link>
+          <h2 className="mt-3 text-5xl font-black">
+            Visit InCredoBall Sports Center
+          </h2>
+
+          <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+            Book facilities, coaching sessions, and sports activities through
+            the InCredoBall Sports Management System.
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white rounded-2xl border p-6 shadow-sm">
-            <h2 className="text-2xl font-bold mb-4">Send a Message</h2>
+        <div className="grid gap-8 lg:grid-cols-2">
+          {/* LEFT */}
+          <div className="rounded-[40px] bg-[#C97B6C] p-10 text-white">
+            <p className="font-black uppercase tracking-[0.25em] text-white/80">
+              Contact Information
+            </p>
 
-            {submitted ? (
-              <div className="mb-4 rounded-xl bg-green-50 text-green-700 px-4 py-3 text-sm">
-                Your message has been recorded. You can connect this later to a real backend or email service.
+            <h2 className="mt-4 text-4xl font-black">
+              Ready to play your next game?
+            </h2>
+
+            <p className="mt-5 leading-8 text-white/90">
+              Create an account and start booking facilities or coaching
+              sessions online with real-time notifications and staff approval.
+            </p>
+
+            <div className="mt-10 space-y-5">
+              <div className="rounded-2xl bg-white/10 p-5">
+                <p className="text-sm font-black uppercase tracking-widest text-white/70">
+                  Address
+                </p>
+
+                <p className="mt-2 text-lg font-semibold">
+                  Dumaguete City, Negros Oriental, Philippines
+                </p>
               </div>
-            ) : null}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <input
-                type="text"
-                name="name"
-                placeholder="Your name"
-                value={form.name}
-                onChange={handleChange}
-                className="w-full border rounded-xl px-4 py-3 outline-none"
-                required
-              />
+              <div className="rounded-2xl bg-white/10 p-5">
+                <p className="text-sm font-black uppercase tracking-widest text-white/70">
+                  System Features
+                </p>
 
-              <input
-                type="email"
-                name="email"
-                placeholder="Your email"
-                value={form.email}
-                onChange={handleChange}
-                className="w-full border rounded-xl px-4 py-3 outline-none"
-                required
-              />
+                <div className="mt-3 space-y-2 text-white/90">
+                  <p>• Facility Booking</p>
+                  <p>• Coaching Sessions</p>
+                  <p>• Merchandise Shop</p>
+                  <p>• Maintenance Tracking</p>
+                  <p>• Real-time Notifications</p>
+                </div>
+              </div>
 
-              <input
-                type="text"
-                name="subject"
-                placeholder="Subject"
-                value={form.subject}
-                onChange={handleChange}
-                className="w-full border rounded-xl px-4 py-3 outline-none"
-                required
-              />
+              <div className="rounded-2xl bg-white/10 p-5">
+                <p className="text-sm font-black uppercase tracking-widest text-white/70">
+                  Availability
+                </p>
 
-              <textarea
-                name="message"
-                rows="6"
-                placeholder="Write your message here"
-                value={form.message}
-                onChange={handleChange}
-                className="w-full border rounded-xl px-4 py-3 outline-none resize-none"
-                required
-              />
+                <p className="mt-2 text-lg font-semibold">
+                  Open Daily • 8:00 AM - 10:00 PM
+                </p>
+              </div>
+            </div>
 
-              <button
-                type="submit"
-                className="bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-700"
-              >
-                Send Message
-              </button>
-            </form>
+            <Link
+              to="/register"
+              className="mt-8 inline-flex rounded-2xl bg-white px-8 py-4 font-black text-[#C97B6C]"
+            >
+              Create Account
+            </Link>
           </div>
 
-          <div className="bg-white rounded-2xl border p-6 shadow-sm">
-            <h2 className="text-2xl font-bold mb-4">Contact Details</h2>
+          {/* RIGHT */}
+          <div className="overflow-hidden rounded-[40px] border border-[#DED8D2] bg-white shadow-sm">
+            <div className="border-b border-[#DED8D2] p-6">
+              <p className="font-black uppercase tracking-[0.25em] text-[#C97B6C]">
+                Location Map
+              </p>
 
-            <div className="space-y-4 text-sm text-gray-600">
-              <div>
-                <p className="font-semibold text-[#0f172a]">Email</p>
-                <p>support@incredoball.local</p>
-              </div>
+              <h3 className="mt-3 text-3xl font-black">
+                InCredoBall Sports Center
+              </h3>
 
-              <div>
-                <p className="font-semibold text-[#0f172a]">Phone</p>
-                <p>+63 900 000 0000</p>
-              </div>
+              <p className="mt-3 text-slate-600">
+                Locate the sports center and visit the facilities directly.
+              </p>
+            </div>
 
-              <div>
-                <p className="font-semibold text-[#0f172a]">Office Hours</p>
-                <p>Monday to Saturday, 8:00 AM – 6:00 PM</p>
-              </div>
-
-              <div>
-                <p className="font-semibold text-[#0f172a]">Location</p>
-                <p>InCredoBall Sports and Development Center</p>
-              </div>
+            <div className="h-[500px] w-full">
+              <iframe
+  title="InCredoBall Location"
+  src="https://www.google.com/maps?q=Incredoball+Sports+and+Development+Center+Dumaguete&output=embed"
+  className="h-full w-full"
+  loading="lazy"
+  referrerPolicy="no-referrer-when-downgrade"
+/>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </section>
+    </LandingLayout>
   );
 }

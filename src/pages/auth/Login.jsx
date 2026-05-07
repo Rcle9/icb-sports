@@ -75,7 +75,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold hover:bg-blue-700 disabled:opacity-60"
+            className="w-full bg-[#C97B6C] text-white rounded-xl py-3 font-semibold hover:bg-[#B96A5D] disabled:opacity-60"
           >
             {loading ? "Logging in..." : "Login"}
           </button>
@@ -89,10 +89,10 @@ export default function Login() {
         </button>
 
         <div className="mt-6 flex justify-between text-sm">
-          <Link to="/forgot-password" className="text-blue-600">
+          <Link to="/forgot-password" className="text-[#C97B6C]">
             Forgot password?
           </Link>
-          <Link to="/register" className="text-blue-600">
+          <Link to="/register" className="text-[#C97B6C]">
             Create account
           </Link>
         </div>

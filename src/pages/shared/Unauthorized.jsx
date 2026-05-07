@@ -10,7 +10,7 @@ export default function Unauthorized() {
         </p>
         <Link
           to="/login"
-          className="inline-block bg-blue-600 text-white px-5 py-3 rounded-xl font-semibold"
+          className="inline-block bg-[#C97B6C] text-white px-5 py-3 rounded-xl font-semibold"
         >
           Go to Login
         </Link>

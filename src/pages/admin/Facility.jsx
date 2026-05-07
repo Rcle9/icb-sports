@@ -236,7 +236,7 @@ export default function FacilityControl() {
         <div className="page-container">
           <Topbar title="Facility Control" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
+          <div className="mb-6 rounded-[28px] bg-[#C97B6C] from-[#B87463] via-slate-800 to-[#C97B6C] p-6 text-white md:p-8">
             <p className="text-sm font-medium text-blue-100">Facility Management</p>
             <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
               Create and manage sports facilities.
@@ -306,7 +306,7 @@ export default function FacilityControl() {
                           key={url}
                           className={`relative overflow-hidden rounded-2xl border ${
                             form.image_url === url
-                              ? "border-blue-600 ring-2 ring-blue-200"
+                              ? "border-[#C97B6C] ring-2 ring-[#D88E80]/40"
                               : "border-slate-200"
                           }`}
                         >
@@ -334,7 +334,7 @@ export default function FacilityControl() {
                           </button>
 
                           {form.image_url === url && (
-                            <span className="absolute bottom-2 left-2 rounded-full bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">
+                            <span className="absolute bottom-2 left-2 rounded-full bg-[#C97B6C] px-2 py-1 text-[10px] font-bold text-white">
                               Main
                             </span>
                           )}
@@ -377,7 +377,7 @@ export default function FacilityControl() {
                   <button
                     type="submit"
                     disabled={saving}
-                    className="w-full rounded-2xl bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                    className="w-full rounded-2xl bg-[#C97B6C] px-4 py-3 font-semibold text-white transition hover:bg-[#B96A5D] disabled:opacity-60"
                   >
                     {saving ? "Saving..." : editingId ? "Update Facility" : "Add Facility"}
                   </button>
@@ -441,7 +441,7 @@ export default function FacilityControl() {
                             <p className="safe-text mt-3 text-sm leading-6">
                               {facility.description || "No details provided."}
                             </p>
-                            <p className="mt-3 text-sm font-semibold text-blue-700">
+                            <p className="mt-3 text-sm font-semibold text-[#C97B6C]">
                               ₱ {facility.price || 0} / hour
                             </p>
                           </div>
@@ -462,7 +462,7 @@ export default function FacilityControl() {
                             <button
                               type="button"
                               onClick={() => openFacilityView(facility)}
-                              className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+                              className="rounded-xl bg-[#F3E4DF] px-4 py-2 text-sm font-semibold text-[#C97B6C] transition hover:bg-blue-100"
                             >
                               View
                             </button>

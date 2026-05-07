@@ -207,7 +207,7 @@ export default function Notifications({ forcedRole }) {
               <button
                 type="button"
                 onClick={handleMarkAllAsRead}
-                className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700"
+                className="rounded-2xl bg-[#C97B6C] px-4 py-3 text-sm font-bold text-white hover:bg-[#B96A5D]"
               >
                 Mark All as Read
               </button>
@@ -242,7 +242,7 @@ export default function Notifications({ forcedRole }) {
                       className={`w-full rounded-2xl border p-5 text-left transition hover:bg-slate-50 ${
                         item.is_read
                           ? "border-slate-200 bg-white"
-                          : "border-blue-200 bg-blue-50"
+                          : "border-blue-200 bg-[#F3E4DF]"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-4">
@@ -308,8 +308,8 @@ export default function Notifications({ forcedRole }) {
                               </div>
 
                               {booking.includes_coach && (
-                                <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                                  <p className="text-sm font-black text-blue-700">
+                                <div className="mt-4 rounded-2xl border border-blue-100 bg-[#F3E4DF] p-4">
+                                  <p className="text-sm font-black text-[#C97B6C]">
                                     Coach Details
                                   </p>
 
@@ -339,7 +339,7 @@ export default function Notifications({ forcedRole }) {
                                     Final Total
                                   </span>
 
-                                  <span className="text-lg font-black text-blue-700">
+                                  <span className="text-lg font-black text-[#C97B6C]">
                                     {money(finalTotal)}
                                   </span>
                                 </div>

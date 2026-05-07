@@ -285,7 +285,7 @@ export default function Inventory() {
         <div className="page-container">
           <Topbar title="Inventory" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
+          <div className="mb-6 rounded-[28px] bg-[#C97B6C] from-[#B87463] via-slate-800 to-[#C97B6C] p-6 text-white md:p-8">
             <p className="text-sm font-medium text-blue-100">
               Product Inventory
             </p>
@@ -399,7 +399,7 @@ export default function Inventory() {
                           key={url}
                           className={`relative overflow-hidden rounded-2xl border ${
                             form.image_url === url
-                              ? "border-blue-600 ring-2 ring-blue-200"
+                              ? "border-[#C97B6C] ring-2 ring-[#D88E80]/40"
                               : "border-slate-200"
                           }`}
                         >
@@ -427,7 +427,7 @@ export default function Inventory() {
                           </button>
 
                           {form.image_url === url ? (
-                            <span className="absolute bottom-2 left-2 rounded-full bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">
+                            <span className="absolute bottom-2 left-2 rounded-full bg-[#C97B6C] px-2 py-1 text-[10px] font-bold text-white">
                               Main
                             </span>
                           ) : null}
@@ -445,7 +445,7 @@ export default function Inventory() {
                   <button
                     type="submit"
                     disabled={saving}
-                    className="w-full rounded-2xl bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                    className="w-full rounded-2xl bg-[#C97B6C] px-4 py-3 font-semibold text-white transition hover:bg-[#B96A5D] disabled:opacity-60"
                   >
                     {saving
                       ? "Saving..."
@@ -521,7 +521,7 @@ export default function Inventory() {
                             </p>
 
                             <div className="mt-3 flex flex-wrap gap-2">
-                              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                              <span className="rounded-full bg-[#F3E4DF] px-3 py-1 text-xs font-bold text-[#C97B6C]">
                                 ₱ {Number(item.price || 0).toLocaleString()}
                               </span>
 
@@ -545,7 +545,7 @@ export default function Inventory() {
                             <button
                               type="button"
                               onClick={() => openProductView(item)}
-                              className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+                              className="rounded-xl bg-[#F3E4DF] px-4 py-2 text-sm font-semibold text-[#C97B6C] transition hover:bg-blue-100"
                             >
                               View
                             </button>

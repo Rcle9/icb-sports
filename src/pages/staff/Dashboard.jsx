@@ -150,7 +150,7 @@ export default function StaffDashboard() {
         <div className="page-container">
           <Topbar title="Dashboard" />
 
-          <section className="mb-6 rounded-[28px] bg-gradient-to-br from-blue-700 to-blue-500 p-8 text-white">
+          <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white">
             <div className="flex items-center justify-between gap-6">
               <div>
                 <p className="text-sm font-semibold">Operations Control Center</p>

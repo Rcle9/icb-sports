@@ -1,108 +1,115 @@
 import { NavLink, useNavigate } from "react-router-dom";
+import {
+  LayoutDashboard,
+  CalendarDays,
+  Dumbbell,
+  ShoppingBag,
+  Wrench,
+  ClipboardList,
+  Settings,
+  Boxes,
+} from "lucide-react";
+
 import { supabase } from "../../services/supabaseClient";
-import { useAuth } from "../../context/AuthContext";
+import logo from "../../assets/logo.jpg";
 
-const userLinks = [
-  { label: "📊 Dashboard", path: "/dashboard" },
-  { label: "🗓️ Booking", path: "/booking" },
-  { label: "🏸 Coaching", path: "/coaching" },
-  { label: "🛒 Shop", path: "/shop" },
-  
-  { label: "⚙️ Profile Settings", path: "/profile-settings" },
-];
-
-const staffLinks = [
-  { label: "📊 Dashboard", path: "/staff" },
-  { label: "🗓️ Bookings", path: "/staff/bookings" },
-  { label: "🏸 Coaching", path: "/staff/coaching" },
-  { label: "📦 Inventory", path: "/staff/inventory" },
-  { label: "🛠️ Maintenance", path: "/staff/maintenance" },
-  { label: "📋 Activity Logs", path: "/staff/logs" },
-  
-  { label: "⚙️ Profile Settings", path: "/profile-settings" },
-];
-
-const adminLinks = [
-  { label: "📊 System Overview", path: "/admin" },
-  { label: "👥 User Management", path: "/admin/users" },
-  { label: "🏟️ Facility Control", path: "/admin/facility" },
-  { label: "📈 Reports", path: "/admin/reports" },
-  { label: "⚙️ Settings", path: "/admin/settings" },
-  
-  { label: "👤 Profile Settings", path: "/profile-settings" },
-];
-
-export default function Sidebar({ role }) {
+export default function Sidebar({ role = "user" }) {
   const navigate = useNavigate();
-  const { profile } = useAuth();
-
-  const currentRole = role || profile?.role || "user";
-
-  const links =
-    currentRole === "admin"
-      ? adminLinks
-      : currentRole === "staff"
-      ? staffLinks
-      : userLinks;
 
   async function handleLogout() {
     await supabase.auth.signOut();
+    localStorage.clear();
+    sessionStorage.clear();
     navigate("/login", { replace: true });
+    window.location.reload();
   }
 
-  return (
-    <aside
-      className="fixed left-0 top-0 z-40 flex h-screen flex-col justify-between border-r border-slate-200 bg-white px-5 py-6 shadow-sm"
-      style={{ width: "320px" }}
-    >
-      <div>
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-xl text-white shadow-lg">
-            🏟️
-          </div>
+  const staffLinks = [
+    { name: "Dashboard", path: "/staff", icon: <LayoutDashboard size={18} /> },
+    { name: "Bookings", path: "/staff/bookings", icon: <CalendarDays size={18} /> },
+    { name: "Coaching", path: "/staff/coaching", icon: <Dumbbell size={18} /> },
+    { name: "Inventory", path: "/staff/inventory", icon: <Boxes size={18} /> },
+    { name: "Maintenance", path: "/staff/maintenance", icon: <Wrench size={18} /> },
+    { name: "Activity Logs", path: "/staff/activity-logs", icon: <ClipboardList size={18} /> },
+    { name: "Profile Settings", path: "/staff/profile", icon: <Settings size={18} /> },
+  ];
 
-          <div>
-            <h1 className="text-xl font-black text-slate-950">InCredoBall</h1>
-            <p className="text-xs font-medium text-slate-600">
-              Sports Management
-            </p>
-          </div>
+  const userLinks = [
+    { name: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} /> },
+    { name: "Booking", path: "/booking", icon: <CalendarDays size={18} /> },
+    { name: "Coaching", path: "/coaching", icon: <Dumbbell size={18} /> },
+    { name: "Shop", path: "/shop", icon: <ShoppingBag size={18} /> },
+    { name: "Profile Settings", path: "/profile", icon: <Settings size={18} /> },
+  ];
+
+  const adminLinks = [
+    { name: "Dashboard", path: "/admin", icon: <LayoutDashboard size={18} /> },
+    { name: "Facilities", path: "/admin/facilities", icon: <CalendarDays size={18} /> },
+    { name: "Users", path: "/admin/users", icon: <Boxes size={18} /> },
+    { name: "Reports", path: "/admin/reports", icon: <ClipboardList size={18} /> },
+    { name: "Settings", path: "/admin/settings", icon: <Settings size={18} /> },
+  ];
+
+  let links = userLinks;
+  if (role === "staff") links = staffLinks;
+  if (role === "admin") links = adminLinks;
+
+  return (
+    <aside className="fixed left-0 top-0 z-50 flex h-screen w-[260px] flex-col border-r border-[#DED8D2] bg-white">
+      <div className="flex items-center gap-4 border-b border-[#DED8D2] px-5 py-5">
+        <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-md">
+          <img
+            src={logo}
+            alt="InCredoBall Logo"
+            className="h-full w-full object-cover"
+          />
         </div>
 
-        <nav className="space-y-2">
-          {links.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === "/staff" || item.path === "/admin" || item.path === "/dashboard"}
-              className={({ isActive }) =>
-                `block rounded-2xl px-5 py-3 text-sm font-bold transition ${
-                  isActive
-                    ? "bg-blue-600 text-white shadow-[0_12px_28px_rgba(37,99,235,0.35)]"
-                    : "text-slate-700 hover:bg-blue-50 hover:text-blue-700"
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
+        <div>
+          <h1 className="text-[20px] font-black leading-none text-[#2B2B2B]">
+            InCredoBall
+          </h1>
+          <p className="mt-1 text-xs font-medium text-slate-500">
+            Sports Management
+          </p>
+        </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-slate-900 p-5 text-white">
-          <p className="text-xs font-bold uppercase tracking-[0.2em]">
+      <nav className="flex-1 space-y-2 overflow-y-auto px-4 py-6">
+        {links.map((link) => (
+          <NavLink
+            key={link.path}
+            to={link.path}
+            end
+            className={({ isActive }) =>
+              `flex items-center gap-3 rounded-2xl px-4 py-4 text-sm font-bold transition-all duration-200 ${
+                isActive
+                  ? "bg-[#C97B6C] text-white shadow-xl shadow-[#C97B6C]/20"
+                  : "text-slate-600 hover:bg-[#F3E4DF]"
+              }`
+            }
+          >
+            {link.icon}
+            {link.name}
+          </NavLink>
+        ))}
+      </nav>
+
+      <div className="px-4 pb-5">
+        <div className="rounded-3xl bg-[#2B2B2B] p-5 text-white shadow-lg">
+          <p className="text-xs font-black uppercase tracking-[0.25em]">
             Quick Access
           </p>
-          <p className="mt-2 text-sm font-semibold leading-6">
-            Manage sports operations with real-time tools and notifications.
+
+          <p className="mt-3 text-sm font-semibold leading-6 text-white/80">
+            Manage sports operations with realtime tools and notifications.
           </p>
         </div>
 
         <button
           type="button"
           onClick={handleLogout}
-          className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"
+          className="mt-4 w-full rounded-2xl bg-[#2B2B2B] py-4 text-sm font-black text-white transition hover:bg-[#C97B6C]"
         >
           Logout
         </button>

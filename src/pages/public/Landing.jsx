@@ -1,127 +1,58 @@
 import { Link } from "react-router-dom";
+import LandingLayout from "./LandingLayout";
 
 export default function Landing() {
   return (
-    <div className="min-h-screen bg-[#f5f6f8] text-[#0f172a]">
-      <header className="border-b bg-white">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">InCredoBall Sports</h1>
+    <LandingLayout>
+      <section className="mx-auto max-w-7xl px-6 py-16">
+        <div className="grid items-center gap-10 lg:grid-cols-2">
+          <div>
+            <p className="mb-4 font-black uppercase tracking-[0.25em] text-[#C97B6C]">
+              Sports Facility Booking System
+            </p>
 
-          <nav className="flex items-center gap-4">
-            <Link to="/help" className="text-sm text-gray-600 hover:text-black">
-              Help
-            </Link>
-            <Link to="/contact" className="text-sm text-gray-600 hover:text-black">
-              Contact
-            </Link>
-            <Link
-              to="/login"
-              className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
-            >
-              Login
-            </Link>
-          </nav>
-        </div>
-      </header>
+            <h2 className="text-5xl font-black leading-tight md:text-7xl">
+              Your Court. Your Game. Your Schedule.
+            </h2>
 
-      <section className="max-w-7xl mx-auto px-6 py-16 grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
-        <div>
-          <p className="text-sm font-semibold text-blue-600 mb-3">
-            Sports Management Platform
-          </p>
-          <h2 className="text-5xl font-bold leading-tight mb-6">
-            Manage bookings, coaching, inventory, and operations in one system.
-          </h2>
-          <p className="text-lg text-gray-600 mb-8">
-            InCredoBall Sports helps members, staff, and administrators manage
-            facilities, coaching schedules, maintenance requests, and inventory
-            with real-time updates and offline support.
-          </p>
+            <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
+              Book facilities, request coaching sessions, shop merchandise, and receive real-time updates in one system.
+            </p>
 
-          <div className="flex flex-wrap gap-4">
-            <Link
-              to="/register"
-              className="px-6 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
-            >
-              Get Started
-            </Link>
-            <Link
-              to="/login"
-              className="px-6 py-3 rounded-xl border bg-white font-semibold hover:bg-gray-50"
-            >
-              Sign In
-            </Link>
+            <div className="mt-8 flex flex-wrap gap-4">
+              <Link to="/register" className="rounded-2xl bg-[#C97B6C] px-8 py-4 font-black text-white hover:bg-[#B87463]">
+                Start Booking
+              </Link>
+
+              <Link to="/facilities" className="rounded-2xl border border-[#DED8D2] bg-white px-8 py-4 font-black">
+                Explore Facilities
+              </Link>
+            </div>
           </div>
-        </div>
 
-        <div className="bg-white rounded-3xl shadow-sm border p-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="rounded-2xl bg-blue-50 p-5">
-              <h3 className="font-bold mb-2">Smart Booking</h3>
-              <p className="text-sm text-gray-600">
-                Book sports facilities with approval workflow and overlap protection.
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-orange-50 p-5">
-              <h3 className="font-bold mb-2">Coaching Management</h3>
-              <p className="text-sm text-gray-600">
-                Manage coach schedules, requests, and session approvals.
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-green-50 p-5">
-              <h3 className="font-bold mb-2">Inventory Tracking</h3>
-              <p className="text-sm text-gray-600">
-                Monitor stock levels, low-stock alerts, and item availability.
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-purple-50 p-5">
-              <h3 className="font-bold mb-2">Maintenance Workflow</h3>
-              <p className="text-sm text-gray-600">
-                Handle repair requests, monitoring, and replacement needs.
-              </p>
-            </div>
+          <div className="overflow-hidden rounded-[40px] border border-[#DED8D2] bg-white p-4 shadow-xl">
+            <img
+              src="https://images.unsplash.com/photo-1546519638-68e109498ffc?q=80&w=1400&auto=format&fit=crop"
+              alt="Sports court"
+              className="h-[520px] w-full rounded-[32px] object-cover"
+            />
           </div>
         </div>
       </section>
 
-      <section className="max-w-7xl mx-auto px-6 pb-16">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-2xl border p-6 shadow-sm">
-            <h3 className="text-xl font-bold mb-2">For Members</h3>
-            <p className="text-gray-600 text-sm">
-              Book facilities, request coaching sessions, and stay updated with notifications.
-            </p>
+      <section className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-6 pb-20 md:grid-cols-4">
+        {[
+          ["3+", "Facilities"],
+          ["24/7", "Online Booking"],
+          ["Real-time", "Notifications"],
+          ["Staff", "Approval"],
+        ].map(([value, label]) => (
+          <div key={label} className="rounded-[28px] border border-[#DED8D2] bg-white p-6 text-center shadow-sm">
+            <h3 className="text-3xl font-black text-[#C97B6C]">{value}</h3>
+            <p className="mt-2 text-sm font-bold text-slate-500">{label}</p>
           </div>
-
-          <div className="bg-white rounded-2xl border p-6 shadow-sm">
-            <h3 className="text-xl font-bold mb-2">For Staff</h3>
-            <p className="text-gray-600 text-sm">
-              Approve requests, manage schedules, track inventory, and process maintenance.
-            </p>
-          </div>
-
-          <div className="bg-white rounded-2xl border p-6 shadow-sm">
-            <h3 className="text-xl font-bold mb-2">For Admins</h3>
-            <p className="text-gray-600 text-sm">
-              View analytics, manage user roles, monitor operations, and oversee the whole system.
-            </p>
-          </div>
-        </div>
+        ))}
       </section>
-
-      <footer className="border-t bg-white">
-        <div className="max-w-7xl mx-auto px-6 py-6 text-sm text-gray-500 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <p>© 2026 InCredoBall Sports. All rights reserved.</p>
-          <div className="flex gap-4">
-            <Link to="/help" className="hover:text-black">Help</Link>
-            <Link to="/contact" className="hover:text-black">Contact</Link>
-            <Link to="/login" className="hover:text-black">Login</Link>
-          </div>
-        </div>
-      </footer>
-    </div>
+    </LandingLayout>
   );
 }

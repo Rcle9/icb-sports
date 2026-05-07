@@ -167,9 +167,7 @@ export default function Coaching() {
 
       if (coachesError) throw coachesError;
 
-      setCoaches(
-        (coachesData || []).filter((coach) => coach.is_active !== false)
-      );
+      setCoaches((coachesData || []).filter((coach) => coach.is_active !== false));
 
       const { data: bookingsData, error: bookingsError } = await supabase
         .from("coach_bookings")
@@ -386,26 +384,28 @@ export default function Coaching() {
             </div>
           )}
 
-          <section className="mb-6 rounded-[28px] bg-gradient-to-br from-blue-600 to-slate-900 p-8 text-white">
+          <section className="page-hero mb-6">
             <p className="text-sm font-semibold">Direct Coaching Booking</p>
             <h2 className="mt-2 text-3xl font-black">
               Choose a coach, check availability, then book your session.
             </h2>
-            <p className="mt-2 text-sm text-blue-50">
+            <p className="mt-2 text-sm text-white/90">
               Coach price and available time are managed by staff.
             </p>
           </section>
 
-          <section className="mb-6 rounded-[28px] bg-white p-6 shadow-sm">
+          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <h3 className="text-2xl font-black">Available Coaches</h3>
+                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                  Available Coaches
+                </h3>
                 <p className="text-sm text-slate-500">
                   Browse coaches, open their profile, and select the right one for your session.
                 </p>
               </div>
 
-              <span className="rounded-2xl bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700">
+              <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-bold text-[#C97B6C]">
                 {selectedCoach ? `Selected coach: ${selectedCoach.name}` : "No coach selected yet"}
               </span>
             </div>
@@ -419,8 +419,8 @@ export default function Coaching() {
                     key={coach.id}
                     className={`overflow-hidden rounded-3xl border bg-white ${
                       selectedCoach?.id === coach.id
-                        ? "border-blue-600 ring-2 ring-blue-200"
-                        : "border-slate-200"
+                        ? "border-[#C97B6C] ring-2 ring-[#D88E80]/40"
+                        : "border-[#DED8D2]"
                     }`}
                   >
                     <img
@@ -433,13 +433,13 @@ export default function Coaching() {
                     />
 
                     <div className="p-4">
-                      <h4 className="text-lg font-black">{coach.name}</h4>
+                      <h4 className="text-lg font-black text-[#2B2B2B]">{coach.name}</h4>
 
                       <p className="text-sm text-slate-500">
                         {coach.specialty || "Coach"}
                       </p>
 
-                      <p className="mt-2 text-sm font-black text-blue-700">
+                      <p className="mt-2 text-sm font-black text-[#C97B6C]">
                         {money(coach.rate_per_hour)} / hour
                       </p>
 
@@ -451,7 +451,7 @@ export default function Coaching() {
                       <button
                         type="button"
                         onClick={() => handleCoachSelect(coach)}
-                        className="mt-4 w-full rounded-2xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700"
+                        className="mt-4 w-full rounded-2xl bg-[#C97B6C] px-4 py-3 font-bold text-white hover:bg-[#D88E80]"
                       >
                         Select Coach
                       </button>
@@ -464,7 +464,7 @@ export default function Coaching() {
 
           {selectedCoach && (
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_1fr]">
-              <aside className="rounded-[28px] bg-white p-6 shadow-sm">
+              <aside className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
                 <img
                   src={selectedCoach.image_path || selectedCoach.image_url || COACH_FALLBACK}
                   alt={selectedCoach.name}
@@ -474,43 +474,41 @@ export default function Coaching() {
                   }}
                 />
 
-                <h3 className="mt-5 text-2xl font-black">{selectedCoach.name}</h3>
+                <h3 className="mt-5 text-2xl font-black text-[#2B2B2B]">
+                  {selectedCoach.name}
+                </h3>
 
-                <p className="mt-1 text-blue-700">
+                <p className="mt-1 text-[#C97B6C]">
                   {selectedCoach.specialty || "Coach"}
                 </p>
 
-                <p className="mt-3 text-sm leading-7">
+                <p className="mt-3 text-sm leading-7 text-slate-700">
                   {selectedCoach.description || "No description provided."}
                 </p>
 
-                <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+                <div className="mt-5 rounded-2xl bg-[#F5F3F1] p-4">
                   <p className="text-xs uppercase text-slate-500">Experience</p>
-                  <p className="font-bold">
+                  <p className="font-bold text-[#2B2B2B]">
                     {selectedCoach.experience || "Not specified"}
                   </p>
                 </div>
 
-                <div className="mt-3 rounded-2xl bg-blue-50 p-4">
+                <div className="mt-3 rounded-2xl bg-[#F3E4DF] p-4">
                   <p className="text-xs uppercase text-slate-500">Coach Rate</p>
-                  <p className="font-black text-blue-700">
-                    {money(coachRate)} / hour
-                  </p>
+                  <p className="font-black text-[#C97B6C]">{money(coachRate)} / hour</p>
                 </div>
 
-                <div className="mt-3 rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs uppercase text-slate-500">
-                    Available Time
-                  </p>
-                  <p className="font-bold">
+                <div className="mt-3 rounded-2xl bg-[#F5F3F1] p-4">
+                  <p className="text-xs uppercase text-slate-500">Available Time</p>
+                  <p className="font-bold text-[#2B2B2B]">
                     {cleanTime(selectedCoach.available_start_time)} -{" "}
                     {cleanTime(selectedCoach.available_end_time || "20:00")}
                   </p>
                 </div>
               </aside>
 
-              <section className="rounded-[28px] bg-white p-6 shadow-sm">
-                <h3 className="text-2xl font-black">
+              <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+                <h3 className="text-2xl font-black text-[#2B2B2B]">
                   Book {selectedCoach.name}
                 </h3>
 
@@ -521,15 +519,13 @@ export default function Coaching() {
                 <form onSubmit={handleSubmit} className="mt-6">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className="mb-2 block text-sm font-semibold">
-                        Date
-                      </label>
+                      <label className="mb-2 block text-sm font-semibold">Date</label>
                       <input
                         type="date"
                         name="booking_date"
                         value={form.booking_date}
                         onChange={handleChange}
-                        className="w-full rounded-2xl border px-4 py-3"
+                        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
                       />
                     </div>
 
@@ -541,7 +537,7 @@ export default function Coaching() {
                         name="session_mode"
                         value={form.session_mode}
                         onChange={handleChange}
-                        className="w-full rounded-2xl border px-4 py-3"
+                        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
                       >
                         <option value="one_on_one">One-on-One</option>
                         <option value="group">Group</option>
@@ -558,7 +554,7 @@ export default function Coaching() {
                         name="participants"
                         value={form.participants}
                         onChange={handleChange}
-                        className="w-full rounded-2xl border px-4 py-3"
+                        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
                       />
                     </div>
 
@@ -566,7 +562,7 @@ export default function Coaching() {
                       <label className="mb-2 block text-sm font-semibold">
                         Selected Range
                       </label>
-                      <div className="rounded-2xl border bg-slate-50 px-4 py-3 text-slate-500">
+                      <div className="rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] px-4 py-3 text-slate-500">
                         {startTime && endTime
                           ? `${formatTime(startTime)} - ${formatTime(endTime)}`
                           : "Choose from the slots below"}
@@ -575,13 +571,15 @@ export default function Coaching() {
                   </div>
 
                   <div className="mt-6">
-                    <h4 className="text-lg font-black">Available Time Slots</h4>
+                    <h4 className="text-lg font-black text-[#2B2B2B]">
+                      Available Time Slots
+                    </h4>
                     <p className="text-sm text-slate-500">
                       Unavailable slots are disabled automatically.
                     </p>
 
                     {!form.booking_date ? (
-                      <div className="mt-4 rounded-2xl border border-dashed p-6">
+                      <div className="mt-4 rounded-2xl border border-dashed border-[#DED8D2] p-6">
                         Select a coach and date first.
                       </div>
                     ) : (
@@ -600,8 +598,8 @@ export default function Coaching() {
                                 blocked
                                   ? "cursor-not-allowed bg-slate-100 text-slate-400"
                                   : selected
-                                  ? "bg-blue-600 text-white"
-                                  : "bg-white hover:bg-blue-50"
+                                  ? "border-[#C97B6C] bg-[#C97B6C] text-white"
+                                  : "border-[#DED8D2] bg-white hover:bg-[#F3E4DF]"
                               }`}
                             >
                               <span>{slot.label}</span>
@@ -615,8 +613,10 @@ export default function Coaching() {
                     )}
                   </div>
 
-                  <div className="mt-6 rounded-3xl border bg-slate-50 p-5">
-                    <h4 className="text-lg font-black">Payment Summary</h4>
+                  <div className="mt-6 rounded-3xl border border-[#DED8D2] bg-[#F5F3F1] p-5">
+                    <h4 className="text-lg font-black text-[#2B2B2B]">
+                      Payment Summary
+                    </h4>
 
                     <div className="mt-4 space-y-3 text-sm">
                       <div className="flex justify-between">
@@ -627,14 +627,13 @@ export default function Coaching() {
                       <div className="flex justify-between">
                         <span>Coach Rate</span>
                         <b>
-                          {money(coachRate)} × {totalHours} hr ={" "}
-                          {money(totalAmount)}
+                          {money(coachRate)} × {totalHours} hr = {money(totalAmount)}
                         </b>
                       </div>
 
-                      <div className="flex justify-between border-t pt-3 text-base">
+                      <div className="flex justify-between border-t border-[#DED8D2] pt-3 text-base">
                         <span className="font-black">Total Amount</span>
-                        <b className="text-blue-700">{money(totalAmount)}</b>
+                        <b className="text-[#C97B6C]">{money(totalAmount)}</b>
                       </div>
                     </div>
                   </div>
@@ -644,12 +643,12 @@ export default function Coaching() {
                     value={form.notes}
                     onChange={handleChange}
                     placeholder="Optional notes for the coach or staff"
-                    className="mt-5 min-h-[120px] w-full rounded-2xl border px-4 py-3"
+                    className="mt-5 min-h-[120px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
                   />
 
                   <button
                     disabled={submitting}
-                    className="mt-5 rounded-2xl bg-blue-600 px-6 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                    className="mt-5 rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#D88E80] disabled:opacity-60"
                   >
                     {submitting
                       ? "Submitting..."
@@ -660,13 +659,13 @@ export default function Coaching() {
             </div>
           )}
 
-          <section className="mt-6 rounded-[28px] bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-black">My Coaching Requests</h3>
+          <section className="mt-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <h3 className="text-xl font-black text-[#2B2B2B]">
+              My Coaching Requests
+            </h3>
 
             {myBookings.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-500">
-                No coaching requests yet.
-              </p>
+              <p className="mt-4 text-sm text-slate-500">No coaching requests yet.</p>
             ) : (
               <div className="mt-4 space-y-4">
                 {myBookings.map((booking) => (
@@ -674,11 +673,11 @@ export default function Coaching() {
                     key={booking.id}
                     className={`rounded-2xl border p-4 ${
                       booking.id === highlightId
-                        ? "border-blue-600 bg-blue-50"
-                        : "border-slate-200 bg-white"
+                        ? "border-[#C97B6C] bg-[#F3E4DF]"
+                        : "border-[#DED8D2] bg-white"
                     }`}
                   >
-                    <h4 className="font-bold">
+                    <h4 className="font-bold text-[#2B2B2B]">
                       {booking.coaches?.name || "Coach Session"}
                     </h4>
 

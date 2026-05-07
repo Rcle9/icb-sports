@@ -68,7 +68,7 @@ export default function ProfileSettings() {
         <div className="page-container">
           <Topbar title="Profile Settings" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-blue-700 p-6 text-white md:p-8">
+          <div className="mb-6 rounded-[28px] bg-[#C97B6C] from-slate-900 via-slate-800 to-[#C97B6C] p-6 text-white md:p-8">
             <div>
               <p className="text-sm font-medium text-blue-100">
                 Account Preferences
@@ -86,7 +86,7 @@ export default function ProfileSettings() {
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
             <Card>
               <div className="flex flex-col items-center text-center">
-                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-blue-600 text-3xl font-bold text-white">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#C97B6C] text-3xl font-bold text-white">
                   {(profile?.full_name || user?.email || "U").charAt(0).toUpperCase()}
                 </div>
 
@@ -164,7 +164,7 @@ export default function ProfileSettings() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="rounded-2xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                  className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-semibold text-white transition hover:bg-[#B96A5D] disabled:opacity-60"
                 >
                   {loading ? "Saving..." : "Save Profile"}
                 </button>

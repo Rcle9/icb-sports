@@ -217,7 +217,7 @@ export default function CoachingManager() {
             </div>
           )}
 
-          <section className="mb-6 rounded-[28px] bg-gradient-to-br from-blue-600 to-slate-900 p-8 text-white">
+          <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white">
             <p className="text-sm font-semibold">Coach Control</p>
             <h2 className="mt-2 text-3xl font-black">
               Manage coaches, photos, rates, and available time.
@@ -317,7 +317,7 @@ export default function CoachingManager() {
                   />
 
                   {uploading && (
-                    <p className="mt-2 text-sm text-blue-600">Uploading...</p>
+                    <p className="mt-2 text-sm text-[#C97B6C]">Uploading...</p>
                   )}
 
                   {form.image_path && (
@@ -342,7 +342,7 @@ export default function CoachingManager() {
                 <div className="flex gap-3">
                   <button
                     disabled={uploading}
-                    className="w-full rounded-2xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                    className="w-full rounded-2xl bg-[#C97B6C] px-4 py-3 font-bold text-white hover:bg-[#B96A5D] disabled:opacity-60"
                   >
                     {editingId ? "Update Coach" : "Add Coach"}
                   </button>
@@ -400,7 +400,7 @@ export default function CoachingManager() {
                           <p className="text-sm text-slate-500">
                             {coach.specialty || "No specialty"}
                           </p>
-                          <p className="mt-1 text-sm font-black text-blue-700">
+                          <p className="mt-1 text-sm font-black text-[#C97B6C]">
                             {money(coach.rate_per_hour)} / hour
                           </p>
                           <p className="mt-1 text-sm text-slate-600">
@@ -423,7 +423,7 @@ export default function CoachingManager() {
                         <button
                           type="button"
                           onClick={() => handleEdit(coach)}
-                          className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"
+                          className="rounded-xl bg-[#C97B6C] px-4 py-2 text-sm font-bold text-white hover:bg-[#B96A5D]"
                         >
                           Edit
                         </button>

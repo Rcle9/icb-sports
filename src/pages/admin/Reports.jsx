@@ -202,7 +202,7 @@ export default function Reports() {
         <div className="page-container">
           <Topbar title="Admin Reports" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
+          <div className="mb-6 rounded-[28px] bg-[#C97B6C] from-[#B87463] via-slate-800 to-[#C97B6C] p-6 text-white md:p-8">
             <p className="text-sm font-medium text-blue-100">Analytics and Reports</p>
             <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
               Review operations, bookings, inventory, and maintenance data.
@@ -257,7 +257,7 @@ export default function Reports() {
                 <button
                   type="button"
                   onClick={exportCurrentTab}
-                  className="rounded-2xl bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
+                  className="rounded-2xl bg-[#C97B6C] px-4 py-3 font-semibold text-white hover:bg-[#B96A5D]"
                 >
                   Export CSV
                 </button>
@@ -277,7 +277,7 @@ export default function Reports() {
                   key={key}
                   onClick={() => setActiveTab(key)}
                   className={`rounded-2xl px-4 py-2 text-sm font-semibold whitespace-nowrap ${
-                    activeTab === key ? "bg-blue-600 text-white" : "bg-slate-100 text-black"
+                    activeTab === key ? "bg-[#C97B6C] text-white" : "bg-slate-100 text-black"
                   }`}
                 >
                   {label}

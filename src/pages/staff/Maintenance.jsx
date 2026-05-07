@@ -124,7 +124,7 @@ export default function Maintenance() {
         <div className="page-container">
           <Topbar title="Maintenance" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-orange-600 p-6 text-white md:p-8">
+          <div className="mb-6 rounded-[28px] bg-[#C97B6C] from-slate-900 via-slate-800 to-[#D88E80] p-6 text-white md:p-8">
             <div>
               <p className="text-sm font-medium text-orange-100">
                 Maintenance Monitoring
@@ -213,7 +213,7 @@ export default function Maintenance() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="w-full rounded-2xl bg-orange-600 px-4 py-3 font-semibold text-white shadow-[0_10px_25px_rgba(234,88,12,0.22)] transition hover:bg-orange-700 disabled:opacity-60"
+                  className="w-full rounded-2xl bg-[#C97B6C] px-4 py-3 font-semibold text-white shadow-[0_10px_25px_rgba(234,88,12,0.22)] transition hover:bg-[#B87463] disabled:opacity-60"
                 >
                   {saving ? "Submitting..." : "Submit Request"}
                 </button>

@@ -1,219 +1,310 @@
 import { useEffect, useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
-import Card from "../../components/ui/Card";
-import { useAuth } from "../../context/AuthContext";
-import { getUserNotifications } from "../../services/notificationService";
-import { getUserBookings } from "../../services/bookingService";
-import { getUserCoachBookings } from "../../services/coachingService";
+import { supabase } from "../../services/supabaseClient";
 
-function formatTime(time24) {
-  if (!time24) return "";
-  const [hourStr, minute] = time24.split(":");
-  let hour = Number(hourStr);
+function money(value) {
+  return `₱${Number(value || 0).toLocaleString()}`;
+}
+
+function formatTime(time) {
+  if (!time) return "-";
+
+  const [h, m] = String(time).slice(0, 5).split(":");
+  let hour = Number(h);
   const suffix = hour >= 12 ? "PM" : "AM";
+
   hour = hour % 12 || 12;
-  return `${hour}:${minute} ${suffix}`;
+
+  return `${hour}:${m} ${suffix}`;
 }
 
 export default function UserDashboard() {
-  const { user } = useAuth();
+  const [stats, setStats] = useState({
+    pendingFacility: 0,
+    approvedFacility: 0,
+    pendingCoaching: 0,
+    cartItems: 0,
+  });
 
   const [notifications, setNotifications] = useState([]);
-  const [bookings, setBookings] = useState([]);
-  const [coachBookings, setCoachBookings] = useState([]);
+  const [recentBookings, setRecentBookings] = useState([]);
+  const [recentCoaching, setRecentCoaching] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user?.id) loadDashboardData();
-  }, [user?.id]);
+    loadDashboard();
 
-  async function loadDashboardData() {
+    const channel = supabase
+      .channel(`user-dashboard-live-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bookings" },
+        () => loadDashboard()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "coach_bookings" },
+        () => loadDashboard()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        () => loadDashboard()
+      )
+      .subscribe();
+
+    const interval = setInterval(() => {
+      loadDashboard();
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, []);
+
+  async function loadDashboard() {
     try {
       setLoading(true);
-      const [notificationsData, bookingsData, coachBookingsData] = await Promise.all([
-        getUserNotifications(user.id),
-        getUserBookings(user.id),
-        getUserCoachBookings(user.id),
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      const [
+        bookingsRes,
+        coachingRes,
+        notificationsRes,
+        cartRes,
+      ] = await Promise.all([
+        supabase
+          .from("bookings")
+          .select("*, facilities (*)")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+
+        supabase
+          .from("coach_bookings")
+          .select("*, coaches (*)")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false }),
+
+        supabase
+          .from("notifications")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(5),
+
+        supabase
+          .from("cart_items")
+          .select("*")
+          .eq("user_id", user.id),
       ]);
 
-      setNotifications(notificationsData || []);
-      setBookings(bookingsData || []);
-      setCoachBookings(coachBookingsData || []);
+      const bookings = bookingsRes.data || [];
+      const coachBookings = coachingRes.data || [];
+
+      setStats({
+        pendingFacility: bookings.filter((b) => b.status === "pending").length,
+        approvedFacility: bookings.filter((b) => b.status === "approved").length,
+        pendingCoaching: coachBookings.filter((b) => b.status === "pending").length,
+        cartItems: cartRes.data?.length || 0,
+      });
+
+      setRecentBookings(bookings.slice(0, 5));
+      setRecentCoaching(coachBookings.slice(0, 5));
+      setNotifications(notificationsRes.data || []);
+    } catch (error) {
+      console.error("Dashboard error:", error.message);
     } finally {
       setLoading(false);
     }
   }
 
-  const pendingBookings = bookings.filter((item) => item.status === "pending").length;
-  const approvedBookings = bookings.filter((item) => item.status === "approved").length;
-  const pendingCoachings = coachBookings.filter((item) => item.status === "pending").length;
-  const unreadNotifications = notifications.filter((item) => !item.is_read).length;
-
   return (
-    <div className="page-shell bg-[#f5f6f8] md:flex">
+    <div className="page-shell">
       <Sidebar role="user" />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="User Dashboard" />
+          <Topbar title="Dashboard" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-blue-600 via-blue-700 to-slate-900 p-6 text-white md:p-8">
-            <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-sm font-medium text-blue-100">
-                  InCredoBall Sports Member Portal
-                </p>
-                <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
-                  Book facilities and coaching with confidence.
-                </h2>
-                <p className="mt-3 max-w-2xl text-sm text-blue-100 md:text-base">
-                  Track your requests, stay updated through live notifications,
-                  and manage your sports activities in one place.
-                </p>
-              </div>
-            </div>
-          </div>
+          <section className="page-hero mb-6">
+            <p className="text-sm font-semibold">InCredoBall Sports Member Portal</p>
 
-          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card>
-              <p className="text-sm text-black">Pending Facility Bookings</p>
-              <h3 className="mt-2 text-3xl font-bold text-black">
-                {loading ? "..." : pendingBookings}
+            <h2 className="mt-3 text-4xl font-black">
+              Book facilities and coaching with confidence.
+            </h2>
+
+            <p className="mt-4 max-w-3xl text-base text-white/90">
+              Track your requests, stay updated through live notifications, and
+              manage your sports activities in one place.
+            </p>
+          </section>
+
+          <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+            <StatCard
+              title="Pending Facility Bookings"
+              value={stats.pendingFacility}
+              sub="Waiting for staff approval"
+            />
+
+            <StatCard
+              title="Approved Facility Bookings"
+              value={stats.approvedFacility}
+              sub="Ready for your scheduled sessions"
+            />
+
+            <StatCard
+              title="Pending Coaching Requests"
+              value={stats.pendingCoaching}
+              sub="Awaiting review and confirmation"
+            />
+
+            <StatCard
+              title="Cart Items"
+              value={stats.cartItems}
+              sub="Merchandise ready to checkout"
+            />
+          </section>
+
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
+            <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+              <h3 className="text-2xl font-black text-[#2B2B2B]">
+                Recent Activity
               </h3>
-              <p className="mt-2 text-xs text-slate-700">
-                Waiting for staff approval
-              </p>
-            </Card>
 
-            <Card>
-              <p className="text-sm text-black">Approved Facility Bookings</p>
-              <h3 className="mt-2 text-3xl font-bold text-black">
-                {loading ? "..." : approvedBookings}
-              </h3>
-              <p className="mt-2 text-xs text-slate-700">
-                Ready for your scheduled sessions
+              <p className="mt-1 text-sm text-slate-500">
+                Latest updates from your account.
               </p>
-            </Card>
-
-            <Card>
-              <p className="text-sm text-black">Pending Coaching Requests</p>
-              <h3 className="mt-2 text-3xl font-bold text-black">
-                {loading ? "..." : pendingCoachings}
-              </h3>
-              <p className="mt-2 text-xs text-slate-700">
-                Awaiting review and confirmation
-              </p>
-            </Card>
-
-            <Card>
-              <p className="text-sm text-black">Unread Notifications</p>
-              <h3 className="mt-2 text-3xl font-bold text-black">
-                {loading ? "..." : unreadNotifications}
-              </h3>
-              <p className="mt-2 text-xs text-slate-700">
-                Live alerts from your activity
-              </p>
-            </Card>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-            <Card>
-              <div className="mb-5">
-                <h3 className="text-xl font-bold text-black">Recent Activity</h3>
-                <p className="mt-1 text-sm text-black">
-                  Latest updates from your account.
-                </p>
-              </div>
 
               {loading ? (
-                <p className="text-black">Loading activity...</p>
+                <p className="mt-5 text-sm text-slate-500">Loading...</p>
               ) : notifications.length === 0 ? (
-                <p className="text-black">No recent activity yet.</p>
+                <p className="mt-5 text-sm text-slate-500">
+                  No recent notifications yet.
+                </p>
               ) : (
-                <div className="space-y-3">
-                  {notifications.slice(0, 6).map((item) => (
+                <div className="mt-5 space-y-3">
+                  {notifications.map((item) => (
                     <div
                       key={item.id}
-                      className={`rounded-2xl border p-4 ${
-                        item.is_read
-                          ? "border-slate-200 bg-slate-50"
-                          : "border-blue-200 bg-blue-50"
-                      }`}
+                      className="rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] p-4"
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0 flex-1">
-                          <p className="safe-text font-semibold text-black">
-                            {item.title}
-                          </p>
-                          <p className="safe-text mt-1 text-sm text-black">
-                            {item.message}
-                          </p>
-                        </div>
-                        {!item.is_read ? (
-                          <span className="mt-1 h-2.5 w-2.5 rounded-full bg-red-500"></span>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 text-xs text-slate-700">
-                        {new Date(item.created_at).toLocaleString()}
+                      <h4 className="font-black text-[#2B2B2B]">
+                        {item.title}
+                      </h4>
+
+                      <p className="mt-1 text-sm text-slate-700">
+                        {item.message}
+                      </p>
+
+                      <p className="mt-2 text-xs text-slate-500">
+                        {item.created_at
+                          ? new Date(item.created_at).toLocaleString()
+                          : ""}
                       </p>
                     </div>
                   ))}
                 </div>
               )}
-            </Card>
+            </section>
 
-            <Card className="flex min-h-[420px] flex-col">
-              <div className="mb-5">
-                <h3 className="text-xl font-bold text-black">Upcoming Requests</h3>
-                <p className="mt-1 text-sm text-black">
-                  Your most recent bookings and coaching entries.
+            <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+              <h3 className="text-2xl font-black text-[#2B2B2B]">
+                My Recent Bookings
+              </h3>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Your most recent bookings and coaching entries.
+              </p>
+
+              {loading ? (
+                <p className="mt-5 text-sm text-slate-500">Loading...</p>
+              ) : recentBookings.length === 0 && recentCoaching.length === 0 ? (
+                <p className="mt-5 text-sm text-slate-500">
+                  No bookings yet.
                 </p>
-              </div>
+              ) : (
+                <div className="mt-5 space-y-3">
+                  {recentBookings.map((booking) => (
+                    <BookingCard
+                      key={`booking-${booking.id}`}
+                      title={booking.facilities?.name || "Facility Booking"}
+                      date={booking.booking_date}
+                      start={booking.start_time}
+                      end={booking.end_time}
+                      status={booking.status}
+                      total={booking.total_amount}
+                    />
+                  ))}
 
-              <div className="panel-scroll hide-scrollbar space-y-4 pr-2 max-h-[60vh]">
-                {loading ? (
-                  <p className="text-black">Loading requests...</p>
-                ) : bookings.length === 0 && coachBookings.length === 0 ? (
-                  <p className="text-black">No requests yet.</p>
-                ) : (
-                  <>
-                    {bookings.slice(0, 4).map((booking) => (
-                      <div key={booking.id} className="rounded-2xl border border-slate-200 p-4">
-                        <p className="safe-text font-semibold text-black">
-                          {booking.facilities?.name || "Facility"}
-                        </p>
-                        <p className="mt-1 text-sm text-black">
-                          {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
-                          {formatTime(booking.end_time)}
-                        </p>
-                        <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-blue-600">
-                          {booking.status}
-                        </p>
-                      </div>
-                    ))}
-
-                    {coachBookings.slice(0, 4).map((booking) => (
-                      <div key={booking.id} className="rounded-2xl border border-slate-200 p-4">
-                        <p className="safe-text font-semibold text-black">
-                          {booking.coaches?.name || "Coach"}
-                        </p>
-                        <p className="mt-1 text-sm text-black">
-                          {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
-                          {formatTime(booking.end_time)}
-                        </p>
-                        <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-blue-600">
-                          {booking.status}
-                        </p>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            </Card>
+                  {recentCoaching.map((booking) => (
+                    <BookingCard
+                      key={`coach-${booking.id}`}
+                      title={booking.coaches?.name || "Coaching Session"}
+                      date={booking.booking_date}
+                      start={booking.start_time}
+                      end={booking.end_time}
+                      status={booking.status}
+                      total={booking.total_amount}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+function StatCard({ title, value, sub }) {
+  return (
+    <div className="rounded-[24px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+      <p className="text-sm font-semibold text-slate-500">{title}</p>
+
+      <h3 className="mt-3 text-3xl font-black text-[#2B2B2B]">{value}</h3>
+
+      <p className="mt-2 text-xs text-slate-500">{sub}</p>
+    </div>
+  );
+}
+
+function BookingCard({ title, date, start, end, status, total }) {
+  const statusClass =
+    status === "approved"
+      ? "badge-approved"
+      : status === "rejected"
+      ? "badge-rejected"
+      : "badge-pending";
+
+  return (
+    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="font-black text-[#2B2B2B]">{title}</h4>
+
+          <p className="mt-1 text-sm text-slate-600">
+            {date} • {formatTime(start)} - {formatTime(end)}
+          </p>
+
+          <p className="mt-2 text-sm font-bold text-[#C97B6C]">
+            {money(total)}
+          </p>
+        </div>
+
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-black uppercase ${statusClass}`}
+        >
+          {status || "pending"}
+        </span>
+      </div>
     </div>
   );
 }

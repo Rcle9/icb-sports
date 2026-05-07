@@ -111,7 +111,7 @@ export default function Settings() {
         <div className="page-container">
           <Topbar title="System Settings" />
 
-          <div className="mb-6 rounded-[28px] bg-gradient-to-br from-slate-950 via-slate-800 to-blue-700 p-6 text-white md:p-8">
+          <div className="mb-6 rounded-[28px] bg-[#C97B6C] from-[#B87463] via-slate-800 to-[#C97B6C] p-6 text-white md:p-8">
             <div>
               <p className="text-sm font-medium text-blue-100">
                 Platform Configuration
@@ -223,7 +223,7 @@ export default function Settings() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="rounded-2xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                  className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-semibold text-white transition hover:bg-[#B96A5D] disabled:opacity-60"
                 >
                   {saving ? "Saving..." : "Save Settings"}
                 </button>

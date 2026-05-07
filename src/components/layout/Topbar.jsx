@@ -24,11 +24,9 @@ export default function Topbar({ title = "Dashboard" }) {
 
     async function initTopbar() {
       const currentProfile = await getCurrentProfile();
-
       if (!currentProfile || !mounted) return;
 
       setProfile(currentProfile);
-
       await refreshNotifications(currentProfile.id, currentProfile.role, mounted);
 
       if (channelRef.current) {
@@ -148,14 +146,14 @@ export default function Topbar({ title = "Dashboard" }) {
   }
 
   return (
-    <div className="relative mb-6 rounded-[28px] bg-white p-6 shadow-sm">
+    <div className="relative mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-blue-600">
+          <p className="text-sm font-semibold text-[#C97B6C]">
             Good day, {profile?.full_name || "User"}
           </p>
 
-          <h1 className="text-3xl font-black text-slate-950">{title}</h1>
+          <h1 className="text-3xl font-black text-[#2B2B2B]">{title}</h1>
 
           <p className="mt-1 text-sm text-slate-600">
             Welcome to InCredoBall Sports Management System.
@@ -163,13 +161,13 @@ export default function Topbar({ title = "Dashboard" }) {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 shadow-sm md:flex">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-700 font-bold text-white">
+          <div className="hidden items-center gap-3 rounded-2xl border border-[#DED8D2] bg-white px-5 py-3 shadow-sm md:flex">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#C97B6C] font-bold text-white">
               {(profile?.full_name || "U").charAt(0)}
             </div>
 
             <div>
-              <p className="text-sm font-bold">
+              <p className="text-sm font-bold text-[#2B2B2B]">
                 {profile?.full_name || "User"}
               </p>
               <p className="text-xs capitalize text-slate-500">
@@ -187,22 +185,22 @@ export default function Topbar({ title = "Dashboard" }) {
                   await refreshNotifications(profile.id, profile.role);
                 }
               }}
-              className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white text-xl shadow-sm transition hover:bg-slate-50"
+              className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white text-xl shadow-sm transition hover:bg-[#F3E4DF]"
             >
               🔔
 
               {unreadCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold text-white">
+                <span className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-[#C65B5B] px-1 text-xs font-bold text-white">
                   {unreadCount}
                 </span>
               )}
             </button>
 
             {open && (
-              <div className="absolute right-0 top-16 z-50 w-[380px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
-                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div className="absolute right-0 top-16 z-50 w-[380px] overflow-hidden rounded-3xl border border-[#DED8D2] bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-[#DED8D2] px-5 py-4">
                   <div>
-                    <h3 className="text-lg font-black text-slate-950">
+                    <h3 className="text-lg font-black text-[#2B2B2B]">
                       Notifications
                     </h3>
                     <p className="text-sm text-slate-500">
@@ -213,7 +211,7 @@ export default function Topbar({ title = "Dashboard" }) {
                   <button
                     type="button"
                     onClick={handleViewAll}
-                    className="text-sm font-bold text-blue-600 hover:text-blue-700"
+                    className="text-sm font-bold text-[#C97B6C] hover:text-[#D88E80]"
                   >
                     View all
                   </button>
@@ -230,15 +228,15 @@ export default function Topbar({ title = "Dashboard" }) {
                         key={item.id}
                         type="button"
                         onClick={() => handleNotificationClick(item)}
-                        className={`relative block w-full border-b border-slate-100 px-5 py-4 text-left transition hover:bg-slate-50 ${
-                          item.is_read ? "bg-white" : "bg-blue-50"
+                        className={`relative block w-full border-b border-[#DED8D2] px-5 py-4 text-left transition hover:bg-[#F3E4DF] ${
+                          item.is_read ? "bg-white" : "bg-[#F3E4DF]"
                         }`}
                       >
                         {!item.is_read && (
-                          <span className="absolute right-5 top-5 h-3 w-3 rounded-full bg-red-500" />
+                          <span className="absolute right-5 top-5 h-3 w-3 rounded-full bg-[#C65B5B]" />
                         )}
 
-                        <h4 className="pr-8 text-sm font-black text-slate-950">
+                        <h4 className="pr-8 text-sm font-black text-[#2B2B2B]">
                           {item.title}
                         </h4>
 

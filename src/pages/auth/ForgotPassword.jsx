@@ -50,14 +50,14 @@ export default function ForgotPassword() {
 
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white rounded-xl py-3 font-semibold hover:bg-blue-700"
+            className="w-full bg-[#C97B6C] text-white rounded-xl py-3 font-semibold hover:bg-[#B96A5D]"
           >
             Send Reset Link
           </button>
         </form>
 
         <div className="mt-6 text-sm text-center">
-          <Link to="/login" className="text-blue-600">
+          <Link to="/login" className="text-[#C97B6C]">
             Back to login
           </Link>
         </div>

@@ -68,7 +68,7 @@ export default function AdminUsers() {
         <div className="page-container">
           <Topbar title="User Management" />
 
-          <section className="mb-6 rounded-[28px] bg-gradient-to-r from-[#101827] to-[#2456d6] p-8 text-white shadow-sm">
+          <section className="mb-6 rounded-[28px] bg-[#C97B6C] from-[#101827] to-[#2456d6] p-8 text-white shadow-sm">
             <p className="text-sm font-semibold opacity-90">
               User Administration
             </p>

@@ -138,7 +138,12 @@ export default function StaffLogs() {
             ) : filteredLogs.length === 0 ? (
               <p className="text-gray-500">No activity logs found.</p>
             ) : (
-              <div className="space-y-4">
+              <div
+  className="space-y-4 overflow-y-auto pr-2"
+  style={{
+    maxHeight: "calc(100vh - 320px)",
+  }}
+>
                 {filteredLogs.map((log) => (
                   <div
                     key={log.id}
