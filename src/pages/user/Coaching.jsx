@@ -1,26 +1,33 @@
+// src/pages/user/Coaching.jsx
+
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, useLocation } from "react-router-dom";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
+import {
+  createCoachBooking,
+  cancelCoachBooking,
+  getUserCoachBookings,
+} from "../../services/coachingService";
 import { useAuth } from "../../context/AuthContext";
 
-const COACH_FALLBACK = "https://via.placeholder.com/600x400?text=Coach";
+const FALLBACK =
+  "https://via.placeholder.com/400x400?text=Coach";
 
 function money(value) {
   return `₱${Number(value || 0).toLocaleString()}`;
 }
 
-function cleanTime(time) {
-  if (!time) return "08:00";
-  return String(time).slice(0, 5);
+function getTodayDate() {
+  return new Date().toISOString().split("T")[0];
 }
 
 function formatTime(time24) {
   if (!time24) return "";
 
-  const [h, m] = cleanTime(time24).split(":");
+  const [h, m] = String(time24).split(":");
   let hour = Number(h);
+
   const suffix = hour >= 12 ? "PM" : "AM";
 
   hour = hour % 12 || 12;
@@ -33,46 +40,41 @@ function generateSlots() {
     const startHour = 8 + index;
     const endHour = startHour + 1;
 
-    const start = `${String(startHour).padStart(2, "0")}:00`;
-    const end = `${String(endHour).padStart(2, "0")}:00`;
-
     return {
-      start_time: start,
-      end_time: end,
-      label: `${formatTime(start)} - ${formatTime(end)}`,
+      start_time: `${String(startHour).padStart(2, "0")}:00`,
+      end_time: `${String(endHour).padStart(2, "0")}:00`,
+      label: `${formatTime(
+        `${String(startHour).padStart(2, "0")}:00`
+      )} - ${formatTime(
+        `${String(endHour).padStart(2, "0")}:00`
+      )}`,
     };
   });
 }
 
-function hoursBetween(start, end) {
-  if (!start || !end) return 0;
-
-  const [sh, sm] = cleanTime(start).split(":").map(Number);
-  const [eh, em] = cleanTime(end).split(":").map(Number);
-
-  return Math.max(0, (eh * 60 + em - (sh * 60 + sm)) / 60);
-}
-
-function overlaps(aStart, aEnd, bStart, bEnd) {
-  return cleanTime(aStart) < cleanTime(bEnd) && cleanTime(aEnd) > cleanTime(bStart);
-}
-
 export default function Coaching() {
-  const { user, profile: authProfile } = useAuth();
-  const location = useLocation();
-  const highlightId = new URLSearchParams(location.search).get("highlight");
-
-  if (authProfile?.role === "staff") return <Navigate to="/staff" replace />;
-  if (authProfile?.role === "admin") return <Navigate to="/admin" replace />;
+  const { user } = useAuth();
 
   const [profile, setProfile] = useState(null);
   const [coaches, setCoaches] = useState([]);
   const [myBookings, setMyBookings] = useState([]);
-  const [approvedCoachBookings, setApprovedCoachBookings] = useState([]);
 
   const [selectedCoach, setSelectedCoach] = useState(null);
+
+  const [approvedBookings, setApprovedBookings] = useState([]);
+
   const [selectedStartIndex, setSelectedStartIndex] = useState(null);
   const [selectedEndIndex, setSelectedEndIndex] = useState(null);
+
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const [loading, setLoading] = useState(false);
+
+  const [cancelModal, setCancelModal] = useState(false);
+  const [selectedCancelBooking, setSelectedCancelBooking] = useState(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
 
   const [form, setForm] = useState({
     booking_date: "",
@@ -80,10 +82,6 @@ export default function Coaching() {
     participants: 1,
     notes: "",
   });
-
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
   const slots = useMemo(() => generateSlots(), []);
 
@@ -97,37 +95,39 @@ export default function Coaching() {
   }, [selectedStartIndex, selectedEndIndex, slots]);
 
   const startTime = selectedRange[0]?.start_time || "";
-  const endTime = selectedRange[selectedRange.length - 1]?.end_time || "";
-  const totalHours = hoursBetween(startTime, endTime);
+  const endTime =
+    selectedRange[selectedRange.length - 1]?.end_time || "";
+
+  const totalHours = selectedRange.length;
+
   const coachRate = Number(selectedCoach?.rate_per_hour || 0);
-  const totalAmount = totalHours * coachRate;
+
+  const totalAmount = coachRate * totalHours;
 
   useEffect(() => {
-    if (user?.id) loadInitialData();
+    if (user?.id) {
+      loadInitialData();
+    }
   }, [user?.id]);
 
   useEffect(() => {
     if (selectedCoach?.id && form.booking_date) {
-      loadCoachBookings();
-    } else {
-      setApprovedCoachBookings([]);
+      loadCoachSchedule();
     }
   }, [selectedCoach?.id, form.booking_date]);
 
   useEffect(() => {
     const channel = supabase
-      .channel(`user-coaching-live-${Date.now()}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "coaches" },
-        () => loadInitialData()
-      )
+      .channel(`coach-live-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "coach_bookings" },
         () => {
           loadInitialData();
-          if (selectedCoach?.id && form.booking_date) loadCoachBookings();
+
+          if (selectedCoach?.id && form.booking_date) {
+            loadCoachSchedule();
+          }
         }
       )
       .subscribe();
@@ -135,74 +135,48 @@ export default function Coaching() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, selectedCoach?.id, form.booking_date]);
+  }, [selectedCoach?.id, form.booking_date]);
 
   async function loadInitialData() {
     try {
-      setError("");
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      if (!user?.id) return;
-
-      const { data: profileData, error: profileError } = await supabase
+      const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .maybeSingle();
 
-      if (profileError) throw profileError;
+      setProfile(profileData);
 
-      setProfile(
-        profileData || {
-          id: user.id,
-          role: "user",
-          full_name: user.email,
-          email: user.email,
-        }
-      );
-
-      const { data: coachesData, error: coachesError } = await supabase
+      const { data: coachData } = await supabase
         .from("coaches")
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (coachesError) throw coachesError;
+      setCoaches(
+        (coachData || []).filter((coach) => coach.is_active !== false)
+      );
 
-      setCoaches((coachesData || []).filter((coach) => coach.is_active !== false));
+      const bookingData = await getUserCoachBookings(user.id);
 
-      const { data: bookingsData, error: bookingsError } = await supabase
-        .from("coach_bookings")
-        .select("*, coaches (*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (bookingsError) throw bookingsError;
-
-      setMyBookings(bookingsData || []);
+      setMyBookings(bookingData || []);
     } catch (err) {
       console.error(err);
-      setError(err.message || "Failed to load coaching page.");
     }
   }
 
-  async function loadCoachBookings() {
-    if (!selectedCoach?.id || !form.booking_date) return;
-
-    const { data, error } = await supabase
+  async function loadCoachSchedule() {
+    const { data } = await supabase
       .from("coach_bookings")
       .select("*")
       .eq("coach_id", selectedCoach.id)
       .eq("booking_date", form.booking_date)
-      .in("status", ["pending", "approved"]);
+      .in("status", ["approved", "pending"]);
 
-    if (!error) setApprovedCoachBookings(data || []);
-  }
-
-  function handleCoachSelect(coach) {
-    setSelectedCoach(coach);
-    setSelectedStartIndex(null);
-    setSelectedEndIndex(null);
-    setError("");
-    setMessage("");
+    setApprovedBookings(data || []);
   }
 
   function handleChange(e) {
@@ -219,43 +193,16 @@ export default function Coaching() {
     }
   }
 
-  function isSlotBlocked(slot) {
-    if (!selectedCoach) return true;
-
-    const coachStart = cleanTime(selectedCoach.available_start_time || "08:00");
-    const coachEnd = cleanTime(selectedCoach.available_end_time || "20:00");
-
-    const outsideWorkingHours =
-      cleanTime(slot.start_time) < coachStart || cleanTime(slot.end_time) > coachEnd;
-
-    const alreadyBooked = approvedCoachBookings.some((booking) =>
-      overlaps(slot.start_time, slot.end_time, booking.start_time, booking.end_time)
+  function isBlocked(slot) {
+    return approvedBookings.some(
+      (booking) =>
+        slot.start_time < booking.end_time &&
+        slot.end_time > booking.start_time
     );
-
-    return outsideWorkingHours || alreadyBooked;
-  }
-
-  function getSlotLabel(slot) {
-    if (!selectedCoach) return "Select coach first";
-
-    const coachStart = cleanTime(selectedCoach.available_start_time || "08:00");
-    const coachEnd = cleanTime(selectedCoach.available_end_time || "20:00");
-
-    if (cleanTime(slot.start_time) < coachStart || cleanTime(slot.end_time) > coachEnd) {
-      return "Coach unavailable";
-    }
-
-    const booked = approvedCoachBookings.some((booking) =>
-      overlaps(slot.start_time, slot.end_time, booking.start_time, booking.end_time)
-    );
-
-    if (booked) return "Already booked";
-
-    return "Available";
   }
 
   function handleSlotClick(index) {
-    if (isSlotBlocked(slots[index])) return;
+    if (isBlocked(slots[index])) return;
 
     if (selectedStartIndex === null) {
       setSelectedStartIndex(index);
@@ -266,35 +213,21 @@ export default function Coaching() {
     setSelectedEndIndex(index);
   }
 
-  function isSlotSelected(index) {
-    if (selectedStartIndex === null || selectedEndIndex === null) return false;
+  function isSelected(index) {
+    if (selectedStartIndex === null || selectedEndIndex === null)
+      return false;
 
-    const start = Math.min(selectedStartIndex, selectedEndIndex);
-    const end = Math.max(selectedStartIndex, selectedEndIndex);
+    const start = Math.min(
+      selectedStartIndex,
+      selectedEndIndex
+    );
+
+    const end = Math.max(
+      selectedStartIndex,
+      selectedEndIndex
+    );
 
     return index >= start && index <= end;
-  }
-
-  async function notifyStaffAndAdmin(bookingId) {
-    const { data: receivers } = await supabase
-      .from("profiles")
-      .select("id, role")
-      .in("role", ["staff", "admin"]);
-
-    if (!receivers?.length) return;
-
-    await Promise.all(
-      receivers.map((person) =>
-        supabase.rpc("create_notification_rpc", {
-          p_user_id: person.id,
-          p_target_role: person.role,
-          p_title: "New Coaching Request",
-          p_message: "A user submitted a coaching session request.",
-          p_type: "coaching_request",
-          p_reference_id: bookingId || null,
-        })
-      )
-    );
   }
 
   async function handleSubmit(e) {
@@ -303,21 +236,22 @@ export default function Coaching() {
     setError("");
     setMessage("");
 
-    if (!profile?.id) return setError("Please login first.");
-    if (!selectedCoach) return setError("Please select a coach.");
-    if (!form.booking_date) return setError("Please select a date.");
-    if (!startTime || !endTime) return setError("Please select time slots.");
+    if (!selectedCoach) {
+      return setError("Please select a coach.");
+    }
 
-    const hasBlocked = selectedRange.some((slot) => isSlotBlocked(slot));
+    if (!form.booking_date) {
+      return setError("Please select booking date.");
+    }
 
-    if (hasBlocked) {
-      return setError("Selected range includes unavailable coach time.");
+    if (!startTime || !endTime) {
+      return setError("Please select time slots.");
     }
 
     try {
-      setSubmitting(true);
+      setLoading(true);
 
-      const payload = {
+      await createCoachBooking({
         user_id: profile.id,
         coach_id: selectedCoach.id,
         booking_date: form.booking_date,
@@ -326,27 +260,12 @@ export default function Coaching() {
         session_mode: form.session_mode,
         participants: Number(form.participants || 1),
         notes: form.notes || "",
-        status: "pending",
         total_hours: totalHours,
         rate_per_hour: coachRate,
         total_amount: totalAmount,
-        created_at: new Date().toISOString(),
-      };
+      });
 
-      const { data, error: insertError } = await supabase
-        .from("coach_bookings")
-        .insert([payload])
-        .select()
-        .maybeSingle();
-
-      if (insertError) throw insertError;
-
-      await notifyStaffAndAdmin(data?.id);
-
-      setMessage("Coaching request submitted successfully. Staff and admin were notified.");
-
-      setSelectedStartIndex(null);
-      setSelectedEndIndex(null);
+      setMessage("Coach booking request submitted.");
 
       setForm({
         booking_date: "",
@@ -355,12 +274,39 @@ export default function Coaching() {
         notes: "",
       });
 
+      setSelectedStartIndex(null);
+      setSelectedEndIndex(null);
+
       await loadInitialData();
     } catch (err) {
-      console.error(err);
-      setError(err.message || "Failed to submit coaching request.");
+      setError(err.message || "Failed to book coach.");
     } finally {
-      setSubmitting(false);
+      setLoading(false);
+    }
+  }
+
+  async function handleCancelCoachBooking() {
+    if (!selectedCancelBooking?.id) return;
+
+    try {
+      setCancelling(true);
+
+      await cancelCoachBooking(
+        selectedCancelBooking.id,
+        cancelReason
+      );
+
+      setMessage("Coaching request cancelled.");
+
+      setCancelModal(false);
+      setSelectedCancelBooking(null);
+      setCancelReason("");
+
+      await loadInitialData();
+    } catch (err) {
+      setError(err.message || "Failed to cancel coaching request.");
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -370,338 +316,301 @@ export default function Coaching() {
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Coaching" />
+          <Topbar title="Coaching Booking" />
 
           {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-red-700">
               {error}
             </div>
           )}
 
           {message && (
-            <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+            <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-green-700">
               {message}
             </div>
           )}
 
           <section className="page-hero mb-6">
-            <p className="text-sm font-semibold">Direct Coaching Booking</p>
+            <p className="text-sm font-semibold">Coaching Sessions</p>
+
             <h2 className="mt-2 text-3xl font-black">
-              Choose a coach, check availability, then book your session.
+              Book a coach session online.
             </h2>
-            <p className="mt-2 text-sm text-white/90">
-              Coach price and available time are managed by staff.
-            </p>
           </section>
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
-                  Available Coaches
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Browse coaches, open their profile, and select the right one for your session.
-                </p>
-              </div>
+          <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {coaches.map((coach) => (
+              <button
+                key={coach.id}
+                onClick={() => {
+                  setSelectedCoach(coach);
+                  setSelectedStartIndex(null);
+                  setSelectedEndIndex(null);
+                }}
+                className={`overflow-hidden rounded-[30px] border bg-white text-left shadow-sm ${
+                  selectedCoach?.id === coach.id
+                    ? "border-[#C97B6C] ring-2 ring-[#D88E80]/40"
+                    : "border-[#DED8D2]"
+                }`}
+              >
+                <img
+                  src={
+                    coach.image_path ||
+                    coach.image_url ||
+                    FALLBACK
+                  }
+                  alt={coach.name}
+                  className="h-64 w-full object-cover"
+                />
 
-              <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-bold text-[#C97B6C]">
-                {selectedCoach ? `Selected coach: ${selectedCoach.name}` : "No coach selected yet"}
-              </span>
-            </div>
+                <div className="p-5">
+                  <h3 className="text-2xl font-black">
+                    {coach.name}
+                  </h3>
 
-            {coaches.length === 0 ? (
-              <p className="text-sm text-slate-500">No coaches available.</p>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {coaches.map((coach) => (
-                  <div
-                    key={coach.id}
-                    className={`overflow-hidden rounded-3xl border bg-white ${
-                      selectedCoach?.id === coach.id
-                        ? "border-[#C97B6C] ring-2 ring-[#D88E80]/40"
-                        : "border-[#DED8D2]"
-                    }`}
-                  >
-                    <img
-                      src={coach.image_path || coach.image_url || COACH_FALLBACK}
-                      alt={coach.name}
-                      className="h-56 w-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = COACH_FALLBACK;
-                      }}
-                    />
+                  <p className="mt-2 text-slate-500">
+                    {coach.specialty || "Coach"}
+                  </p>
 
-                    <div className="p-4">
-                      <h4 className="text-lg font-black text-[#2B2B2B]">{coach.name}</h4>
-
-                      <p className="text-sm text-slate-500">
-                        {coach.specialty || "Coach"}
-                      </p>
-
-                      <p className="mt-2 text-sm font-black text-[#C97B6C]">
-                        {money(coach.rate_per_hour)} / hour
-                      </p>
-
-                      <p className="text-xs text-slate-500">
-                        Available: {cleanTime(coach.available_start_time)} -{" "}
-                        {cleanTime(coach.available_end_time || "20:00")}
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={() => handleCoachSelect(coach)}
-                        className="mt-4 w-full rounded-2xl bg-[#C97B6C] px-4 py-3 font-bold text-white hover:bg-[#D88E80]"
-                      >
-                        Select Coach
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  <p className="mt-3 text-sm font-black text-[#C97B6C]">
+                    {money(coach.rate_per_hour)} / hour
+                  </p>
+                </div>
+              </button>
+            ))}
           </section>
 
           {selectedCoach && (
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_1fr]">
-              <aside className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-                <img
-                  src={selectedCoach.image_path || selectedCoach.image_url || COACH_FALLBACK}
-                  alt={selectedCoach.name}
-                  className="h-72 w-full rounded-3xl object-cover"
-                  onError={(e) => {
-                    e.currentTarget.src = COACH_FALLBACK;
-                  }}
+            <section className="rounded-[30px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+              <h3 className="text-2xl font-black">
+                Book {selectedCoach.name}
+              </h3>
+
+              <form onSubmit={handleSubmit} className="mt-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="mb-2 block text-sm font-bold">
+                      Booking Date
+                    </label>
+
+                    <input
+                      type="date"
+                      name="booking_date"
+                      min={getTodayDate()}
+                      value={form.booking_date}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-bold">
+                      Session Mode
+                    </label>
+
+                    <select
+                      name="session_mode"
+                      value={form.session_mode}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
+                    >
+                      <option value="one_on_one">
+                        One-on-One
+                      </option>
+
+                      <option value="group">Group</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-bold">
+                      Participants
+                    </label>
+
+                    <input
+                      type="number"
+                      min="1"
+                      name="participants"
+                      value={form.participants}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-4">
+                  {slots.map((slot, index) => {
+                    const blocked = isBlocked(slot);
+                    const selected = isSelected(index);
+
+                    return (
+                      <button
+                        key={slot.start_time}
+                        type="button"
+                        disabled={blocked}
+                        onClick={() => handleSlotClick(index)}
+                        className={`rounded-2xl border px-4 py-3 text-sm font-bold ${
+                          blocked
+                            ? "cursor-not-allowed bg-slate-100 text-slate-400"
+                            : selected
+                            ? "border-[#C97B6C] bg-[#C97B6C] text-white"
+                            : "border-[#DED8D2] bg-white"
+                        }`}
+                      >
+                        {slot.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-6 rounded-3xl border border-[#DED8D2] bg-[#F5F3F1] p-5">
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                      <span>Coach Rate</span>
+
+                      <b>{money(coachRate)} / hour</b>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span>Total Hours</span>
+
+                      <b>{totalHours}</b>
+                    </div>
+
+                    <div className="flex justify-between border-t border-[#DED8D2] pt-3 text-base">
+                      <span className="font-black">
+                        Total Amount
+                      </span>
+
+                      <b className="text-[#C97B6C]">
+                        {money(totalAmount)}
+                      </b>
+                    </div>
+                  </div>
+                </div>
+
+                <textarea
+                  name="notes"
+                  value={form.notes}
+                  onChange={handleChange}
+                  placeholder="Optional notes"
+                  className="mt-5 min-h-[120px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
                 />
 
-                <h3 className="mt-5 text-2xl font-black text-[#2B2B2B]">
-                  {selectedCoach.name}
-                </h3>
-
-                <p className="mt-1 text-[#C97B6C]">
-                  {selectedCoach.specialty || "Coach"}
-                </p>
-
-                <p className="mt-3 text-sm leading-7 text-slate-700">
-                  {selectedCoach.description || "No description provided."}
-                </p>
-
-                <div className="mt-5 rounded-2xl bg-[#F5F3F1] p-4">
-                  <p className="text-xs uppercase text-slate-500">Experience</p>
-                  <p className="font-bold text-[#2B2B2B]">
-                    {selectedCoach.experience || "Not specified"}
-                  </p>
-                </div>
-
-                <div className="mt-3 rounded-2xl bg-[#F3E4DF] p-4">
-                  <p className="text-xs uppercase text-slate-500">Coach Rate</p>
-                  <p className="font-black text-[#C97B6C]">{money(coachRate)} / hour</p>
-                </div>
-
-                <div className="mt-3 rounded-2xl bg-[#F5F3F1] p-4">
-                  <p className="text-xs uppercase text-slate-500">Available Time</p>
-                  <p className="font-bold text-[#2B2B2B]">
-                    {cleanTime(selectedCoach.available_start_time)} -{" "}
-                    {cleanTime(selectedCoach.available_end_time || "20:00")}
-                  </p>
-                </div>
-              </aside>
-
-              <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
-                  Book {selectedCoach.name}
-                </h3>
-
-                <p className="text-sm text-slate-500">
-                  Choose a date, select session mode, then highlight a continuous time range.
-                </p>
-
-                <form onSubmit={handleSubmit} className="mt-6">
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold">Date</label>
-                      <input
-                        type="date"
-                        name="booking_date"
-                        value={form.booking_date}
-                        onChange={handleChange}
-                        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold">
-                        Session Mode
-                      </label>
-                      <select
-                        name="session_mode"
-                        value={form.session_mode}
-                        onChange={handleChange}
-                        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
-                      >
-                        <option value="one_on_one">One-on-One</option>
-                        <option value="group">Group</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold">
-                        Participants
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        name="participants"
-                        value={form.participants}
-                        onChange={handleChange}
-                        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold">
-                        Selected Range
-                      </label>
-                      <div className="rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] px-4 py-3 text-slate-500">
-                        {startTime && endTime
-                          ? `${formatTime(startTime)} - ${formatTime(endTime)}`
-                          : "Choose from the slots below"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-6">
-                    <h4 className="text-lg font-black text-[#2B2B2B]">
-                      Available Time Slots
-                    </h4>
-                    <p className="text-sm text-slate-500">
-                      Unavailable slots are disabled automatically.
-                    </p>
-
-                    {!form.booking_date ? (
-                      <div className="mt-4 rounded-2xl border border-dashed border-[#DED8D2] p-6">
-                        Select a coach and date first.
-                      </div>
-                    ) : (
-                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
-                        {slots.map((slot, index) => {
-                          const blocked = isSlotBlocked(slot);
-                          const selected = isSlotSelected(index);
-
-                          return (
-                            <button
-                              type="button"
-                              key={slot.start_time}
-                              disabled={blocked}
-                              onClick={() => handleSlotClick(index)}
-                              className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${
-                                blocked
-                                  ? "cursor-not-allowed bg-slate-100 text-slate-400"
-                                  : selected
-                                  ? "border-[#C97B6C] bg-[#C97B6C] text-white"
-                                  : "border-[#DED8D2] bg-white hover:bg-[#F3E4DF]"
-                              }`}
-                            >
-                              <span>{slot.label}</span>
-                              <span className="mt-1 block text-xs">
-                                {blocked ? getSlotLabel(slot) : "Available"}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-6 rounded-3xl border border-[#DED8D2] bg-[#F5F3F1] p-5">
-                    <h4 className="text-lg font-black text-[#2B2B2B]">
-                      Payment Summary
-                    </h4>
-
-                    <div className="mt-4 space-y-3 text-sm">
-                      <div className="flex justify-between">
-                        <span>Selected Hours</span>
-                        <b>{totalHours} hour(s)</b>
-                      </div>
-
-                      <div className="flex justify-between">
-                        <span>Coach Rate</span>
-                        <b>
-                          {money(coachRate)} × {totalHours} hr = {money(totalAmount)}
-                        </b>
-                      </div>
-
-                      <div className="flex justify-between border-t border-[#DED8D2] pt-3 text-base">
-                        <span className="font-black">Total Amount</span>
-                        <b className="text-[#C97B6C]">{money(totalAmount)}</b>
-                      </div>
-                    </div>
-                  </div>
-
-                  <textarea
-                    name="notes"
-                    value={form.notes}
-                    onChange={handleChange}
-                    placeholder="Optional notes for the coach or staff"
-                    className="mt-5 min-h-[120px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
-                  />
-
-                  <button
-                    disabled={submitting}
-                    className="mt-5 rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#D88E80] disabled:opacity-60"
-                  >
-                    {submitting
-                      ? "Submitting..."
-                      : `Submit Coaching Request — ${money(totalAmount)}`}
-                  </button>
-                </form>
-              </section>
-            </div>
+                <button
+                  disabled={loading}
+                  className="mt-5 rounded-2xl bg-[#C97B6C] px-6 py-3 font-black text-white"
+                >
+                  {loading
+                    ? "Submitting..."
+                    : `Submit Coaching Request — ${money(
+                        totalAmount
+                      )}`}
+                </button>
+              </form>
+            </section>
           )}
 
-          <section className="mt-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-black text-[#2B2B2B]">
+          <section className="mt-6 rounded-[30px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <h3 className="text-2xl font-black">
               My Coaching Requests
             </h3>
 
-            {myBookings.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-500">No coaching requests yet.</p>
-            ) : (
-              <div className="mt-4 space-y-4">
-                {myBookings.map((booking) => (
-                  <div
-                    key={booking.id}
-                    className={`rounded-2xl border p-4 ${
-                      booking.id === highlightId
-                        ? "border-[#C97B6C] bg-[#F3E4DF]"
-                        : "border-[#DED8D2] bg-white"
-                    }`}
-                  >
-                    <h4 className="font-bold text-[#2B2B2B]">
-                      {booking.coaches?.name || "Coach Session"}
-                    </h4>
+            <div className="mt-6 space-y-4">
+              {myBookings.length === 0 ? (
+                <p className="text-slate-500">
+                  No coaching requests yet.
+                </p>
+              ) : (
+                myBookings.map((booking) => {
+                  const status = String(
+                    booking.status || "pending"
+                  ).toLowerCase();
 
-                    <p className="text-sm text-slate-500">
-                      {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
-                      {formatTime(booking.end_time)}
-                    </p>
+                  return (
+                    <div
+                      key={booking.id}
+                      className="rounded-2xl border border-[#DED8D2] p-5"
+                    >
+                      <h4 className="text-lg font-black">
+                        {booking.coaches?.name || "Coach"}
+                      </h4>
 
-                    <p className="mt-1 text-sm capitalize">
-                      Mode: <b>{booking.session_mode || "one_on_one"}</b>
-                    </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {booking.booking_date} •{" "}
+                        {booking.start_time} - {booking.end_time}
+                      </p>
 
-                    <p className="mt-1 text-sm capitalize">
-                      Status: <b>{booking.status}</b>
-                    </p>
+                      <p className="mt-2 text-sm capitalize">
+                        Status: <b>{status}</b>
+                      </p>
 
-                    <p className="mt-1 text-sm font-bold">
-                      Total: {money(booking.total_amount || 0)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
+                      <p className="mt-2 text-sm font-black text-[#C97B6C]">
+                        Total: {money(booking.total_amount)}
+                      </p>
+
+                      {status === "pending" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCancelBooking(booking);
+                            setCancelModal(true);
+                          }}
+                          className="mt-4 rounded-2xl bg-[#C65B5B] px-5 py-3 text-sm font-bold text-white"
+                        >
+                          Cancel Request
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </section>
+
+          {cancelModal && (
+            <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 px-4">
+              <div className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl">
+                <h2 className="text-2xl font-black text-[#2B2B2B]">
+                  Cancel Coaching Request
+                </h2>
+
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) =>
+                    setCancelReason(e.target.value)
+                  }
+                  placeholder="Reason for cancellation"
+                  className="mt-5 min-h-[120px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
+                />
+
+                <div className="mt-5 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCancelModal(false);
+                      setSelectedCancelBooking(null);
+                      setCancelReason("");
+                    }}
+                    className="rounded-2xl border border-[#DED8D2] px-5 py-3 font-bold"
+                  >
+                    Close
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCancelCoachBooking}
+                    disabled={cancelling}
+                    className="rounded-2xl bg-[#C65B5B] px-5 py-3 font-bold text-white"
+                  >
+                    {cancelling
+                      ? "Cancelling..."
+                      : "Confirm Cancel"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>
