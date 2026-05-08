@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { signInUser, signInWithGoogle } from "../../services/authService";
+import { supabase } from "../../services/supabaseClient";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -9,94 +9,138 @@ export default function Login() {
     email: "",
     password: "",
   });
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  function handleChange(event) {
-    setForm({ ...form, [event.target.name]: event.target.value });
+  function handleChange(e) {
+    const { name, value } = e.target;
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError("");
+  async function handleLogin(e) {
+    e.preventDefault();
+
     setLoading(true);
+    setError("");
 
     try {
-      await signInUser(form);
-      navigate("/redirect");
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({
+        email: form.email,
+        password: form.password,
+      });
+
+      if (loginError) throw loginError;
+
+      const user = data?.user;
+
+      if (!user) {
+        throw new Error("Login failed. Please try again.");
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      const role = String(profile?.role || "user").toLowerCase();
+
+      if (role === "admin") {
+        navigate("/admin/dashboard", { replace: true });
+      } else if (role === "staff") {
+        navigate("/staff/dashboard", { replace: true });
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
     } catch (err) {
-      setError(err.message || "Login failed.");
+      console.error(err);
+      setError(err.message || "Failed to login.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleGoogleLogin() {
-    try {
-      await signInWithGoogle();
-    } catch (err) {
-      setError(err.message || "Google login failed.");
-    }
-  }
-
   return (
-    <div className="min-h-screen bg-[#f5f6f8] flex items-center justify-center px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-sm p-8">
-        <h1 className="text-3xl font-bold text-[#0f172a] mb-2">Login</h1>
-        <p className="text-gray-500 mb-6">Access your InCredoball Sports account.</p>
+    <main className="flex min-h-screen items-center justify-center bg-[#F5F3F1] px-4">
+      <div className="w-full max-w-md rounded-[32px] border border-[#DED8D2] bg-white p-8 shadow-xl">
+        <div className="text-center">
+          <h1 className="text-4xl font-black text-[#2B2B2B]">
+            Welcome Back
+          </h1>
 
-        {error ? (
-          <div className="mb-4 rounded-lg bg-red-50 text-red-600 px-4 py-3 text-sm">
+          <p className="mt-2 text-sm text-slate-500">
+            Login to your InCredoBall account.
+          </p>
+        </div>
+
+        {error && (
+          <div className="mt-6 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
             {error}
           </div>
-        ) : null}
+        )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="email"
-            name="email"
-            placeholder="Email"
-            value={form.email}
-            onChange={handleChange}
-            className="w-full border rounded-xl px-4 py-3 outline-none"
-            required
-          />
+        <form onSubmit={handleLogin} className="mt-8 space-y-5">
+          <div>
+            <label className="mb-2 block text-sm font-bold text-[#2B2B2B]">
+              Email
+            </label>
 
-          <input
-            type="password"
-            name="password"
-            placeholder="Password"
-            value={form.password}
-            onChange={handleChange}
-            className="w-full border rounded-xl px-4 py-3 outline-none"
-            required
-          />
+            <input
+              type="email"
+              name="email"
+              value={form.email}
+              onChange={handleChange}
+              placeholder="Enter your email"
+              required
+              className="w-full rounded-2xl border border-[#DED8D2] px-4 py-4 outline-none focus:border-[#C97B6C]"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-bold text-[#2B2B2B]">
+              Password
+            </label>
+
+            <input
+              type="password"
+              name="password"
+              value={form.password}
+              onChange={handleChange}
+              placeholder="Enter your password"
+              required
+              className="w-full rounded-2xl border border-[#DED8D2] px-4 py-4 outline-none focus:border-[#C97B6C]"
+            />
+          </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#C97B6C] text-white rounded-xl py-3 font-semibold hover:bg-[#B96A5D] disabled:opacity-60"
+            className="w-full rounded-2xl bg-[#C97B6C] px-5 py-4 font-black text-white transition hover:bg-[#B87463] disabled:opacity-60"
           >
             {loading ? "Logging in..." : "Login"}
           </button>
         </form>
 
-        <button
-          onClick={handleGoogleLogin}
-          className="w-full mt-4 border rounded-xl py-3 font-semibold hover:bg-gray-50"
-        >
-          Continue with Google
-        </button>
-
-        <div className="mt-6 flex justify-between text-sm">
-          <Link to="/forgot-password" className="text-[#C97B6C]">
-            Forgot password?
+        <p className="mt-6 text-center text-sm text-slate-600">
+          Don&apos;t have an account?{" "}
+          <Link to="/register" className="font-black text-[#C97B6C]">
+            Register
           </Link>
-          <Link to="/register" className="text-[#C97B6C]">
-            Create account
+        </p>
+
+        <div className="mt-4 text-center">
+          <Link to="/" className="text-sm font-bold text-slate-500 hover:text-[#C97B6C]">
+            Back to landing page
           </Link>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
