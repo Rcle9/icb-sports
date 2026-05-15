@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
-import { createBooking, cancelBooking } from "../../services/bookingService";
+import { createBooking } from "../../services/bookingService";
 import { useAuth } from "../../context/AuthContext";
 
 const FACILITY_FALLBACK = "https://via.placeholder.com/800x500?text=Facility";
@@ -30,13 +30,10 @@ function getTodayDate() {
 
 function formatTime(time24) {
   if (!time24) return "";
-
   const [h, m] = cleanTime(time24).split(":");
   let hour = Number(h);
   const suffix = hour >= 12 ? "PM" : "AM";
-
   hour = hour % 12 || 12;
-
   return `${hour}:${m} ${suffix}`;
 }
 
@@ -82,20 +79,16 @@ function getFacilityImages(item) {
 
 export default function Booking() {
   const { user, profile: authProfile } = useAuth();
-  const location = useLocation();
-
-  const highlightId = new URLSearchParams(location.search).get("highlight");
 
   if (authProfile?.role === "staff") return <Navigate to="/staff" replace />;
-  if (authProfile?.role === "admin") return <Navigate to="/admin" replace />;
+if (authProfile?.role === "admin") return <Navigate to="/admin" replace />;
 
   const [profile, setProfile] = useState(null);
   const [facilities, setFacilities] = useState([]);
   const [coaches, setCoaches] = useState([]);
-  const [bookings, setBookings] = useState([]);
 
   const [selectedFacility, setSelectedFacility] = useState(null);
-  const [selectedImage, setSelectedImage] = useState(FACILITY_FALLBACK);
+  const [selectedCoach, setSelectedCoach] = useState(null);
 
   const [approvedBookings, setApprovedBookings] = useState([]);
   const [approvedCoachBookings, setApprovedCoachBookings] = useState([]);
@@ -106,11 +99,6 @@ export default function Booking() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  const [cancelModal, setCancelModal] = useState(false);
-  const [selectedCancelBooking, setSelectedCancelBooking] = useState(null);
-  const [cancelReason, setCancelReason] = useState("");
-  const [cancelling, setCancelling] = useState(false);
 
   const [form, setForm] = useState({
     booking_date: "",
@@ -124,10 +112,6 @@ export default function Booking() {
 
   const slots = useMemo(() => generateSlots(), []);
 
-  const selectedCoach = useMemo(() => {
-    return coaches.find((coach) => coach.id === form.coach_id) || null;
-  }, [coaches, form.coach_id]);
-
   const selectedRange = useMemo(() => {
     if (selectedStartIndex === null || selectedEndIndex === null) return [];
 
@@ -139,7 +123,6 @@ export default function Booking() {
 
   const startTime = selectedRange[0]?.start_time || "";
   const endTime = selectedRange[selectedRange.length - 1]?.end_time || "";
-
   const totalHours = hoursBetween(startTime, endTime);
 
   const facilityRate = Number(
@@ -179,11 +162,7 @@ export default function Booking() {
         "postgres_changes",
         { event: "*", schema: "public", table: "bookings" },
         () => {
-          loadInitialData();
-
-          if (selectedFacility?.id && form.booking_date) {
-            loadApprovedBookings();
-          }
+          if (selectedFacility?.id && form.booking_date) loadApprovedBookings();
         }
       )
       .on(
@@ -200,13 +179,7 @@ export default function Booking() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [
-    user?.id,
-    selectedFacility?.id,
-    form.booking_date,
-    form.include_coach,
-    form.coach_id,
-  ]);
+  }, [selectedFacility?.id, form.booking_date, form.include_coach, form.coach_id]);
 
   async function loadInitialData() {
     try {
@@ -218,13 +191,11 @@ export default function Booking() {
 
       if (!user) return;
 
-      const { data: profileData, error: profileError } = await supabase
+      const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .maybeSingle();
-
-      if (profileError) throw profileError;
 
       setProfile(
         profileData || {
@@ -241,27 +212,16 @@ export default function Booking() {
         .order("created_at", { ascending: false });
 
       if (facilitiesError) throw facilitiesError;
-
       setFacilities(facilitiesData || []);
 
       const { data: coachesData, error: coachesError } = await supabase
-        .from("coaches")
-        .select("*")
-        .order("created_at", { ascending: false });
+  .from("coaches")
+  .select("*")
+  .not("user_id", "is", null)
+  .order("created_at", { ascending: false });
 
       if (coachesError) throw coachesError;
-
       setCoaches((coachesData || []).filter((coach) => coach.is_active !== false));
-
-      const { data: bookingData, error: bookingError } = await supabase
-        .from("bookings")
-        .select("*, facilities (*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (bookingError) throw bookingError;
-
-      setBookings(bookingData || []);
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to load booking page.");
@@ -271,36 +231,46 @@ export default function Booking() {
   async function loadApprovedBookings() {
     if (!selectedFacility?.id || !form.booking_date) return;
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("bookings")
       .select("*")
       .eq("facility_id", selectedFacility.id)
       .eq("booking_date", form.booking_date)
       .in("status", ["approved", "pending"]);
 
-    if (!error) setApprovedBookings(data || []);
+    setApprovedBookings(data || []);
   }
 
   async function loadApprovedCoachBookings() {
     if (!form.coach_id || !form.booking_date) return;
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("coach_bookings")
       .select("*")
       .eq("coach_id", form.coach_id)
       .eq("booking_date", form.booking_date)
       .in("status", ["approved", "pending"]);
 
-    if (!error) setApprovedCoachBookings(data || []);
+    setApprovedCoachBookings(data || []);
   }
 
   function handleFacilitySelect(facility) {
     setSelectedFacility(facility);
-    setSelectedImage(getFacilityImages(facility)[0]);
     setSelectedStartIndex(null);
     setSelectedEndIndex(null);
     setMessage("");
     setError("");
+  }
+
+  function handleCoachSelect(coach) {
+    setSelectedCoach(coach);
+    setForm((prev) => ({
+      ...prev,
+      include_coach: true,
+      coach_id: coach.id,
+    }));
+    setSelectedStartIndex(null);
+    setSelectedEndIndex(null);
   }
 
   function handleChange(event) {
@@ -317,6 +287,15 @@ export default function Booking() {
           }
         : {}),
     }));
+
+    if (name === "include_coach" && !checked) {
+      setSelectedCoach(null);
+    }
+
+    if (name === "coach_id") {
+      const coach = coaches.find((item) => item.id === value) || null;
+      setSelectedCoach(coach);
+    }
 
     if (["booking_date", "coach_id", "include_coach"].includes(name)) {
       setSelectedStartIndex(null);
@@ -355,7 +334,6 @@ export default function Booking() {
     );
 
     if (facilityBooked) return "Facility booked";
-
     if (!form.include_coach || !selectedCoach) return "Available";
 
     const coachStart = cleanTime(selectedCoach.available_start_time || "08:00");
@@ -443,6 +421,7 @@ export default function Booking() {
 
       setSelectedStartIndex(null);
       setSelectedEndIndex(null);
+      setSelectedCoach(null);
 
       setForm({
         booking_date: "",
@@ -453,8 +432,6 @@ export default function Booking() {
         coach_participants: 1,
         notes: "",
       });
-
-      await loadInitialData();
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to submit booking.");
@@ -463,49 +440,9 @@ export default function Booking() {
     }
   }
 
-  async function handleCancelBooking() {
-  if (!selectedCancelBooking?.id) return;
-
-  try {
-    setCancelling(true);
-    setError("");
-    setMessage("");
-
-    const cancelledBooking = await cancelBooking(
-      selectedCancelBooking.id,
-      cancelReason
-    );
-
-    setBookings((prev) =>
-      prev.map((booking) =>
-        booking.id === cancelledBooking.id
-          ? {
-              ...booking,
-              status: "cancelled",
-              cancellation_reason: cancelReason,
-            }
-          : booking
-      )
-    );
-
-    setMessage("Booking request cancelled successfully.");
-
-    setCancelModal(false);
-    setSelectedCancelBooking(null);
-    setCancelReason("");
-
-    await loadInitialData();
-  } catch (err) {
-    console.error(err);
-    setError(err.message || "Failed to cancel booking.");
-  } finally {
-    setCancelling(false);
-  }
-}
-
   return (
     <div className="page-shell">
-      <Sidebar role="user" />
+      <Sidebar role={authProfile?.role === "coach" ? "coach" : "user"} />
 
       <main className="page-main">
         <div className="page-container">
@@ -526,10 +463,10 @@ export default function Booking() {
           <section className="page-hero mb-6">
             <p className="text-sm font-semibold">Direct Facility Booking</p>
             <h2 className="mt-2 text-3xl font-black">
-              Choose a facility, preview details, then book instantly.
+              Choose a facility, add a coach, then book instantly.
             </h2>
             <p className="mt-2 text-sm text-white/90">
-              Select a facility, choose time slots, and optionally book a coach.
+              Select a facility, choose an available coach if needed, then pick your time slot.
             </p>
           </section>
 
@@ -549,50 +486,102 @@ export default function Booking() {
               </span>
             </div>
 
-            {facilities.length === 0 ? (
-              <p className="text-sm text-slate-500">No facilities available.</p>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {facilities.map((facility) => (
-                  <div
-                    key={facility.id}
-                    className={`overflow-hidden rounded-3xl border bg-white ${
-                      selectedFacility?.id === facility.id
-                        ? "border-[#C97B6C] ring-2 ring-[#D88E80]/40"
-                        : "border-[#DED8D2]"
-                    }`}
-                  >
-                    <img
-                      src={getFacilityImages(facility)[0]}
-                      alt={facility.name}
-                      className="h-48 w-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = FACILITY_FALLBACK;
-                      }}
-                    />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {facilities.map((facility) => (
+                <div
+                  key={facility.id}
+                  className={`overflow-hidden rounded-3xl border bg-white ${
+                    selectedFacility?.id === facility.id
+                      ? "border-[#C97B6C] ring-2 ring-[#D88E80]/40"
+                      : "border-[#DED8D2]"
+                  }`}
+                >
+                  <img
+                    src={getFacilityImages(facility)[0]}
+                    alt={facility.name}
+                    className="h-48 w-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = FACILITY_FALLBACK;
+                    }}
+                  />
 
-                    <div className="p-4">
-                      <h4 className="text-lg font-black text-[#2B2B2B]">
-                        {facility.name}
-                      </h4>
-                      <p className="text-sm text-slate-500">{facility.type}</p>
+                  <div className="p-4">
+                    <h4 className="text-lg font-black text-[#2B2B2B]">
+                      {facility.name}
+                    </h4>
+                    <p className="text-sm text-slate-500">{facility.type}</p>
+                    <p className="mt-2 text-sm font-bold text-[#C97B6C]">
+                      {money(facility.price_per_hour || facility.price || 0)} / hour
+                    </p>
 
-                      <p className="mt-2 text-sm font-bold text-[#C97B6C]">
-                        {money(facility.price_per_hour || facility.price || 0)} / hour
-                      </p>
-
-                      <button
-                        type="button"
-                        onClick={() => handleFacilitySelect(facility)}
-                        className="mt-4 w-full rounded-2xl bg-[#C97B6C] px-4 py-3 font-bold text-white hover:bg-[#B87463]"
-                      >
-                        View / Book
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleFacilitySelect(facility)}
+                      className="mt-4 w-full rounded-2xl bg-[#C97B6C] px-4 py-3 font-bold text-white hover:bg-[#B87463]"
+                    >
+                      View / Book
+                    </button>
                   </div>
-                ))}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                  Available Coaches
+                </h3>
+                <p className="text-sm text-slate-500">
+                  Select a coach if you want coaching included in your facility booking.
+                </p>
               </div>
-            )}
+
+              <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-bold text-[#C97B6C]">
+                {selectedCoach ? selectedCoach.name : "No coach selected yet"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {coaches.map((coach) => (
+                <button
+                  type="button"
+                  key={coach.id}
+                  onClick={() => handleCoachSelect(coach)}
+                  className={`overflow-hidden rounded-3xl border bg-white text-left ${
+                    selectedCoach?.id === coach.id
+                      ? "border-[#C97B6C] ring-2 ring-[#D88E80]/40"
+                      : "border-[#DED8D2]"
+                  }`}
+                >
+                  <img
+                    src={coach.image_path || coach.image_url || COACH_FALLBACK}
+                    alt={coach.name}
+                    className="h-48 w-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = COACH_FALLBACK;
+                    }}
+                  />
+
+                  <div className="p-4">
+                    <h4 className="text-lg font-black text-[#2B2B2B]">
+                      {coach.name}
+                    </h4>
+                    <p className="text-sm text-slate-500">
+                      {coach.specialty || "Coach"}
+                    </p>
+                    <p className="mt-2 text-sm font-bold text-[#C97B6C]">
+                      {money(coach.rate_per_hour)} / hour
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Available: {cleanTime(coach.available_start_time || "08:00")} -{" "}
+                      {cleanTime(coach.available_end_time || "20:00")}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
           </section>
 
           {selectedFacility && (
@@ -602,7 +591,7 @@ export default function Booking() {
               </h3>
 
               <p className="mt-1 text-sm text-slate-500">
-                Choose a date, optional coach, then highlight a continuous time range.
+                Choose a date, confirm coach option, then highlight a continuous time range.
               </p>
 
               <form onSubmit={handleSubmit} className="mt-6">
@@ -649,21 +638,20 @@ export default function Booking() {
 
                     <div>
                       <p className="font-bold text-[#2B2B2B]">
-                        Book a coach with this facility
+                        Include coach with this facility booking
                       </p>
                       <p className="text-sm text-slate-700">
-                        Coach availability and existing coach bookings will be checked.
+                        Select from the available coaches above.
                       </p>
                     </div>
                   </label>
 
                   {form.include_coach && (
-                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                       <div>
                         <label className="mb-2 block text-sm font-semibold">
-                          Select Coach
+                          Selected Coach
                         </label>
-
                         <select
                           name="coach_id"
                           value={form.coach_id}
@@ -671,10 +659,9 @@ export default function Booking() {
                           className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
                         >
                           <option value="">Select coach</option>
-
                           {coaches.map((coach) => (
                             <option key={coach.id} value={coach.id}>
-                              {coach.name} - {money(coach.rate_per_hour || 0)} / hour
+                              {coach.name} - {money(coach.rate_per_hour)} / hour
                             </option>
                           ))}
                         </select>
@@ -684,7 +671,6 @@ export default function Booking() {
                         <label className="mb-2 block text-sm font-semibold">
                           Coach Session Mode
                         </label>
-
                         <select
                           name="coach_session_mode"
                           value={form.coach_session_mode}
@@ -700,7 +686,6 @@ export default function Booking() {
                         <label className="mb-2 block text-sm font-semibold">
                           Participants
                         </label>
-
                         <input
                           type="number"
                           min="1"
@@ -712,45 +697,12 @@ export default function Booking() {
                       </div>
                     </div>
                   )}
-
-                  {form.include_coach && selectedCoach && (
-                    <div className="mt-4 flex gap-4 rounded-2xl bg-white p-4">
-                      <img
-                        src={selectedCoach.image_path || selectedCoach.image_url || COACH_FALLBACK}
-                        alt={selectedCoach.name}
-                        className="h-24 w-24 rounded-2xl object-cover"
-                        onError={(e) => {
-                          e.currentTarget.src = COACH_FALLBACK;
-                        }}
-                      />
-
-                      <div>
-                        <p className="font-black text-[#2B2B2B]">
-                          {selectedCoach.name}
-                        </p>
-                        <p className="text-sm text-slate-500">
-                          {selectedCoach.specialty || "Coach"}
-                        </p>
-                        <p className="mt-1 text-sm">
-                          <b>Rate:</b> {money(coachRate)} / hour
-                        </p>
-                        <p className="text-sm">
-                          <b>Available:</b>{" "}
-                          {cleanTime(selectedCoach.available_start_time || "08:00")} -{" "}
-                          {cleanTime(selectedCoach.available_end_time || "20:00")}
-                        </p>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 <div className="mt-6">
                   <h4 className="text-lg font-black text-[#2B2B2B]">
                     Available Time Slots
                   </h4>
-                  <p className="text-sm text-slate-500">
-                    Unavailable slots are disabled automatically.
-                  </p>
 
                   {!form.booking_date ? (
                     <div className="mt-4 rounded-2xl border border-dashed border-[#DED8D2] p-6">
@@ -843,108 +795,6 @@ export default function Booking() {
                 </button>
               </form>
             </section>
-          )}
-
-          <section className="mt-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-black text-[#2B2B2B]">My Bookings</h3>
-
-            {bookings.length === 0 ? (
-              <p className="mt-4 text-slate-500">No booking requests yet.</p>
-            ) : (
-              <div className="mt-4 space-y-4">
-                {bookings.map((booking) => (
-                  <div
-                    key={booking.id}
-                    className={`rounded-2xl border p-4 ${
-                      booking.id === highlightId
-                        ? "border-[#C97B6C] bg-[#F3E4DF]"
-                        : "border-[#DED8D2] bg-white"
-                    }`}
-                  >
-                    <h4 className="font-bold text-[#2B2B2B]">
-                      {booking.facilities?.name || "Facility Booking"}
-                    </h4>
-
-                    <p className="text-sm text-slate-500">
-                      {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
-                      {formatTime(booking.end_time)}
-                    </p>
-
-                    <p className="mt-2 text-sm capitalize">
-                      Status: <b>{booking.status}</b>
-                    </p>
-
-                    {booking.includes_coach && (
-                      <p className="mt-1 text-sm text-[#C97B6C]">
-                        Coach included • Coach Rate:{" "}
-                        {money(booking.coach_rate_per_hour || 0)} / hour
-                      </p>
-                    )}
-
-                    <p className="mt-1 text-sm font-bold">
-                      Total: {money(booking.total_amount || 0)}
-                    </p>
-
-                    {String(booking.status).toLowerCase() === "pending" && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedCancelBooking(booking);
-                          setCancelModal(true);
-                        }}
-                        className="mt-4 rounded-2xl bg-[#C65B5B] px-5 py-3 text-sm font-bold text-white hover:bg-red-700"
-                      >
-                        Cancel Request
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {cancelModal && (
-            <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 px-4">
-              <div className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl">
-                <h2 className="text-2xl font-black text-[#2B2B2B]">
-                  Cancel Booking Request
-                </h2>
-
-                <p className="mt-2 text-sm text-slate-500">
-                  You can only cancel bookings that are still pending.
-                </p>
-
-                <textarea
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  placeholder="Reason for cancellation"
-                  className="mt-5 min-h-[120px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
-                />
-
-                <div className="mt-5 flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCancelModal(false);
-                      setSelectedCancelBooking(null);
-                      setCancelReason("");
-                    }}
-                    className="rounded-2xl border border-[#DED8D2] px-5 py-3 font-bold"
-                  >
-                    Close
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleCancelBooking}
-                    disabled={cancelling}
-                    className="rounded-2xl bg-[#C65B5B] px-5 py-3 font-bold text-white hover:bg-red-700 disabled:opacity-60"
-                  >
-                    {cancelling ? "Cancelling..." : "Confirm Cancel"}
-                  </button>
-                </div>
-              </div>
-            </div>
           )}
         </div>
       </main>

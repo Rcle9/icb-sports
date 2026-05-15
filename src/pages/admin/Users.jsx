@@ -125,10 +125,11 @@ export default function AdminUsers() {
                   onChange={(e) => setRoleFilter(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500"
                 >
-                  <option value="all">All Roles</option>
-                  <option value="user">User</option>
-                  <option value="staff">Staff</option>
-                  <option value="admin">Admin</option>
+                 <option value="">All Roles</option>
+<option value="user">User</option>
+<option value="staff">Staff</option>
+<option value="coach">Coach</option>
+<option value="admin">Admin</option>
                 </select>
               </div>
 
@@ -198,8 +199,9 @@ export default function AdminUsers() {
                           className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500"
                         >
                           <option value="user">User</option>
-                          <option value="staff">Staff</option>
-                          <option value="admin">Admin</option>
+<option value="staff">Staff</option>
+<option value="coach">Coach</option>
+<option value="admin">Admin</option>
                         </select>
                       </div>
                     </div>

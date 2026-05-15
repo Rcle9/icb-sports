@@ -1,38 +1,35 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
-// Public landing pages
 import Landing from "./pages/public/Landing";
 import About from "./pages/public/About";
 import FacilitiesPage from "./pages/public/Facilities";
 import Contact from "./pages/public/Contact";
+import PublicShop from "./pages/public/Shop";
 
-// Auth pages
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 
-// Shared pages
 import ProfileSettings from "./pages/shared/ProfileSettings";
 
-// User pages
 import UserDashboard from "./pages/user/Dashboard";
 import Booking from "./pages/user/Booking";
 import Coaching from "./pages/user/Coaching";
-import Shop from "./pages/user/Shop";
 import UserNotifications from "./pages/user/Notifications";
 import UserProfile from "./pages/user/Profile";
 
-// Staff pages
 import StaffDashboard from "./pages/staff/Dashboard";
 import ManageBookings from "./pages/staff/ManageBookings";
 import CoachingManager from "./pages/staff/CoachingManager";
+import CoachBookings from "./pages/staff/CoachBookings";
 import Inventory from "./pages/staff/Inventory";
 import Maintenance from "./pages/staff/Maintenance";
 import StaffNotifications from "./pages/staff/Notifications";
 import StaffProfile from "./pages/staff/Profile";
 import ActivityLogs from "./pages/staff/ActivityLogs";
 
-// Admin pages
+import CoachDashboard from "./pages/coach/Dashboard";
+
 import AdminDashboard from "./pages/admin/Dashboard";
 import Facilities from "./pages/admin/Facility";
 import Users from "./pages/admin/Users";
@@ -50,9 +47,7 @@ function ProtectedRoute({ children, allowedRoles }) {
     );
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
+  if (!user) return <Navigate to="/login" replace />;
 
   if (allowedRoles && profile?.role && !allowedRoles.includes(profile.role)) {
     return <Navigate to="/" replace />;
@@ -64,17 +59,15 @@ function ProtectedRoute({ children, allowedRoles }) {
 export default function App() {
   return (
     <Routes>
-      {/* PUBLIC LANDING PAGES */}
       <Route path="/" element={<Landing />} />
       <Route path="/about" element={<About />} />
       <Route path="/facilities" element={<FacilitiesPage />} />
+      <Route path="/shop" element={<PublicShop />} />
       <Route path="/contact" element={<Contact />} />
 
-      {/* AUTH */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
 
-      {/* SHARED */}
       <Route
         path="/profile-settings"
         element={
@@ -84,7 +77,6 @@ export default function App() {
         }
       />
 
-      {/* USER */}
       <Route
         path="/dashboard"
         element={
@@ -97,9 +89,9 @@ export default function App() {
       <Route
         path="/booking"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
-            <Booking />
-          </ProtectedRoute>
+          <ProtectedRoute allowedRoles={["user", "coach"]}>
+  <Booking />
+</ProtectedRoute>
         }
       />
 
@@ -108,15 +100,6 @@ export default function App() {
         element={
           <ProtectedRoute allowedRoles={["user"]}>
             <Coaching />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/shop"
-        element={
-          <ProtectedRoute allowedRoles={["user"]}>
-            <Shop />
           </ProtectedRoute>
         }
       />
@@ -139,7 +122,24 @@ export default function App() {
         }
       />
 
-      {/* STAFF */}
+      <Route
+        path="/coach"
+        element={
+          <ProtectedRoute allowedRoles={["coach"]}>
+            <CoachDashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/coach/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={["coach"]}>
+            <CoachDashboard />
+          </ProtectedRoute>
+        }
+      />
+
       <Route
         path="/staff"
         element={
@@ -172,6 +172,15 @@ export default function App() {
         element={
           <ProtectedRoute allowedRoles={["staff"]}>
             <CoachingManager />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/staff/coach-bookings"
+        element={
+          <ProtectedRoute allowedRoles={["staff"]}>
+            <CoachBookings />
           </ProtectedRoute>
         }
       />
@@ -221,7 +230,6 @@ export default function App() {
         }
       />
 
-      {/* ADMIN */}
       <Route
         path="/admin"
         element={
@@ -276,7 +284,6 @@ export default function App() {
         }
       />
 
-      {/* FALLBACK */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

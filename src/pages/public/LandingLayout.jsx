@@ -18,6 +18,7 @@ export default function LandingLayout({ children }) {
             <NavItem to="/">Home</NavItem>
             <NavItem to="/about">About</NavItem>
             <NavItem to="/facilities">Facility</NavItem>
+            <NavItem to="/shop">Shop</NavItem>
             <NavItem to="/contact">Contact</NavItem>
           </div>
 
@@ -47,6 +48,7 @@ export default function LandingLayout({ children }) {
               <Link to="/" className="block">Home</Link>
               <Link to="/about" className="block">About</Link>
               <Link to="/facilities" className="block">Facility</Link>
+              <Link to="/shop" className="block">Shop</Link>
               <Link to="/contact" className="block">Contact</Link>
             </div>
           </div>
@@ -56,7 +58,7 @@ export default function LandingLayout({ children }) {
             <div className="mt-3 space-y-2 text-white/70">
               <p>Facility Booking</p>
               <p>Coaching Sessions</p>
-              <p>Merchandise Shop</p>
+              <p>Merchandise Display</p>
               <p>Real-time Notifications</p>
             </div>
           </div>

@@ -3,11 +3,11 @@ import {
   LayoutDashboard,
   CalendarDays,
   Dumbbell,
-  ShoppingBag,
   Wrench,
   ClipboardList,
   Settings,
   Boxes,
+  UserRound,
 } from "lucide-react";
 
 import { supabase } from "../../services/supabaseClient";
@@ -24,10 +24,22 @@ export default function Sidebar({ role = "user" }) {
     window.location.reload();
   }
 
+  const coachLinks = [
+  {
+    name: "Dashboard",
+    path: "/coach",
+    icon: <LayoutDashboard size={18} />,
+  },
+  {
+    name: "Booking",
+    path: "/booking",
+    icon: <CalendarDays size={18} />,
+  },
+];
+
   const staffLinks = [
     { name: "Dashboard", path: "/staff", icon: <LayoutDashboard size={18} /> },
     { name: "Bookings", path: "/staff/bookings", icon: <CalendarDays size={18} /> },
-    { name: "Coaching", path: "/staff/coaching", icon: <Dumbbell size={18} /> },
     { name: "Inventory", path: "/staff/inventory", icon: <Boxes size={18} /> },
     { name: "Maintenance", path: "/staff/maintenance", icon: <Wrench size={18} /> },
     { name: "Activity Logs", path: "/staff/activity-logs", icon: <ClipboardList size={18} /> },
@@ -37,15 +49,14 @@ export default function Sidebar({ role = "user" }) {
   const userLinks = [
     { name: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={18} /> },
     { name: "Booking", path: "/booking", icon: <CalendarDays size={18} /> },
-    { name: "Coaching", path: "/coaching", icon: <Dumbbell size={18} /> },
-    { name: "Shop", path: "/shop", icon: <ShoppingBag size={18} /> },
+    { name: "My Bookings", path: "/coaching", icon: <Dumbbell size={18} /> },
     { name: "Profile Settings", path: "/profile", icon: <Settings size={18} /> },
   ];
 
   const adminLinks = [
     { name: "Dashboard", path: "/admin", icon: <LayoutDashboard size={18} /> },
     { name: "Facilities", path: "/admin/facilities", icon: <CalendarDays size={18} /> },
-    { name: "Users", path: "/admin/users", icon: <Boxes size={18} /> },
+    { name: "Users", path: "/admin/users", icon: <UserRound size={18} /> },
     { name: "Reports", path: "/admin/reports", icon: <ClipboardList size={18} /> },
     { name: "Settings", path: "/admin/settings", icon: <Settings size={18} /> },
   ];
@@ -53,6 +64,7 @@ export default function Sidebar({ role = "user" }) {
   let links = userLinks;
   if (role === "staff") links = staffLinks;
   if (role === "admin") links = adminLinks;
+  if (role === "coach") links = coachLinks;
 
   return (
     <aside className="fixed left-0 top-0 z-50 flex h-screen w-[260px] flex-col border-r border-[#DED8D2] bg-white">
@@ -102,7 +114,7 @@ export default function Sidebar({ role = "user" }) {
           </p>
 
           <p className="mt-3 text-sm font-semibold leading-6 text-white/80">
-            Manage sports operations with realtime tools and notifications.
+            Manage your profile, bookings, and notifications.
           </p>
         </div>
 
