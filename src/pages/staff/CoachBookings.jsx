@@ -1,207 +1,217 @@
 import { useEffect, useState } from "react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
-
+import { supabase } from "../../services/supabaseClient";
 import {
-  approveCoachBooking,
   getAllCoachBookings,
+  approveCoachBooking,
   rejectCoachBooking,
 } from "../../services/coachingService";
 
+function money(value) {
+  return `₱${Number(value || 0).toLocaleString()}`;
+}
+
+function cleanTime(time) {
+  if (!time) return "";
+  return String(time).slice(0, 5);
+}
+
+function statusClass(status) {
+  const value = String(status || "pending").toLowerCase();
+
+  if (value === "approved") return "bg-green-100 text-green-700";
+  if (value === "rejected") return "bg-red-100 text-red-700";
+  if (value === "cancelled") return "bg-slate-200 text-slate-700";
+  return "bg-yellow-100 text-yellow-700";
+}
+
 export default function CoachBookings() {
   const [bookings, setBookings] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchBookings();
+    loadBookings();
+
+    const channel = supabase
+      .channel(`staff-coach-bookings-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "coach_bookings" },
+        () => loadBookings()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  async function fetchBookings() {
+  async function loadBookings() {
     try {
-      setLoading(true);
-
+      setError("");
       const data = await getAllCoachBookings();
-
       setBookings(data || []);
     } catch (err) {
       console.error(err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      setError(err.message || "Failed to load coach bookings.");
     }
   }
 
   async function handleApprove(id) {
     try {
+      setError("");
       await approveCoachBooking(id);
-
-      setBookings((prev) =>
-        prev.map((booking) =>
-          booking.id === id
-            ? { ...booking, status: "approved" }
-            : booking
-        )
-      );
+      await loadBookings();
     } catch (err) {
-      alert(err.message);
+      setError(err.message || "Failed to approve coach booking.");
     }
   }
 
   async function handleReject(id) {
     try {
+      setError("");
       await rejectCoachBooking(id);
-
-      setBookings((prev) =>
-        prev.map((booking) =>
-          booking.id === id
-            ? { ...booking, status: "rejected" }
-            : booking
-        )
-      );
+      await loadBookings();
     } catch (err) {
-      alert(err.message);
+      setError(err.message || "Failed to reject coach booking.");
     }
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F3F1]">
+    <div className="page-shell">
       <Sidebar role="staff" />
 
-      <div className="ml-[260px] p-8">
-        <Topbar />
-
-        <div className="rounded-[32px] bg-[#C97B6C] p-10 text-white shadow-lg">
-          <p className="text-sm font-bold uppercase tracking-[0.2em]">
-            Coach Booking Center
-          </p>
-
-          <h1 className="mt-4 text-5xl font-black leading-tight">
-            Review and manage coaching requests.
-          </h1>
-
-          <p className="mt-4 max-w-3xl text-lg text-white/90">
-            Staff can approve, reject, and monitor all incoming coaching
-            reservations in realtime.
-          </p>
-        </div>
-
-        <div className="mt-8 rounded-[30px] border border-[#E4DCD5] bg-white p-8 shadow-sm">
-          <h2 className="text-3xl font-black text-[#2B2B2B]">
-            Coaching Requests
-          </h2>
-
-          <p className="mt-2 text-sm text-slate-500">
-            Review user coaching requests.
-          </p>
-
-          {loading && (
-            <div className="mt-8 text-lg font-semibold text-slate-500">
-              Loading requests...
-            </div>
-          )}
+      <main className="page-main">
+        <div className="page-container">
+          <Topbar title="Coach Booking Requests" />
 
           {error && (
-            <div className="mt-6 rounded-2xl bg-red-50 p-4 text-red-600">
+            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
             </div>
           )}
 
-          {!loading && bookings.length === 0 && (
-            <div className="mt-10 rounded-2xl border border-dashed border-[#D9C7C0] p-10 text-center text-slate-500">
-              No coaching bookings found.
-            </div>
-          )}
+          <section className="page-hero mb-6">
+            <p className="text-sm font-semibold">Coaching Approval</p>
 
-          <div className="mt-8 space-y-5">
-            {bookings.map((booking) => (
-              <div
-                key={booking.id}
-                className="rounded-3xl border border-[#E5DED8] bg-[#FFFDFC] p-6"
-              >
-                <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <h3 className="text-2xl font-black text-[#2B2B2B]">
-                      {booking.coaches?.name || "Coach"}
-                    </h3>
+            <h2 className="mt-2 text-3xl font-black">
+              Review coaching requests from users.
+            </h2>
 
-                    <div className="mt-3 space-y-1 text-sm text-slate-600">
-                      <p>
-                        Date:{" "}
-                        <span className="font-semibold">
-                          {booking.booking_date}
-                        </span>
-                      </p>
+            <p className="mt-2 text-sm text-white/90">
+              Staff view only. Coach approval is handled by the assigned coach.
+            </p>
+          </section>
 
-                      <p>
-                        Time:{" "}
-                        <span className="font-semibold">
-                          {booking.start_time} - {booking.end_time}
-                        </span>
-                      </p>
+          <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <h3 className="text-2xl font-black text-[#2B2B2B]">
+              Coaching Requests
+            </h3>
 
-                      <p>
-                        Status:{" "}
-                        <span className="font-bold capitalize">
-                          {booking.status}
-                        </span>
-                      </p>
+            <div className="mt-6 space-y-4">
+              {bookings.length === 0 ? (
+                <p className="text-slate-500">
+                  No coaching booking requests yet.
+                </p>
+              ) : (
+                bookings.map((booking) => {
+                  const status = String(
+                    booking.status || "pending"
+                  ).toLowerCase();
 
-                      <p>
-                        Total:{" "}
-                        <span className="font-bold text-[#C97B6C]">
-                          ₱{booking.total_amount}
-                        </span>
-                      </p>
-
-                      {booking.notes && (
-                        <p>
-                          Notes:{" "}
-                          <span className="font-medium">
-                            {booking.notes}
-                          </span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {booking.status === "pending" && (
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => handleApprove(booking.id)}
-                        className="rounded-2xl bg-green-600 px-6 py-3 text-sm font-bold text-white transition hover:bg-green-700"
-                      >
-                        Approve
-                      </button>
-
-                      <button
-                        onClick={() => handleReject(booking.id)}
-                        className="rounded-2xl bg-red-500 px-6 py-3 text-sm font-bold text-white transition hover:bg-red-600"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  )}
-
-                  {booking.status !== "pending" && (
+                  return (
                     <div
-                      className={`rounded-2xl px-5 py-3 text-sm font-black uppercase tracking-wide ${
-                        booking.status === "approved"
-                          ? "bg-green-100 text-green-700"
-                          : booking.status === "rejected"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-slate-100 text-slate-600"
-                      }`}
+                      key={booking.id}
+                      className="rounded-2xl border border-[#DED8D2] p-5"
                     >
-                      {booking.status}
+                      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-black uppercase ${statusClass(
+                              status
+                            )}`}
+                          >
+                            {status}
+                          </span>
+
+                          <h4 className="mt-3 text-xl font-black text-[#2B2B2B]">
+                            {booking.coaches?.name || "Coach Session"}
+                          </h4>
+
+                          <p className="mt-1 text-sm text-slate-500">
+                            {booking.booking_date} •{" "}
+                            {cleanTime(booking.start_time)} -{" "}
+                            {cleanTime(booking.end_time)}
+                          </p>
+
+                          <p className="mt-3 text-sm">
+                            Session Mode:{" "}
+                            <b>{booking.session_mode || "one_on_one"}</b>
+                          </p>
+
+                          <p className="text-sm">
+                            Participants: <b>{booking.participants || 1}</b>
+                          </p>
+
+                          <p className="text-sm">
+                            Notes: {booking.notes || "-"}
+                          </p>
+
+                          {booking.facility_booking_id && (
+                            <p className="mt-2 text-sm font-semibold text-[#C97B6C]">
+                              Linked Facility Booking:{" "}
+                              {booking.facility_booking_id}
+                            </p>
+                          )}
+
+                          {status === "cancelled" &&
+                            booking.cancellation_reason && (
+                              <p className="mt-2 text-sm text-slate-500">
+                                Cancellation reason:{" "}
+                                {booking.cancellation_reason}
+                              </p>
+                            )}
+
+                          <p className="mt-2 text-sm font-black text-[#C97B6C]">
+                            Total: {money(booking.total_amount)}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col items-start gap-3 md:items-end">
+                          {status === "pending" ? (
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => handleApprove(booking.id)}
+                                className="rounded-xl bg-green-600 px-5 py-3 font-bold text-white hover:bg-green-700"
+                              >
+                                Approve
+                              </button>
+
+                              <button
+                                onClick={() => handleReject(booking.id)}
+                                className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white hover:bg-red-700"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-sm font-bold text-slate-500">
+                              {status === "cancelled"
+                                ? "Cancelled by user"
+                                : "Reviewed"}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

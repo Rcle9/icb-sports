@@ -2,11 +2,12 @@ import { supabase } from "./supabaseClient";
 
 async function notifyStaffAndAdmin(booking) {
   try {
-    const { data: receivers } = await supabase
+    const { data: receivers, error } = await supabase
       .from("profiles")
       .select("id, role")
       .in("role", ["staff", "admin"]);
 
+    if (error) throw error;
     if (!receivers?.length) return;
 
     await supabase.from("notifications").insert(
@@ -20,18 +21,19 @@ async function notifyStaffAndAdmin(booking) {
       }))
     );
   } catch (err) {
-    console.error("Staff notification error:", err.message);
+    console.error("Staff/Admin notification error:", err.message);
   }
 }
 
 async function notifyCoach(coachBooking) {
   try {
-    const { data: coach } = await supabase
+    const { data: coach, error } = await supabase
       .from("coaches")
       .select("user_id")
       .eq("id", coachBooking.coach_id)
       .maybeSingle();
 
+    if (error) throw error;
     if (!coach?.user_id) return;
 
     await supabase.from("notifications").insert([
@@ -185,9 +187,7 @@ export async function approveBooking(id) {
       {
         user_id: data.user_id,
         title:
-          data.status === "approved"
-            ? "Booking Approved"
-            : "Facility Approved",
+          data.status === "approved" ? "Booking Approved" : "Facility Approved",
         message:
           data.status === "approved"
             ? "Your booking has been fully approved."

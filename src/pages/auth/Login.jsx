@@ -29,16 +29,19 @@ export default function Login() {
     setError("");
 
     try {
-      const { data, error: loginError } = await supabase.auth.signInWithPassword({
-        email: form.email,
-        password: form.password,
-      });
+      const { data, error: loginError } =
+        await supabase.auth.signInWithPassword({
+          email: form.email,
+          password: form.password,
+        });
 
       if (loginError) throw loginError;
 
       const user = data?.user;
 
-      if (!user) throw new Error("Login failed. Please try again.");
+      if (!user) {
+        throw new Error("Login failed. Please try again.");
+      }
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
@@ -71,7 +74,10 @@ export default function Login() {
     <main className="flex min-h-screen items-center justify-center bg-[#F5F3F1] px-4">
       <div className="w-full max-w-md rounded-[32px] border border-[#DED8D2] bg-white p-8 shadow-xl">
         <div className="text-center">
-          <h1 className="text-4xl font-black text-[#2B2B2B]">Welcome Back</h1>
+          <h1 className="text-4xl font-black text-[#2B2B2B]">
+            Welcome Back
+          </h1>
+
           <p className="mt-2 text-sm text-slate-500">
             Login to your InCredoBall account.
           </p>

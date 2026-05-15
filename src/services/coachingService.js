@@ -1,9 +1,30 @@
 import { supabase } from "./supabaseClient";
 
+async function notifyUser(userId, title, message, referenceId) {
+  if (!userId) return;
+
+  try {
+    await supabase.from("notifications").insert([
+      {
+        user_id: userId,
+        title,
+        message,
+        type: "coaching_update",
+        is_read: false,
+        booking_id: referenceId,
+      },
+    ]);
+  } catch (err) {
+    console.error("User notification error:", err.message);
+  }
+}
+
 export async function getCoaches() {
   const { data, error } = await supabase
     .from("coaches")
     .select("*")
+    .not("user_id", "is", null)
+    .eq("is_active", true)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -25,6 +46,7 @@ export async function createCoachBooking(payload) {
   const cleanPayload = {
     user_id: payload.user_id,
     coach_id: payload.coach_id,
+    facility_booking_id: payload.facility_booking_id || null,
     booking_date: payload.booking_date,
     start_time: payload.start_time,
     end_time: payload.end_time,
@@ -40,41 +62,40 @@ export async function createCoachBooking(payload) {
   const { data, error } = await supabase
     .from("coach_bookings")
     .insert([cleanPayload])
-    .select()
+    .select("*")
     .single();
 
   if (error) throw error;
 
-  await notifyStaffAndAdmin(data);
+  await notifyCoach(data);
 
   return data;
 }
 
-async function notifyStaffAndAdmin(booking) {
-  const { data: receivers, error } = await supabase
-    .from("profiles")
-    .select("id, role")
-    .in("role", ["staff", "admin"]);
+async function notifyCoach(coachBooking) {
+  try {
+    const { data: coach, error } = await supabase
+      .from("coaches")
+      .select("user_id")
+      .eq("id", coachBooking.coach_id)
+      .maybeSingle();
 
-  if (error) {
-    console.error("Fetch staff/admin error:", error.message);
-    return;
+    if (error) throw error;
+    if (!coach?.user_id) return;
+
+    await supabase.from("notifications").insert([
+      {
+        user_id: coach.user_id,
+        title: "New Coach Booking Request",
+        message: "A user booked a coaching session with you.",
+        type: "coach_booking",
+        is_read: false,
+        booking_id: coachBooking.facility_booking_id || coachBooking.id,
+      },
+    ]);
+  } catch (err) {
+    console.error("Coach notification error:", err.message);
   }
-
-  if (!receivers?.length) return;
-
-  await Promise.all(
-    receivers.map((receiver) =>
-      supabase.rpc("create_notification_rpc", {
-        p_user_id: receiver.id,
-        p_target_role: receiver.role,
-        p_title: "Coaching Request",
-        p_message: "A user submitted a new coaching booking request.",
-        p_type: "coaching_request",
-        p_reference_id: booking.id,
-      })
-    )
-  );
 }
 
 export async function getAllCoachBookings() {
@@ -88,7 +109,7 @@ export async function getAllCoachBookings() {
 }
 
 export async function approveCoachBooking(id) {
-  const { data, error } = await supabase
+  const { data: coachBooking, error } = await supabase
     .from("coach_bookings")
     .update({ status: "approved" })
     .eq("id", id)
@@ -98,26 +119,51 @@ export async function approveCoachBooking(id) {
 
   if (error) throw error;
 
-  if (!data) {
-    throw new Error("This coaching request cannot be approved because it is no longer pending.");
+  if (!coachBooking) {
+    throw new Error("This coaching request is no longer pending.");
   }
 
-  if (data?.user_id) {
-    await supabase.rpc("create_notification_rpc", {
-      p_user_id: data.user_id,
-      p_target_role: "user",
-      p_title: "Coaching Approved",
-      p_message: "Your coaching booking has been approved.",
-      p_type: "coaching_update",
-      p_reference_id: data.id,
-    });
+  if (coachBooking.facility_booking_id) {
+    const { data: facilityBooking, error: fetchError } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("id", coachBooking.facility_booking_id)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+
+    if (facilityBooking) {
+      const finalStatus =
+        facilityBooking.facility_approval_status === "approved"
+          ? "approved"
+          : "pending";
+
+      const { error: updateFacilityError } = await supabase
+        .from("bookings")
+        .update({
+          coach_approval_status: "approved",
+          status: finalStatus,
+        })
+        .eq("id", coachBooking.facility_booking_id);
+
+      if (updateFacilityError) throw updateFacilityError;
+    }
   }
 
-  return data;
+  await notifyUser(
+    coachBooking.user_id,
+    "Coaching Approved",
+    coachBooking.facility_booking_id
+      ? "Your coach approved the coaching part of your booking."
+      : "Your coaching booking has been approved.",
+    coachBooking.facility_booking_id || coachBooking.id
+  );
+
+  return coachBooking;
 }
 
 export async function rejectCoachBooking(id) {
-  const { data, error } = await supabase
+  const { data: coachBooking, error } = await supabase
     .from("coach_bookings")
     .update({ status: "rejected" })
     .eq("id", id)
@@ -127,22 +173,32 @@ export async function rejectCoachBooking(id) {
 
   if (error) throw error;
 
-  if (!data) {
-    throw new Error("This coaching request cannot be rejected because it is no longer pending.");
+  if (!coachBooking) {
+    throw new Error("This coaching request is no longer pending.");
   }
 
-  if (data?.user_id) {
-    await supabase.rpc("create_notification_rpc", {
-      p_user_id: data.user_id,
-      p_target_role: "user",
-      p_title: "Coaching Rejected",
-      p_message: "Your coaching booking has been rejected.",
-      p_type: "coaching_update",
-      p_reference_id: data.id,
-    });
+  if (coachBooking.facility_booking_id) {
+    const { error: updateFacilityError } = await supabase
+      .from("bookings")
+      .update({
+        coach_approval_status: "rejected",
+        status: "rejected",
+      })
+      .eq("id", coachBooking.facility_booking_id);
+
+    if (updateFacilityError) throw updateFacilityError;
   }
 
-  return data;
+  await notifyUser(
+    coachBooking.user_id,
+    "Coaching Rejected",
+    coachBooking.facility_booking_id
+      ? "Your coach rejected the coaching part of your booking."
+      : "Your coaching booking has been rejected.",
+    coachBooking.facility_booking_id || coachBooking.id
+  );
+
+  return coachBooking;
 }
 
 export async function cancelCoachBooking(id, reason = "") {
@@ -150,22 +206,38 @@ export async function cancelCoachBooking(id, reason = "") {
     throw new Error("Missing coaching booking ID.");
   }
 
-  const { data, error } = await supabase
+  const { data: coachBooking, error } = await supabase
     .from("coach_bookings")
     .update({
       status: "cancelled",
       cancellation_reason: reason || "",
     })
-    .match({ id })
-    .select("*");
+    .eq("id", id)
+    .eq("status", "pending")
+    .select("*")
+    .maybeSingle();
 
   if (error) throw error;
 
-  if (!data || data.length === 0) {
+  if (!coachBooking) {
     throw new Error(
-      "Coaching booking not found or could not be cancelled. Check your coach_bookings RLS update policy."
+      "This coaching request cannot be cancelled because it is no longer pending."
     );
   }
 
-  return data[0];
+  if (coachBooking.facility_booking_id) {
+    const { error: updateFacilityError } = await supabase
+      .from("bookings")
+      .update({
+        status: "cancelled",
+        coach_approval_status: "cancelled",
+        cancellation_reason: reason || "",
+      })
+      .eq("id", coachBooking.facility_booking_id)
+      .eq("status", "pending");
+
+    if (updateFacilityError) throw updateFacilityError;
+  }
+
+  return coachBooking;
 }

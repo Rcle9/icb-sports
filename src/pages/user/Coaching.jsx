@@ -31,7 +31,7 @@ function normalizeStatus(status) {
 }
 
 export default function Coaching() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [facilityBookings, setFacilityBookings] = useState([]);
   const [coachBookings, setCoachBookings] = useState([]);
@@ -57,18 +57,23 @@ export default function Coaching() {
       source_table: "bookings",
     }));
 
-    const coachOnly = coachBookings.map((booking) => ({
-      ...booking,
-      booking_source: "coach",
-      display_title: booking.coaches?.name || "Coach Booking",
-      display_type: "Coach Booking",
-      display_rate: booking.rate_per_hour,
-      display_total: booking.total_amount,
-      source_table: "coach_bookings",
-    }));
+    const coachOnly = coachBookings
+      .filter((booking) => !booking.facility_booking_id)
+      .map((booking) => ({
+        ...booking,
+        booking_source: "coach",
+        display_title: booking.coaches?.name || "Coach Booking",
+        display_type: "Coach Booking",
+        display_rate: booking.rate_per_hour,
+        display_total: booking.total_amount,
+        source_table: "coach_bookings",
+      }));
 
     return [...facility, ...coachOnly].sort((a, b) => {
-      return new Date(b.created_at || b.booking_date) - new Date(a.created_at || a.booking_date);
+      return (
+        new Date(b.created_at || b.booking_date) -
+        new Date(a.created_at || a.booking_date)
+      );
     });
   }, [facilityBookings, coachBookings]);
 
@@ -169,7 +174,7 @@ export default function Coaching() {
 
   return (
     <div className="page-shell">
-      <Sidebar role="user" />
+      <Sidebar role={profile?.role === "coach" ? "coach" : "user"} />
 
       <main className="page-main">
         <div className="page-container">
@@ -193,7 +198,7 @@ export default function Coaching() {
               Track all facility and coaching requests.
             </h2>
             <p className="mt-2 text-sm text-white/90">
-              View facility bookings, coach bookings, and combined facility + coach bookings in one page.
+              Facility + coach bookings need approval from both staff and coach.
             </p>
           </section>
 
@@ -246,14 +251,17 @@ export default function Coaching() {
                           </h4>
 
                           <p className="mt-1 text-sm text-slate-500">
-                            {booking.booking_date} • {formatTime(booking.start_time)} -{" "}
+                            {booking.booking_date} •{" "}
+                            {formatTime(booking.start_time)} -{" "}
                             {formatTime(booking.end_time)}
                           </p>
 
                           {booking.session_type && (
                             <p className="mt-2 text-sm">
                               Session Type:{" "}
-                              <b className="capitalize">{booking.session_type}</b>
+                              <b className="capitalize">
+                                {booking.session_type}
+                              </b>
                             </p>
                           )}
 
@@ -267,10 +275,26 @@ export default function Coaching() {
                           )}
 
                           {booking.includes_coach && (
-                            <p className="mt-2 text-sm font-semibold text-[#C97B6C]">
-                              Includes Coach • Coach Rate:{" "}
-                              {money(booking.coach_rate_per_hour || 0)} / hour
-                            </p>
+                            <>
+                              <p className="mt-2 text-sm font-semibold text-[#C97B6C]">
+                                Includes Coach • Coach Rate:{" "}
+                                {money(booking.coach_rate_per_hour || 0)} / hour
+                              </p>
+
+                              <p className="mt-1 text-sm">
+                                Facility Approval:{" "}
+                                <b className="capitalize">
+                                  {booking.facility_approval_status || "pending"}
+                                </b>
+                              </p>
+
+                              <p className="mt-1 text-sm">
+                                Coach Approval:{" "}
+                                <b className="capitalize">
+                                  {booking.coach_approval_status || "pending"}
+                                </b>
+                              </p>
+                            </>
                           )}
 
                           {booking.participants && (
@@ -279,11 +303,13 @@ export default function Coaching() {
                             </p>
                           )}
 
-                          {booking.coach_participants && booking.includes_coach && (
-                            <p className="mt-2 text-sm">
-                              Coach Participants: <b>{booking.coach_participants}</b>
-                            </p>
-                          )}
+                          {booking.coach_participants &&
+                            booking.includes_coach && (
+                              <p className="mt-2 text-sm">
+                                Coach Participants:{" "}
+                                <b>{booking.coach_participants}</b>
+                              </p>
+                            )}
 
                           {booking.notes && (
                             <p className="mt-2 text-sm text-slate-600">
@@ -291,11 +317,13 @@ export default function Coaching() {
                             </p>
                           )}
 
-                          {status === "cancelled" && booking.cancellation_reason && (
-                            <p className="mt-2 text-sm text-slate-500">
-                              Cancellation reason: {booking.cancellation_reason}
-                            </p>
-                          )}
+                          {status === "cancelled" &&
+                            booking.cancellation_reason && (
+                              <p className="mt-2 text-sm text-slate-500">
+                                Cancellation reason:{" "}
+                                {booking.cancellation_reason}
+                              </p>
+                            )}
 
                           <p className="mt-3 text-sm font-black">
                             Total: {money(booking.display_total || 0)}
@@ -316,7 +344,9 @@ export default function Coaching() {
                             </button>
                           ) : (
                             <p className="text-sm font-bold text-slate-500">
-                              {status === "cancelled" ? "Cancelled" : "Reviewed"}
+                              {status === "cancelled"
+                                ? "Cancelled"
+                                : "Reviewed"}
                             </p>
                           )}
                         </div>
