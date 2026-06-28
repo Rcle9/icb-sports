@@ -10,7 +10,6 @@ export default function Settings() {
     contact_email: "",
     allow_google_login: true,
     allow_booking_notifications: true,
-    allow_coaching_notifications: true,
     shop_enabled: true,
   });
 
@@ -35,7 +34,10 @@ export default function Settings() {
       if (error) throw error;
 
       const mapped = {};
+
       (data || []).forEach((item) => {
+        if (item.setting_key === "allow_coaching_notifications") return;
+
         let value = item.setting_value;
 
         if (value === "true") value = true;
@@ -49,6 +51,7 @@ export default function Settings() {
         ...mapped,
       }));
     } catch (err) {
+      console.error(err);
       setError(err.message || "Failed to load settings.");
     } finally {
       setLoading(false);
@@ -57,6 +60,7 @@ export default function Settings() {
 
   function handleChange(e) {
     const { name, value, type, checked } = e.target;
+
     setSettings((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
@@ -64,26 +68,26 @@ export default function Settings() {
   }
 
   async function saveSetting(key, value) {
-    const stringValue = typeof value === "boolean" ? String(value) : String(value ?? "");
+    const stringValue =
+      typeof value === "boolean" ? String(value) : String(value ?? "");
 
-    const { error } = await supabase
-      .from("system_settings")
-      .upsert(
-        [
-          {
-            setting_key: key,
-            setting_value: stringValue,
-            updated_at: new Date().toISOString(),
-          },
-        ],
-        { onConflict: "setting_key" }
-      );
+    const { error } = await supabase.from("system_settings").upsert(
+      [
+        {
+          setting_key: key,
+          setting_value: stringValue,
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      { onConflict: "setting_key" }
+    );
 
     if (error) throw error;
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
+
     setSaving(true);
     setError("");
     setMessage("");
@@ -97,6 +101,7 @@ export default function Settings() {
 
       setMessage("Settings saved successfully.");
     } catch (err) {
+      console.error(err);
       setError(err.message || "Failed to save settings.");
     } finally {
       setSaving(false);
@@ -111,17 +116,19 @@ export default function Settings() {
         <div className="page-container">
           <Topbar title="System Settings" />
 
-          <div className="mb-6 rounded-[28px] bg-[#C97B6C] from-[#B87463] via-slate-800 to-[#C97B6C] p-6 text-white md:p-8">
+          <div className="mb-6 rounded-[28px] bg-[#C97B6C] p-6 text-white md:p-8">
             <div>
               <p className="text-sm font-medium text-blue-100">
                 Platform Configuration
               </p>
+
               <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
                 Control system behavior and platform preferences.
               </h2>
+
               <p className="mt-3 max-w-3xl text-sm text-slate-100 md:text-base">
-                Update branding, notifications, login settings, and shop visibility
-                from a single admin panel.
+                Update branding, notifications, login settings, and shop
+                visibility from a single admin panel.
               </p>
             </div>
           </div>
@@ -129,6 +136,7 @@ export default function Settings() {
           <Card>
             <div className="mb-6">
               <h2 className="text-2xl font-bold text-black">Settings</h2>
+
               <p className="mt-1 text-sm text-black">
                 Configure core behavior for the system.
               </p>
@@ -155,12 +163,13 @@ export default function Settings() {
                     <label className="mb-2 block text-sm font-medium text-black">
                       System Name
                     </label>
+
                     <input
                       type="text"
                       name="system_name"
                       value={settings.system_name}
                       onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-[#C97B6C]"
                     />
                   </div>
 
@@ -168,12 +177,13 @@ export default function Settings() {
                     <label className="mb-2 block text-sm font-medium text-black">
                       Contact Email
                     </label>
+
                     <input
                       type="email"
                       name="contact_email"
                       value={settings.contact_email}
                       onChange={handleChange}
-                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-blue-500"
+                      className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-black outline-none transition focus:border-[#C97B6C]"
                     />
                   </div>
                 </div>
@@ -186,6 +196,7 @@ export default function Settings() {
                       checked={!!settings.allow_google_login}
                       onChange={handleChange}
                     />
+
                     Allow Google Login
                   </label>
 
@@ -196,17 +207,8 @@ export default function Settings() {
                       checked={!!settings.allow_booking_notifications}
                       onChange={handleChange}
                     />
-                    Enable Booking Notifications
-                  </label>
 
-                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-black">
-                    <input
-                      type="checkbox"
-                      name="allow_coaching_notifications"
-                      checked={!!settings.allow_coaching_notifications}
-                      onChange={handleChange}
-                    />
-                    Enable Coaching Notifications
+                    Enable Booking Notifications
                   </label>
 
                   <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-black">
@@ -216,6 +218,7 @@ export default function Settings() {
                       checked={!!settings.shop_enabled}
                       onChange={handleChange}
                     />
+
                     Enable Merchandise Shop
                   </label>
                 </div>

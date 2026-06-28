@@ -40,10 +40,28 @@ export default function AdminUsers() {
     }
   }
 
+  function getAllowedRoleValue(role) {
+    const cleanRole = String(role || "user").toLowerCase();
+
+    if (cleanRole === "staff") return "staff";
+    if (cleanRole === "admin") return "admin";
+
+    return "user";
+  }
+
+  function getRoleDisplay(role) {
+    const cleanRole = getAllowedRoleValue(role);
+
+    if (cleanRole === "admin") return "admin";
+    if (cleanRole === "staff") return "staff";
+
+    return "user";
+  }
+
   const filteredProfiles = useMemo(() => {
     return profiles.filter((profile) => {
       const fullName = profile.full_name || profile.name || "";
-      const role = profile.role || "";
+      const role = getRoleDisplay(profile.role);
 
       const matchesSearch =
         fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -56,9 +74,17 @@ export default function AdminUsers() {
     });
   }, [profiles, searchTerm, roleFilter]);
 
-  const totalUsers = profiles.filter((p) => p.role === "user").length;
-  const totalStaff = profiles.filter((p) => p.role === "staff").length;
-  const totalAdmins = profiles.filter((p) => p.role === "admin").length;
+  const totalUsers = profiles.filter(
+    (p) => getAllowedRoleValue(p.role) === "user"
+  ).length;
+
+  const totalStaff = profiles.filter(
+    (p) => getAllowedRoleValue(p.role) === "staff"
+  ).length;
+
+  const totalAdmins = profiles.filter(
+    (p) => getAllowedRoleValue(p.role) === "admin"
+  ).length;
 
   return (
     <div className="page-shell">
@@ -68,13 +94,15 @@ export default function AdminUsers() {
         <div className="page-container">
           <Topbar title="User Management" />
 
-          <section className="mb-6 rounded-[28px] bg-[#C97B6C] from-[#101827] to-[#2456d6] p-8 text-white shadow-sm">
+          <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white shadow-sm">
             <p className="text-sm font-semibold opacity-90">
               User Administration
             </p>
+
             <h1 className="mt-3 text-3xl font-black">
               Manage users, staff, and admin roles.
             </h1>
+
             <p className="mt-3 text-sm opacity-90">
               Search accounts, review roles, and update permissions from one
               clean admin view.
@@ -109,27 +137,28 @@ export default function AdminUsers() {
                 <label className="mb-2 block text-sm font-semibold">
                   Search
                 </label>
+
                 <input
                   type="text"
                   placeholder="Search by name, id, or role"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-[#C97B6C]"
                 />
               </div>
 
               <div>
                 <label className="mb-2 block text-sm font-semibold">Role</label>
+
                 <select
                   value={roleFilter}
                   onChange={(e) => setRoleFilter(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-[#C97B6C]"
                 >
-                 <option value="">All Roles</option>
-<option value="user">User</option>
-<option value="staff">Staff</option>
-<option value="coach">Coach</option>
-<option value="admin">Admin</option>
+                  <option value="all">All Roles</option>
+                  <option value="user">User</option>
+                  <option value="staff">Staff</option>
+                  <option value="admin">Admin</option>
                 </select>
               </div>
 
@@ -160,6 +189,8 @@ export default function AdminUsers() {
                 {filteredProfiles.map((profile) => {
                   const fullName =
                     profile.full_name || profile.name || "Unnamed User";
+                  const displayRole = getRoleDisplay(profile.role);
+                  const roleValue = getAllowedRoleValue(profile.role);
 
                   return (
                     <div
@@ -172,7 +203,7 @@ export default function AdminUsers() {
                         </h3>
 
                         <p className="mt-1 text-sm text-slate-600 capitalize">
-                          Current Role: {profile.role || "user"}
+                          Current Role: {displayRole}
                         </p>
 
                         <p className="mt-1 break-all text-xs text-slate-500">
@@ -191,17 +222,17 @@ export default function AdminUsers() {
                         <label className="mb-2 block text-sm font-semibold">
                           Change Role
                         </label>
+
                         <select
-                          value={profile.role || "user"}
+                          value={roleValue}
                           onChange={(e) =>
                             updateRole(profile.id, e.target.value)
                           }
-                          className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500"
+                          className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-[#C97B6C]"
                         >
                           <option value="user">User</option>
-<option value="staff">Staff</option>
-<option value="coach">Coach</option>
-<option value="admin">Admin</option>
+                          <option value="staff">Staff</option>
+                          <option value="admin">Admin</option>
                         </select>
                       </div>
                     </div>

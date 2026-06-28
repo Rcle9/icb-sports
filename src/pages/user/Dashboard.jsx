@@ -23,13 +23,12 @@ export default function UserDashboard() {
   const [stats, setStats] = useState({
     pendingFacility: 0,
     approvedFacility: 0,
-    pendingCoaching: 0,
-    cartItems: 0,
+    totalFacility: 0,
+    notifications: 0,
   });
 
   const [notifications, setNotifications] = useState([]);
   const [recentBookings, setRecentBookings] = useState([]);
-  const [recentCoaching, setRecentCoaching] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -40,11 +39,6 @@ export default function UserDashboard() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "bookings" },
-        () => loadDashboard()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "coach_bookings" },
         () => loadDashboard()
       )
       .on(
@@ -74,21 +68,10 @@ export default function UserDashboard() {
 
       if (!user) return;
 
-      const [
-        bookingsRes,
-        coachingRes,
-        notificationsRes,
-        cartRes,
-      ] = await Promise.all([
+      const [bookingsRes, notificationsRes] = await Promise.all([
         supabase
           .from("bookings")
           .select("*, facilities (*)")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false }),
-
-        supabase
-          .from("coach_bookings")
-          .select("*, coaches (*)")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false }),
 
@@ -98,26 +81,21 @@ export default function UserDashboard() {
           .eq("user_id", user.id)
           .order("created_at", { ascending: false })
           .limit(5),
-
-        supabase
-          .from("cart_items")
-          .select("*")
-          .eq("user_id", user.id),
       ]);
 
       const bookings = bookingsRes.data || [];
-      const coachBookings = coachingRes.data || [];
+      const userNotifications = notificationsRes.data || [];
 
       setStats({
         pendingFacility: bookings.filter((b) => b.status === "pending").length,
-        approvedFacility: bookings.filter((b) => b.status === "approved").length,
-        pendingCoaching: coachBookings.filter((b) => b.status === "pending").length,
-        cartItems: cartRes.data?.length || 0,
+        approvedFacility: bookings.filter((b) => b.status === "approved")
+          .length,
+        totalFacility: bookings.length,
+        notifications: userNotifications.length,
       });
 
       setRecentBookings(bookings.slice(0, 5));
-      setRecentCoaching(coachBookings.slice(0, 5));
-      setNotifications(notificationsRes.data || []);
+      setNotifications(userNotifications);
     } catch (error) {
       console.error("Dashboard error:", error.message);
     } finally {
@@ -134,15 +112,17 @@ export default function UserDashboard() {
           <Topbar title="Dashboard" />
 
           <section className="page-hero mb-6">
-            <p className="text-sm font-semibold">InCredoBall Sports Member Portal</p>
+            <p className="text-sm font-semibold">
+              InCredoBall Sports Member Portal
+            </p>
 
             <h2 className="mt-3 text-4xl font-black">
-              Book facilities and coaching with confidence.
+              Book facilities with confidence.
             </h2>
 
             <p className="mt-4 max-w-3xl text-base text-white/90">
-              Track your requests, stay updated through live notifications, and
-              manage your sports activities in one place.
+              Track your facility requests, stay updated through live
+              notifications, and manage your sports activities in one place.
             </p>
           </section>
 
@@ -160,15 +140,15 @@ export default function UserDashboard() {
             />
 
             <StatCard
-              title="Pending Coaching Requests"
-              value={stats.pendingCoaching}
-              sub="Awaiting review and confirmation"
+              title="Total Facility Bookings"
+              value={stats.totalFacility}
+              sub="All your submitted facility requests"
             />
 
             <StatCard
-              title="Cart Items"
-              value={stats.cartItems}
-              sub="Merchandise ready to checkout"
+              title="Recent Notifications"
+              value={stats.notifications}
+              sub="Latest account updates"
             />
           </section>
 
@@ -220,33 +200,19 @@ export default function UserDashboard() {
               </h3>
 
               <p className="mt-1 text-sm text-slate-500">
-                Your most recent bookings and coaching entries.
+                Your most recent facility bookings.
               </p>
 
               {loading ? (
                 <p className="mt-5 text-sm text-slate-500">Loading...</p>
-              ) : recentBookings.length === 0 && recentCoaching.length === 0 ? (
-                <p className="mt-5 text-sm text-slate-500">
-                  No bookings yet.
-                </p>
+              ) : recentBookings.length === 0 ? (
+                <p className="mt-5 text-sm text-slate-500">No bookings yet.</p>
               ) : (
                 <div className="mt-5 space-y-3">
                   {recentBookings.map((booking) => (
                     <BookingCard
                       key={`booking-${booking.id}`}
                       title={booking.facilities?.name || "Facility Booking"}
-                      date={booking.booking_date}
-                      start={booking.start_time}
-                      end={booking.end_time}
-                      status={booking.status}
-                      total={booking.total_amount}
-                    />
-                  ))}
-
-                  {recentCoaching.map((booking) => (
-                    <BookingCard
-                      key={`coach-${booking.id}`}
-                      title={booking.coaches?.name || "Coaching Session"}
                       date={booking.booking_date}
                       start={booking.start_time}
                       end={booking.end_time}

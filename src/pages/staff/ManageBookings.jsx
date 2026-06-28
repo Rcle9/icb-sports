@@ -99,7 +99,7 @@ export default function Bookings() {
       await approveBooking(id);
       await loadBookings(false);
 
-      setMessage("Facility approval updated successfully.");
+      setMessage("Facility booking request approved successfully.");
     } catch (err) {
       setError(err.message || "Failed to approve booking.");
     } finally {
@@ -131,13 +131,9 @@ export default function Bookings() {
     setDateFilter("");
   }
 
-  function isFacilityActionPending(booking) {
-    const mainStatus = normalizeStatus(booking.status);
-    const facilityApproval = normalizeStatus(
-      booking.facility_approval_status || "pending"
-    );
-
-    return mainStatus === "pending" && facilityApproval === "pending";
+  function canReviewBooking(booking) {
+    const status = normalizeStatus(booking.status);
+    return status === "pending";
   }
 
   const stats = useMemo(() => {
@@ -158,12 +154,6 @@ export default function Bookings() {
   const filteredBookings = useMemo(() => {
     return bookings.filter((booking) => {
       const status = normalizeStatus(booking.status);
-      const facilityApproval = normalizeStatus(
-        booking.facility_approval_status || "pending"
-      );
-      const coachApproval = normalizeStatus(
-        booking.coach_approval_status || "not_required"
-      );
       const facilityName = booking.facilities?.name || "";
       const notes = booking.notes || "";
 
@@ -171,9 +161,8 @@ export default function Bookings() {
         facilityName,
         notes,
         status,
-        facilityApproval,
-        coachApproval,
         booking.session_type,
+        booking.booking_date,
       ]
         .join(" ")
         .toLowerCase();
@@ -212,9 +201,8 @@ export default function Bookings() {
                 </h2>
 
                 <p className="mt-2 text-sm text-white/90">
-                  Staff only approves the facility part. If the booking includes
-                  a coach, it becomes fully approved only after the coach also
-                  approves.
+                  Staff can review, approve, or reject facility booking requests
+                  submitted by users.
                 </p>
               </div>
 
@@ -257,8 +245,8 @@ export default function Bookings() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by facility, notes, status, or approval"
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
+                  placeholder="Search by facility, notes, status, or date"
+                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
                 />
               </div>
 
@@ -269,7 +257,7 @@ export default function Bookings() {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
+                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
                 >
                   <option value="all">All</option>
                   <option value="pending">Pending</option>
@@ -286,7 +274,7 @@ export default function Bookings() {
                 <select
                   value={facilityFilter}
                   onChange={(e) => setFacilityFilter(e.target.value)}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
+                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
                 >
                   <option value="all">All Facilities</option>
                   {facilities.map((facility) => (
@@ -303,7 +291,7 @@ export default function Bookings() {
                   type="date"
                   value={dateFilter}
                   onChange={(e) => setDateFilter(e.target.value)}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3"
+                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
                 />
               </div>
 
@@ -311,7 +299,7 @@ export default function Bookings() {
                 <button
                   type="button"
                   onClick={resetFilters}
-                  className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold"
+                  className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1]"
                 >
                   Reset
                 </button>
@@ -350,13 +338,7 @@ export default function Bookings() {
               <div className="booking-card-list mt-6 space-y-4">
                 {filteredBookings.map((booking) => {
                   const status = normalizeStatus(booking.status);
-                  const facilityApproval = normalizeStatus(
-                    booking.facility_approval_status || "pending"
-                  );
-                  const coachApproval = normalizeStatus(
-                    booking.coach_approval_status || "not_required"
-                  );
-                  const canStaffReview = isFacilityActionPending(booking);
+                  const canStaffReview = canReviewBooking(booking);
                   const isHighlighted =
                     highlightedId && String(booking.id) === String(highlightedId);
 
@@ -384,26 +366,8 @@ export default function Bookings() {
                                 status
                               )}`}
                             >
-                              Overall: {status}
+                              {status}
                             </span>
-
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(
-                                facilityApproval
-                              )}`}
-                            >
-                              Facility: {facilityApproval}
-                            </span>
-
-                            {booking.includes_coach && (
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(
-                                  coachApproval
-                                )}`}
-                              >
-                                Coach: {coachApproval}
-                              </span>
-                            )}
                           </div>
 
                           <h4 className="text-lg font-black text-[#2B2B2B]">
@@ -423,26 +387,7 @@ export default function Bookings() {
                             </span>
                           </p>
 
-                          <p className="text-sm">
-                            Notes: {booking.notes || "-"}
-                          </p>
-
-                          {booking.includes_coach && (
-                            <div className="mt-3 rounded-2xl bg-[#F3E4DF] p-4 text-sm">
-                              <p className="font-black text-[#C97B6C]">
-                                Includes Coach
-                              </p>
-                              <p className="mt-1">
-                                Coach Rate:{" "}
-                                <b>
-                                  {money(booking.coach_rate_per_hour)} / hour
-                                </b>
-                              </p>
-                              <p className="mt-1">
-                                Coach approval is handled by the coach account.
-                              </p>
-                            </div>
-                          )}
+                          <p className="text-sm">Notes: {booking.notes || "-"}</p>
 
                           <p className="mt-3 text-sm font-black">
                             Total: {money(booking.total_amount)}
@@ -486,14 +431,10 @@ export default function Bookings() {
                             <div className="max-w-[260px] rounded-2xl bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
                               {status === "cancelled"
                                 ? "Cancelled by user"
-                                : facilityApproval === "approved" &&
-                                  status === "pending" &&
-                                  booking.includes_coach
-                                ? "Facility approved. Waiting for coach approval."
-                                : facilityApproval === "approved"
-                                ? "Facility already approved."
-                                : facilityApproval === "rejected"
-                                ? "Facility rejected."
+                                : status === "approved"
+                                ? "Booking already approved."
+                                : status === "rejected"
+                                ? "Booking rejected."
                                 : "No staff action needed."}
                             </div>
                           )}
@@ -528,6 +469,6 @@ function getStatusClass(status) {
   if (value === "approved") return "bg-green-100 text-green-700";
   if (value === "rejected") return "bg-red-100 text-red-700";
   if (value === "cancelled") return "bg-slate-200 text-slate-700";
-  if (value === "not_required") return "bg-slate-100 text-slate-600";
+
   return "bg-yellow-100 text-yellow-700";
 }

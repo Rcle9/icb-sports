@@ -10,6 +10,15 @@ import {
   markAllAsRead,
 } from "../../services/notificationService";
 
+function normalizeRole(role) {
+  const cleanRole = String(role || "user").toLowerCase();
+
+  if (cleanRole === "admin") return "admin";
+  if (cleanRole === "staff") return "staff";
+
+  return "user";
+}
+
 function formatTime(time) {
   if (!time) return "-";
 
@@ -44,9 +53,16 @@ export default function Notifications({ forcedRole }) {
         const currentProfile = await getCurrentProfile();
         if (!currentProfile || !mounted) return;
 
-        const activeRole = forcedRole || currentProfile.role || "user";
+        const activeRole = normalizeRole(
+          forcedRole || currentProfile.role || "user"
+        );
 
-        setProfile(currentProfile);
+        const normalizedProfile = {
+          ...currentProfile,
+          role: activeRole,
+        };
+
+        setProfile(normalizedProfile);
         setRole(activeRole);
 
         await loadNotifications(currentProfile.id, activeRole);
@@ -82,29 +98,23 @@ export default function Notifications({ forcedRole }) {
 
     init();
 
-    const interval = setInterval(async () => {
-      if (profile?.id) {
-        await loadNotifications(profile.id, role);
-      }
-    }, 5000);
-
     return () => {
       mounted = false;
-      clearInterval(interval);
 
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
-  }, [forcedRole, profile?.id, role]);
+  }, [forcedRole]);
 
   async function loadNotifications(userId, activeRole) {
     setLoading(true);
 
-    const items = await getUserNotifications(userId, activeRole);
-    setNotifications(items || []);
+    const safeRole = normalizeRole(activeRole);
+    const items = await getUserNotifications(userId, safeRole);
 
+    setNotifications(items || []);
     await loadBookingDetails(items || []);
 
     setLoading(false);
@@ -155,7 +165,7 @@ export default function Notifications({ forcedRole }) {
   function getNotificationRedirect(item) {
     if (!item?.reference_id) {
       if (role === "staff") return "/staff/notifications";
-      if (role === "admin") return "/admin/notifications";
+      if (role === "admin") return "/admin/reports";
       return "/notifications";
     }
 
@@ -167,11 +177,7 @@ export default function Notifications({ forcedRole }) {
       return `/admin/reports?highlight=${item.reference_id}`;
     }
 
-    if (role === "coach") {
-      return `/coach/dashboard?highlight=${item.reference_id}`;
-    }
-
-    return `/coaching?highlight=${item.reference_id}`;
+    return `/my-bookings?highlight=${item.reference_id}`;
   }
 
   async function handleNotificationClick(item) {
@@ -195,7 +201,7 @@ export default function Notifications({ forcedRole }) {
           <Topbar title="Notifications" />
 
           <div className="rounded-[28px] bg-white p-6 shadow-sm">
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-6 flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-slate-950">
                   {role === "staff"
@@ -206,7 +212,7 @@ export default function Notifications({ forcedRole }) {
                 </h2>
 
                 <p className="text-sm text-slate-500">
-                  Showing {role} notifications with booking details.
+                  Showing {role} notifications with facility booking details.
                 </p>
               </div>
 
@@ -230,16 +236,10 @@ export default function Notifications({ forcedRole }) {
 
                   const totalHours = Number(booking?.total_hours || 0);
                   const facilityRate = Number(booking?.rate_per_hour || 0);
-                  const coachRate = Number(booking?.coach_rate_per_hour || 0);
-
                   const facilityTotal = facilityRate * totalHours;
-                  const coachTotal = booking?.includes_coach
-                    ? coachRate * totalHours
-                    : 0;
 
                   const finalTotal =
-                    Number(booking?.total_amount || 0) ||
-                    facilityTotal + coachTotal;
+                    Number(booking?.total_amount || 0) || facilityTotal;
 
                   return (
                     <button
@@ -274,7 +274,8 @@ export default function Notifications({ forcedRole }) {
                                 </p>
 
                                 <p>
-                                  <b>Time:</b> {formatTime(booking.start_time)} -{" "}
+                                  <b>Time:</b>{" "}
+                                  {formatTime(booking.start_time)} -{" "}
                                   {formatTime(booking.end_time)}
                                 </p>
 
@@ -302,7 +303,8 @@ export default function Notifications({ forcedRole }) {
                                 </p>
 
                                 <p>
-                                  <b>Facility Total:</b> {money(facilityTotal)}
+                                  <b>Facility Total:</b>{" "}
+                                  {money(facilityTotal)}
                                 </p>
 
                                 {role !== "user" && (
@@ -314,33 +316,6 @@ export default function Notifications({ forcedRole }) {
                                   </p>
                                 )}
                               </div>
-
-                              {booking.includes_coach && (
-                                <div className="mt-4 rounded-2xl border border-blue-100 bg-[#F3E4DF] p-4">
-                                  <p className="text-sm font-black text-[#C97B6C]">
-                                    Coach Details
-                                  </p>
-
-                                  <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-700 md:grid-cols-2">
-                                    <p>
-                                      <b>Coach Included:</b> Yes
-                                    </p>
-
-                                    <p>
-                                      <b>Coach Rate:</b> {money(coachRate)} /
-                                      hour
-                                    </p>
-
-                                    <p>
-                                      <b>Coach Hours:</b> {totalHours} hour(s)
-                                    </p>
-
-                                    <p>
-                                      <b>Coach Total:</b> {money(coachTotal)}
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
 
                               <div className="mt-4 rounded-2xl bg-white p-4">
                                 <div className="flex items-center justify-between text-sm">

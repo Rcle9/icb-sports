@@ -3,13 +3,32 @@ import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
 
-export default function StaffProfile() {
+function normalizeRole(role) {
+  const cleanRole = String(role || "user").toLowerCase();
+
+  if (cleanRole === "admin") return "admin";
+  if (cleanRole === "staff") return "staff";
+
+  return "user";
+}
+
+function getRoleLabel(role) {
+  const cleanRole = normalizeRole(role);
+
+  if (cleanRole === "admin") return "Admin";
+  if (cleanRole === "staff") return "Staff";
+
+  return "User";
+}
+
+export default function UserProfile() {
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({
     full_name: "",
     email: "",
-    role: "Staff",
+    role: "user",
   });
+
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -19,6 +38,8 @@ export default function StaffProfile() {
 
   async function loadProfile() {
     try {
+      setError("");
+
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -37,17 +58,23 @@ export default function StaffProfile() {
         id: user.id,
         full_name: user.email,
         email: user.email,
-        role: "staff",
+        role: "user",
       };
 
-      setProfile(currentProfile);
+      const cleanRole = normalizeRole(currentProfile.role);
+
+      setProfile({
+        ...currentProfile,
+        role: cleanRole,
+      });
 
       setForm({
         full_name: currentProfile.full_name || "",
         email: currentProfile.email || user.email || "",
-        role: currentProfile.role || "staff",
+        role: cleanRole,
       });
     } catch (err) {
+      console.error(err);
       setError(err.message || "Failed to load profile.");
     }
   }
@@ -63,6 +90,7 @@ export default function StaffProfile() {
 
   async function handleSave(e) {
     e.preventDefault();
+
     setMessage("");
     setError("");
 
@@ -82,15 +110,16 @@ export default function StaffProfile() {
       setMessage("Profile updated successfully.");
       await loadProfile();
     } catch (err) {
+      console.error(err);
       setError(err.message || "Failed to update profile.");
     }
   }
 
-  const initial = (form.full_name || form.email || "S").charAt(0).toUpperCase();
+  const initial = (form.full_name || form.email || "U").charAt(0).toUpperCase();
 
   return (
     <div className="page-shell">
-      <Sidebar role="staff" />
+      <Sidebar role="user" />
 
       <main className="page-main">
         <div className="page-container">
@@ -108,7 +137,7 @@ export default function StaffProfile() {
             </div>
           )}
 
-          <section className="mb-6 rounded-[28px] bg-[#C97B6C] from-slate-900 to-[#C97B6C] p-8 text-white">
+          <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white">
             <p className="text-sm font-semibold">Account Preferences</p>
 
             <h2 className="mt-3 text-4xl font-black">
@@ -116,8 +145,8 @@ export default function StaffProfile() {
             </h2>
 
             <p className="mt-4 text-base text-blue-50">
-              Keep your name and account details up to date for a cleaner system
-              experience.
+              Keep your name and account details updated for your facility
+              booking records and notifications.
             </p>
           </section>
 
@@ -128,7 +157,7 @@ export default function StaffProfile() {
               </div>
 
               <h3 className="mt-6 text-2xl font-black text-slate-950">
-                {form.full_name || "Staff User"}
+                {form.full_name || "User"}
               </h3>
 
               <p className="mt-2 text-sm text-slate-600">
@@ -136,7 +165,7 @@ export default function StaffProfile() {
               </p>
 
               <span className="mt-4 inline-flex rounded-full bg-slate-100 px-4 py-2 text-xs font-black uppercase text-slate-700">
-                {form.role || "staff"}
+                {getRoleLabel(form.role)}
               </span>
             </section>
 
@@ -160,7 +189,7 @@ export default function StaffProfile() {
                     name="full_name"
                     value={form.full_name}
                     onChange={handleChange}
-                    className="w-full rounded-2xl border border-slate-200 px-4 py-4 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-4 outline-none focus:border-[#C97B6C]"
                     placeholder="Full name"
                   />
                 </div>
@@ -173,7 +202,7 @@ export default function StaffProfile() {
                     name="email"
                     value={form.email}
                     onChange={handleChange}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 outline-none focus:border-blue-500"
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 outline-none focus:border-[#C97B6C]"
                     placeholder="Email"
                   />
                 </div>
@@ -183,15 +212,16 @@ export default function StaffProfile() {
 
                   <input
                     type="text"
-                    value={String(form.role || "staff")
-                      .charAt(0)
-                      .toUpperCase() + String(form.role || "staff").slice(1)}
+                    value={getRoleLabel(form.role)}
                     disabled
                     className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-slate-600"
                   />
                 </div>
 
-                <button className="rounded-2xl bg-[#C97B6C] px-8 py-4 font-black text-white hover:bg-[#B96A5D]">
+                <button
+                  type="submit"
+                  className="rounded-2xl bg-[#C97B6C] px-8 py-4 font-black text-white hover:bg-[#B96A5D]"
+                >
                   Save Profile
                 </button>
               </form>

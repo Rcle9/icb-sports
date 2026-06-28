@@ -33,6 +33,7 @@ function formatDateLabel(dateString) {
   if (!dateString) return "Unknown";
 
   const date = new Date(dateString);
+
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -41,9 +42,9 @@ function formatDateLabel(dateString) {
 
 export default function AdminDashboard() {
   const [bookings, setBookings] = useState([]);
-  const [coachBookings, setCoachBookings] = useState([]);
   const [maintenance, setMaintenance] = useState([]);
   const [users, setUsers] = useState([]);
+  const [facilities, setFacilities] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -58,12 +59,12 @@ export default function AdminDashboard() {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "coach_bookings" },
+        { event: "*", schema: "public", table: "maintenance_requests" },
         () => loadDashboard()
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "maintenance_requests" },
+        { event: "*", schema: "public", table: "facilities" },
         () => loadDashboard()
       )
       .subscribe();
@@ -77,16 +78,11 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
 
-      const [bookingsRes, coachRes, maintenanceRes, usersRes] =
+      const [bookingsRes, maintenanceRes, usersRes, facilitiesRes] =
         await Promise.all([
           supabase
             .from("bookings")
             .select("*, facilities (*)")
-            .order("booking_date", { ascending: true }),
-
-          supabase
-            .from("coach_bookings")
-            .select("*")
             .order("booking_date", { ascending: true }),
 
           supabase
@@ -95,12 +91,14 @@ export default function AdminDashboard() {
             .order("created_at", { ascending: false }),
 
           supabase.from("profiles").select("*"),
+
+          supabase.from("facilities").select("*"),
         ]);
 
       setBookings(bookingsRes.data || []);
-      setCoachBookings(coachRes.data || []);
       setMaintenance(maintenanceRes.data || []);
       setUsers(usersRes.data || []);
+      setFacilities(facilitiesRes.data || []);
     } catch (error) {
       console.error("Admin dashboard error:", error.message);
     } finally {
@@ -163,11 +161,13 @@ export default function AdminDashboard() {
     const approved = bookings.filter((b) => b.status === "approved").length;
     const pending = bookings.filter((b) => b.status === "pending").length;
     const rejected = bookings.filter((b) => b.status === "rejected").length;
+    const cancelled = bookings.filter((b) => b.status === "cancelled").length;
 
     return [
       { name: "Approved", value: approved, color: "#16a34a" },
       { name: "Pending", value: pending, color: "#f59e0b" },
       { name: "Rejected", value: rejected, color: "#dc2626" },
+      { name: "Cancelled", value: cancelled, color: "#64748b" },
     ];
   }, [bookings]);
 
@@ -186,20 +186,24 @@ export default function AdminDashboard() {
   }, [maintenance]);
 
   const stats = useMemo(() => {
+    const normalizedUsers = users.map((user) => ({
+      ...user,
+      role: String(user.role || "user").toLowerCase(),
+    }));
+
     return {
-      users: users.length,
-      staff: users.filter((u) => u.role === "staff").length,
-      admins: users.filter((u) => u.role === "admin").length,
+      users: normalizedUsers.length,
+      staff: normalizedUsers.filter((u) => u.role === "staff").length,
+      admins: normalizedUsers.filter((u) => u.role === "admin").length,
+      facilities: facilities.length,
       bookings: bookings.length,
       approved: bookings.filter((b) => b.status === "approved").length,
       pending: bookings.filter((b) => b.status === "pending").length,
-      coachRequests: coachBookings.length,
-      pendingCoach: coachBookings.filter((b) => b.status === "pending").length,
       openMaintenance: maintenance.filter((m) =>
         ["pending", "open", "in_progress"].includes(m.status)
       ).length,
     };
-  }, [users, bookings, coachBookings, maintenance]);
+  }, [users, bookings, maintenance, facilities]);
 
   return (
     <div className="page-shell">
@@ -211,12 +215,14 @@ export default function AdminDashboard() {
 
           <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white">
             <p className="text-sm font-semibold">Admin Analytics</p>
+
             <h2 className="mt-2 text-3xl font-black">
-              Track booking trends, facility usage, and system activity.
+              Track facility bookings, usage trends, and system activity.
             </h2>
+
             <p className="mt-2 text-sm text-blue-50">
-              Facility booking trends are now separated by facility using
-              different colors.
+              Monitor facility reservations, maintenance concerns, user roles,
+              and operational reports from one dashboard.
             </p>
           </section>
 
@@ -226,16 +232,19 @@ export default function AdminDashboard() {
               value={stats.users}
               sub={`Staff: ${stats.staff} • Admins: ${stats.admins}`}
             />
+
+            <StatCard
+              title="Facilities"
+              value={stats.facilities}
+              sub="Managed sports facilities"
+            />
+
             <StatCard
               title="Facility Bookings"
               value={stats.bookings}
               sub={`Approved: ${stats.approved} • Pending: ${stats.pending}`}
             />
-            <StatCard
-              title="Coach Requests"
-              value={stats.coachRequests}
-              sub={`Pending: ${stats.pendingCoach}`}
-            />
+
             <StatCard
               title="Open Maintenance"
               value={stats.openMaintenance}
@@ -253,6 +262,7 @@ export default function AdminDashboard() {
                 <h3 className="text-2xl font-black text-slate-950">
                   Booking Trend by Facility
                 </h3>
+
                 <p className="mt-1 text-sm text-slate-500">
                   Each color represents a different facility.
                 </p>
@@ -302,6 +312,7 @@ export default function AdminDashboard() {
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
+
                       <Tooltip />
                       <Legend />
                     </PieChart>
@@ -347,6 +358,7 @@ export default function AdminDashboard() {
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
+
                       <Tooltip />
                       <Legend />
                     </PieChart>

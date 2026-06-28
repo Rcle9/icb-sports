@@ -15,13 +15,12 @@ export default function Contact() {
           </h2>
 
           <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-            Book facilities, coaching sessions, and sports activities through
-            the InCredoBall Sports Management System.
+            Book facilities and manage your sports activities through the
+            InCredoBall Sports Management System.
           </p>
         </div>
 
         <div className="grid gap-8 lg:grid-cols-2">
-          {/* LEFT */}
           <div className="rounded-[40px] bg-[#C97B6C] p-10 text-white">
             <p className="font-black uppercase tracking-[0.25em] text-white/80">
               Contact Information
@@ -32,8 +31,8 @@ export default function Contact() {
             </h2>
 
             <p className="mt-5 leading-8 text-white/90">
-              Create an account and start booking facilities or coaching
-              sessions online with real-time notifications and staff approval.
+              Create an account and start booking facilities online with
+              real-time notifications and staff approval.
             </p>
 
             <div className="mt-10 space-y-5">
@@ -54,9 +53,9 @@ export default function Contact() {
 
                 <div className="mt-3 space-y-2 text-white/90">
                   <p>• Facility Booking</p>
-                  <p>• Coaching Sessions</p>
-                  <p>• Merchandise Shop</p>
+                  <p>• Product Display</p>
                   <p>• Maintenance Tracking</p>
+                  <p>• Inventory Management</p>
                   <p>• Real-time Notifications</p>
                 </div>
               </div>
@@ -80,7 +79,6 @@ export default function Contact() {
             </Link>
           </div>
 
-          {/* RIGHT */}
           <div className="overflow-hidden rounded-[40px] border border-[#DED8D2] bg-white shadow-sm">
             <div className="border-b border-[#DED8D2] p-6">
               <p className="font-black uppercase tracking-[0.25em] text-[#C97B6C]">
@@ -98,12 +96,12 @@ export default function Contact() {
 
             <div className="h-[500px] w-full">
               <iframe
-  title="InCredoBall Location"
-  src="https://www.google.com/maps?q=Incredoball+Sports+and+Development+Center+Dumaguete&output=embed"
-  className="h-full w-full"
-  loading="lazy"
-  referrerPolicy="no-referrer-when-downgrade"
-/>
+                title="InCredoBall Location"
+                src="https://www.google.com/maps?q=Incredoball+Sports+and+Development+Center+Dumaguete&output=embed"
+                className="h-full w-full"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
             </div>
           </div>
         </div>

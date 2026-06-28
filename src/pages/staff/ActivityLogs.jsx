@@ -7,7 +7,16 @@ import { getActivityLogs } from "../../services/activityLogService";
 
 function formatDateTime(value) {
   if (!value) return "-";
+
   return new Date(value).toLocaleString();
+}
+
+function normalizeEntityType(type) {
+  const cleanType = String(type || "").toLowerCase();
+
+  if (cleanType === "coach" || cleanType === "coaching") return "booking";
+
+  return cleanType;
 }
 
 export default function StaffLogs() {
@@ -41,9 +50,11 @@ export default function StaffLogs() {
     try {
       setLoading(true);
       setError("");
+
       const data = await getActivityLogs();
       setLogs(data || []);
     } catch (err) {
+      console.error(err);
       setError(err.message || "Failed to load activity logs.");
     } finally {
       setLoading(false);
@@ -52,10 +63,12 @@ export default function StaffLogs() {
 
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
-      const matchesType =
-        typeFilter === "all" ? true : log.entity_type === typeFilter;
+      const entityType = normalizeEntityType(log.entity_type);
 
-      const source = `${log.description} ${log.action_type} ${log.entity_type} ${
+      const matchesType =
+        typeFilter === "all" ? true : entityType === typeFilter;
+
+      const source = `${log.description} ${log.action_type} ${entityType} ${
         log.actor_role || ""
       }`.toLowerCase();
 
@@ -76,30 +89,33 @@ export default function StaffLogs() {
           <Topbar title="Activity Logs" />
 
           <Card className="mb-6">
-            <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex flex-col gap-4 md:flex-row">
               <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">Search</label>
+                <label className="mb-2 block text-sm font-medium">
+                  Search
+                </label>
+
                 <input
                   type="text"
                   placeholder="Search logs"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 outline-none"
+                  className="w-full rounded-xl border px-4 py-3 outline-none focus:border-[#C97B6C]"
                 />
               </div>
 
               <div className="w-full md:w-56">
-                <label className="block text-sm font-medium mb-2">
+                <label className="mb-2 block text-sm font-medium">
                   Entity Type
                 </label>
+
                 <select
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 outline-none"
+                  className="w-full rounded-xl border px-4 py-3 outline-none focus:border-[#C97B6C]"
                 >
                   <option value="all">All Types</option>
                   <option value="booking">Booking</option>
-                  <option value="coaching">Coaching</option>
                   <option value="maintenance">Maintenance</option>
                   <option value="inventory">Inventory</option>
                   <option value="facility">Facility</option>
@@ -114,7 +130,7 @@ export default function StaffLogs() {
                     setSearchTerm("");
                     setTypeFilter("all");
                   }}
-                  className="px-4 py-3 rounded-xl border bg-white hover:bg-gray-50"
+                  className="rounded-xl border bg-white px-4 py-3 hover:bg-gray-50"
                 >
                   Reset
                 </button>
@@ -123,12 +139,12 @@ export default function StaffLogs() {
           </Card>
 
           <Card>
-            <h2 className="text-2xl font-bold text-[#0f172a] mb-4">
+            <h2 className="mb-4 text-2xl font-bold text-[#0f172a]">
               Real Activity Logs
             </h2>
 
             {error && (
-              <div className="mb-4 rounded-xl bg-red-50 text-red-600 px-4 py-3 text-sm">
+              <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
                 {error}
               </div>
             )}
@@ -139,38 +155,45 @@ export default function StaffLogs() {
               <p className="text-gray-500">No activity logs found.</p>
             ) : (
               <div
-  className="space-y-4 overflow-y-auto pr-2"
-  style={{
-    maxHeight: "calc(100vh - 320px)",
-  }}
->
-                {filteredLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="border rounded-xl p-4 flex flex-col md:flex-row md:items-start md:justify-between gap-4 bg-white"
-                  >
-                    <div>
-                      <p className="font-semibold text-[#0f172a]">
-                        {log.description}
-                      </p>
-                      <p className="text-sm text-gray-600 mt-1 capitalize">
-                        Action: {log.action_type} • Entity: {log.entity_type}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-2 capitalize">
-                        Actor role: {log.actor_role || "unknown"}
-                      </p>
-                    </div>
+                className="space-y-4 overflow-y-auto pr-2"
+                style={{
+                  maxHeight: "calc(100vh - 320px)",
+                }}
+              >
+                {filteredLogs.map((log) => {
+                  const entityType = normalizeEntityType(log.entity_type);
 
-                    <div className="text-left md:text-right md:max-w-[360px]">
-                      <p className="text-xs text-gray-400">
-                        {formatDateTime(log.created_at)}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-2 break-all">
-                        Entity ID: {log.entity_id || "-"}
-                      </p>
+                  return (
+                    <div
+                      key={log.id}
+                      className="flex flex-col gap-4 rounded-xl border bg-white p-4 md:flex-row md:items-start md:justify-between"
+                    >
+                      <div>
+                        <p className="font-semibold text-[#0f172a]">
+                          {log.description}
+                        </p>
+
+                        <p className="mt-1 text-sm capitalize text-gray-600">
+                          Action: {log.action_type} • Entity: {entityType}
+                        </p>
+
+                        <p className="mt-2 text-xs capitalize text-gray-400">
+                          Actor role: {log.actor_role || "unknown"}
+                        </p>
+                      </div>
+
+                      <div className="text-left md:max-w-[360px] md:text-right">
+                        <p className="text-xs text-gray-400">
+                          {formatDateTime(log.created_at)}
+                        </p>
+
+                        <p className="mt-2 break-all text-xs text-gray-400">
+                          Entity ID: {log.entity_id || "-"}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>

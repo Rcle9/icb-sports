@@ -9,6 +9,15 @@ import {
   markAllAsRead,
 } from "../../services/notificationService";
 
+function normalizeRole(role) {
+  const cleanRole = String(role || "user").toLowerCase();
+
+  if (cleanRole === "admin") return "admin";
+  if (cleanRole === "staff") return "staff";
+
+  return "user";
+}
+
 export default function Topbar({ title = "Dashboard" }) {
   const navigate = useNavigate();
   const channelRef = useRef(null);
@@ -26,8 +35,18 @@ export default function Topbar({ title = "Dashboard" }) {
       const currentProfile = await getCurrentProfile();
       if (!currentProfile || !mounted) return;
 
-      setProfile(currentProfile);
-      await refreshNotifications(currentProfile.id, currentProfile.role, mounted);
+      const normalizedProfile = {
+        ...currentProfile,
+        role: normalizeRole(currentProfile.role),
+      };
+
+      setProfile(normalizedProfile);
+
+      await refreshNotifications(
+        normalizedProfile.id,
+        normalizedProfile.role,
+        mounted
+      );
 
       if (channelRef.current) {
         await supabase.removeChannel(channelRef.current);
@@ -35,19 +54,19 @@ export default function Topbar({ title = "Dashboard" }) {
       }
 
       const channel = supabase
-        .channel(`notifications-live-${currentProfile.id}-${Date.now()}`)
+        .channel(`notifications-live-${normalizedProfile.id}-${Date.now()}`)
         .on(
           "postgres_changes",
           {
             event: "*",
             schema: "public",
             table: "notifications",
-            filter: `user_id=eq.${currentProfile.id}`,
+            filter: `user_id=eq.${normalizedProfile.id}`,
           },
           async () => {
             await refreshNotifications(
-              currentProfile.id,
-              currentProfile.role,
+              normalizedProfile.id,
+              normalizedProfile.role,
               mounted
             );
           }
@@ -58,8 +77,8 @@ export default function Topbar({ title = "Dashboard" }) {
 
       intervalRef.current = setInterval(async () => {
         await refreshNotifications(
-          currentProfile.id,
-          currentProfile.role,
+          normalizedProfile.id,
+          normalizedProfile.role,
           mounted
         );
       }, 5000);
@@ -84,9 +103,11 @@ export default function Topbar({ title = "Dashboard" }) {
 
   async function refreshNotifications(userId, role, mounted = true) {
     try {
+      const safeRole = normalizeRole(role);
+
       const [items, count] = await Promise.all([
-        getUserNotifications(userId, role),
-        getUnreadNotificationCount(userId, role),
+        getUserNotifications(userId, safeRole),
+        getUnreadNotificationCount(userId, safeRole),
       ]);
 
       if (!mounted) return;
@@ -99,15 +120,18 @@ export default function Topbar({ title = "Dashboard" }) {
   }
 
   function getNotificationPage() {
-    if (profile?.role === "staff") return "/staff/notifications";
-    if (profile?.role === "admin") return "/admin/notifications";
+    const role = normalizeRole(profile?.role);
+
+    if (role === "staff") return "/staff/notifications";
+    if (role === "admin") return "/admin/reports";
+
     return "/notifications";
   }
 
   function getNotificationRedirect(item) {
     if (!item?.reference_id) return getNotificationPage();
 
-    const role = String(profile?.role || "user").toLowerCase();
+    const role = normalizeRole(profile?.role);
     const type = String(item.type || "").toLowerCase();
 
     if (
@@ -121,15 +145,7 @@ export default function Topbar({ title = "Dashboard" }) {
       return `/admin/reports?highlight=${item.reference_id}`;
     }
 
-    if (role === "coach") {
-      return `/coach/dashboard?highlight=${item.reference_id}`;
-    }
-
-    if (role === "user") {
-      return `/coaching?highlight=${item.reference_id}`;
-    }
-
-    return getNotificationPage();
+    return `/my-bookings?highlight=${item.reference_id}`;
   }
 
   async function handleViewAll() {
@@ -177,8 +193,9 @@ export default function Topbar({ title = "Dashboard" }) {
               <p className="text-sm font-bold text-[#2B2B2B]">
                 {profile?.full_name || "User"}
               </p>
+
               <p className="text-xs capitalize text-slate-500">
-                {profile?.role || "user"}
+                {normalizeRole(profile?.role)}
               </p>
             </div>
           </div>
@@ -188,6 +205,7 @@ export default function Topbar({ title = "Dashboard" }) {
               type="button"
               onClick={async () => {
                 setOpen((prev) => !prev);
+
                 if (profile?.id) {
                   await refreshNotifications(profile.id, profile.role);
                 }
@@ -210,6 +228,7 @@ export default function Topbar({ title = "Dashboard" }) {
                     <h3 className="text-lg font-black text-[#2B2B2B]">
                       Notifications
                     </h3>
+
                     <p className="text-sm text-slate-500">
                       {unreadCount} unread
                     </p>

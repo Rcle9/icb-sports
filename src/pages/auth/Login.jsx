@@ -7,7 +7,6 @@ function getDashboardPath(role) {
 
   if (userRole === "admin") return "/admin/dashboard";
   if (userRole === "staff") return "/staff/dashboard";
-  if (userRole === "coach") return "/coach/dashboard";
 
   return "/dashboard";
 }

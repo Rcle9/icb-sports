@@ -4,7 +4,6 @@ import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
 import { cancelBooking } from "../../services/bookingService";
-import { cancelCoachBooking } from "../../services/coachingService";
 import { useAuth } from "../../context/AuthContext";
 
 function money(value) {
@@ -22,6 +21,7 @@ function formatTime(time24) {
   const [h, m] = cleanTime(time24).split(":");
   let hour = Number(h);
   const suffix = hour >= 12 ? "PM" : "AM";
+
   hour = hour % 12 || 12;
 
   return `${hour}:${m} ${suffix}`;
@@ -37,12 +37,14 @@ function statusClass(status) {
   if (value === "approved") return "bg-green-100 text-green-700";
   if (value === "rejected") return "bg-red-100 text-red-700";
   if (value === "cancelled") return "bg-slate-200 text-slate-700";
+
   return "bg-yellow-100 text-yellow-700";
 }
 
-export default function Coaching() {
-  const { user, profile } = useAuth();
+export default function MyBookings() {
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
+
   const highlightedId =
     searchParams.get("highlight") ||
     searchParams.get("booking_id") ||
@@ -51,8 +53,6 @@ export default function Coaching() {
   const highlightedBookingRef = useRef(null);
 
   const [facilityBookings, setFacilityBookings] = useState([]);
-  const [coachBookings, setCoachBookings] = useState([]);
-
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -62,37 +62,23 @@ export default function Coaching() {
   const [cancelling, setCancelling] = useState(false);
 
   const allBookings = useMemo(() => {
-    const facility = facilityBookings.map((booking) => ({
-      ...booking,
-      booking_source: booking.includes_coach ? "facility_coach" : "facility",
-      display_title: booking.facilities?.name || "Facility Booking",
-      display_type: booking.includes_coach
-        ? "Facility + Coach Booking"
-        : "Facility Booking",
-      display_rate: booking.rate_per_hour,
-      display_total: booking.total_amount,
-      source_table: "bookings",
-    }));
-
-    const coachOnly = coachBookings
-      .filter((booking) => !booking.facility_booking_id)
+    return facilityBookings
       .map((booking) => ({
         ...booking,
-        booking_source: "coach",
-        display_title: booking.coaches?.name || "Coach Booking",
-        display_type: "Coach Booking",
+        booking_source: "facility",
+        display_title: booking.facilities?.name || "Facility Booking",
+        display_type: "Facility Booking",
         display_rate: booking.rate_per_hour,
         display_total: booking.total_amount,
-        source_table: "coach_bookings",
-      }));
-
-    return [...facility, ...coachOnly].sort((a, b) => {
-      return (
-        new Date(b.created_at || b.booking_date) -
-        new Date(a.created_at || a.booking_date)
-      );
-    });
-  }, [facilityBookings, coachBookings]);
+        source_table: "bookings",
+      }))
+      .sort((a, b) => {
+        return (
+          new Date(b.created_at || b.booking_date) -
+          new Date(a.created_at || a.booking_date)
+        );
+      });
+  }, [facilityBookings]);
 
   useEffect(() => {
     if (user?.id) loadBookings();
@@ -100,15 +86,10 @@ export default function Coaching() {
 
   useEffect(() => {
     const channel = supabase
-      .channel(`my-bookings-live-${Date.now()}`)
+      .channel(`my-facility-bookings-live-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "bookings" },
-        () => loadBookings()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "coach_bookings" },
         () => loadBookings()
       )
       .subscribe();
@@ -142,7 +123,6 @@ export default function Coaching() {
       booking.id,
       booking.booking_id,
       booking.reference_id,
-      booking.facility_booking_id,
       booking.linked_booking_id,
       booking.parent_booking_id,
     ]
@@ -162,24 +142,15 @@ export default function Coaching() {
 
       if (!user) return;
 
-      const { data: facilityData, error: facilityError } = await supabase
+      const { data, error } = await supabase
         .from("bookings")
         .select("*, facilities (*)")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
-      if (facilityError) throw facilityError;
+      if (error) throw error;
 
-      const { data: coachData, error: coachError } = await supabase
-        .from("coach_bookings")
-        .select("*, coaches (*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (coachError) throw coachError;
-
-      setFacilityBookings(facilityData || []);
-      setCoachBookings(coachData || []);
+      setFacilityBookings(data || []);
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to load bookings.");
@@ -194,11 +165,7 @@ export default function Coaching() {
       setError("");
       setMessage("");
 
-      if (selectedCancelBooking.source_table === "bookings") {
-        await cancelBooking(selectedCancelBooking.id, cancelReason);
-      } else {
-        await cancelCoachBooking(selectedCancelBooking.id, cancelReason);
-      }
+      await cancelBooking(selectedCancelBooking.id, cancelReason);
 
       setMessage("Booking request cancelled successfully.");
       setCancelModal(false);
@@ -216,7 +183,7 @@ export default function Coaching() {
 
   return (
     <div className="page-shell">
-      <Sidebar role={profile?.role === "coach" ? "coach" : "user"} />
+      <Sidebar role="user" />
 
       <main className="page-main">
         <div className="page-container">
@@ -236,22 +203,25 @@ export default function Coaching() {
 
           <section className="page-hero mb-6">
             <p className="text-sm font-semibold">My Booking Requests</p>
+
             <h2 className="mt-2 text-3xl font-black">
-              Track all facility and coaching requests.
+              Track all facility booking requests.
             </h2>
+
             <p className="mt-2 text-sm text-white/90">
-              Facility + coach bookings need approval from both staff and coach.
+              Facility bookings are reviewed and approved by staff.
             </p>
           </section>
 
           <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-6 flex items-center justify-between gap-4">
               <div>
                 <h3 className="text-2xl font-black text-[#2B2B2B]">
                   All My Bookings
                 </h3>
+
                 <p className="text-sm text-slate-500">
-                  Your facility, coach, and combined booking requests.
+                  Your facility booking requests.
                 </p>
               </div>
 
@@ -319,51 +289,11 @@ export default function Coaching() {
                             </p>
                           )}
 
-                          {booking.session_mode && (
-                            <p className="mt-2 text-sm">
-                              Coach Mode:{" "}
-                              <b className="capitalize">
-                                {String(booking.session_mode).replace("_", " ")}
-                              </b>
-                            </p>
-                          )}
-
-                          {booking.includes_coach && (
-                            <>
-                              <p className="mt-2 text-sm font-semibold text-[#C97B6C]">
-                                Includes Coach • Coach Rate:{" "}
-                                {money(booking.coach_rate_per_hour || 0)} / hour
-                              </p>
-
-                              <p className="mt-1 text-sm">
-                                Facility Approval:{" "}
-                                <b className="capitalize">
-                                  {booking.facility_approval_status || "pending"}
-                                </b>
-                              </p>
-
-                              <p className="mt-1 text-sm">
-                                Coach Approval:{" "}
-                                <b className="capitalize">
-                                  {booking.coach_approval_status || "pending"}
-                                </b>
-                              </p>
-                            </>
-                          )}
-
                           {booking.participants && (
                             <p className="mt-2 text-sm">
                               Participants: <b>{booking.participants}</b>
                             </p>
                           )}
-
-                          {booking.coach_participants &&
-                            booking.includes_coach && (
-                              <p className="mt-2 text-sm">
-                                Coach Participants:{" "}
-                                <b>{booking.coach_participants}</b>
-                              </p>
-                            )}
 
                           {booking.notes && (
                             <p className="mt-2 text-sm text-slate-600">
@@ -398,9 +328,7 @@ export default function Coaching() {
                             </button>
                           ) : (
                             <p className="text-sm font-bold text-slate-500">
-                              {status === "cancelled"
-                                ? "Cancelled"
-                                : "Reviewed"}
+                              {status === "cancelled" ? "Cancelled" : "Reviewed"}
                             </p>
                           )}
                         </div>
@@ -427,7 +355,7 @@ export default function Coaching() {
                   value={cancelReason}
                   onChange={(e) => setCancelReason(e.target.value)}
                   placeholder="Reason for cancellation"
-                  className="mt-5 min-h-[120px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 focus:border-[#C97B6C]"
+                  className="mt-5 min-h-[120px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
                 />
 
                 <div className="mt-5 flex justify-end gap-3">

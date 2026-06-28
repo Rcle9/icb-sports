@@ -16,8 +16,8 @@ export default function Landing() {
             </h2>
 
             <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
-              Book facilities, request coaching sessions, view available sports
-              products, and receive real-time updates in one system.
+              Book sports facilities, view available sports products, and
+              receive real-time booking updates in one simple system.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-4">

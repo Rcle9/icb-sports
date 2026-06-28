@@ -1,7 +1,6 @@
 import { getOfflineQueue, removeOfflineAction } from "./syncService";
 import { createBooking } from "./bookingService";
 import { createMaintenanceRequest } from "./maintenanceService";
-import { createCoachBooking } from "./coachingService";
 
 export async function processOfflineQueue() {
   const queue = getOfflineQueue();
@@ -12,14 +11,14 @@ export async function processOfflineQueue() {
     try {
       if (action.type === "booking") {
         await createBooking(action.payload);
+        removeOfflineAction(action.id);
+        continue;
       }
 
       if (action.type === "maintenance") {
         await createMaintenanceRequest(action.payload);
-      }
-
-      if (action.type === "coaching") {
-        await createCoachBooking(action.payload);
+        removeOfflineAction(action.id);
+        continue;
       }
 
       removeOfflineAction(action.id);

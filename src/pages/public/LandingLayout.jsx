@@ -79,9 +79,9 @@ export default function LandingLayout({ children }) {
             <h4 className="font-black">System Features</h4>
             <div className="mt-3 space-y-2 text-white/70">
               <p>Facility Booking</p>
-              <p>Coaching Sessions</p>
               <p>Product Display</p>
               <p>Real-time Notifications</p>
+              <p>Staff Approval</p>
             </div>
           </div>
         </div>

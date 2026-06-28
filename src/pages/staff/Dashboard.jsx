@@ -11,9 +11,9 @@ export default function StaffDashboard() {
 
   const [stats, setStats] = useState({
     facility: 0,
-    coaching: 0,
     inventory: 0,
     maintenance: 0,
+    totalPending: 0,
   });
 
   const [recentBookings, setRecentBookings] = useState([]);
@@ -35,11 +35,6 @@ export default function StaffDashboard() {
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "bookings" },
-          () => loadDashboardData(mounted)
-        )
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "coach_bookings" },
           () => loadDashboardData(mounted)
         )
         .on(
@@ -84,7 +79,6 @@ export default function StaffDashboard() {
 
       const [
         pendingFacility,
-        pendingCoaching,
         inventoryItems,
         maintenanceOpen,
         recentPendingBookings,
@@ -95,14 +89,7 @@ export default function StaffDashboard() {
           .select("*", { count: "exact", head: true })
           .eq("status", "pending"),
 
-        supabase
-          .from("coach_bookings")
-          .select("*", { count: "exact", head: true })
-          .eq("status", "pending"),
-
-        supabase
-          .from("inventory")
-          .select("*", { count: "exact", head: true }),
+        supabase.from("inventory").select("*", { count: "exact", head: true }),
 
         supabase
           .from("maintenance_requests")
@@ -126,11 +113,13 @@ export default function StaffDashboard() {
 
       if (!mounted) return;
 
+      const facilityCount = pendingFacility.count || 0;
+
       setStats({
-        facility: pendingFacility.count || 0,
-        coaching: pendingCoaching.count || 0,
+        facility: facilityCount,
         inventory: inventoryItems.count || 0,
         maintenance: maintenanceOpen.count || 0,
+        totalPending: facilityCount + (maintenanceOpen.count || 0),
       });
 
       setRecentBookings(recentPendingBookings.data || []);
@@ -153,14 +142,16 @@ export default function StaffDashboard() {
           <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white">
             <div className="flex items-center justify-between gap-6">
               <div>
-                <p className="text-sm font-semibold">Operations Control Center</p>
+                <p className="text-sm font-semibold">
+                  Operations Control Center
+                </p>
 
                 <h2 className="mt-2 text-3xl font-black">
-                  Review requests and keep daily operations moving.
+                  Review facility requests and keep daily operations moving.
                 </h2>
 
                 <p className="mt-2 text-sm text-blue-50">
-                  Monitor approvals, alerts, and issues.
+                  Monitor approvals, maintenance alerts, and inventory updates.
                 </p>
               </div>
 
@@ -174,30 +165,30 @@ export default function StaffDashboard() {
 
                 <div className="rounded-2xl bg-white/10 px-6 py-4">
                   <p className="text-xs font-bold uppercase tracking-widest">
-                    Coaching
+                    Maintenance
                   </p>
-                  <p className="text-2xl font-black">{stats.coaching}</p>
+                  <p className="text-2xl font-black">{stats.maintenance}</p>
                 </div>
               </div>
             </div>
           </section>
 
           <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
-            <StatCard title="Facility" value={stats.facility} />
-            <StatCard title="Coaching" value={stats.coaching} />
-            <StatCard title="Inventory" value={stats.inventory} />
+            <StatCard title="Facility Bookings" value={stats.facility} />
+            <StatCard title="Inventory Items" value={stats.inventory} />
             <StatCard title="Maintenance" value={stats.maintenance} />
+            <StatCard title="Total Pending" value={stats.totalPending} />
           </section>
 
           <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div className="rounded-[24px] bg-white p-6 shadow-sm">
-              <h3 className="text-lg font-black">Recent Bookings</h3>
+              <h3 className="text-lg font-black">Recent Facility Bookings</h3>
 
               {loading ? (
                 <p className="mt-4 text-sm text-slate-500">Updating...</p>
               ) : recentBookings.length === 0 ? (
                 <p className="mt-4 text-sm text-slate-500">
-                  No pending bookings.
+                  No pending facility bookings.
                 </p>
               ) : (
                 <div className="mt-4 space-y-3">

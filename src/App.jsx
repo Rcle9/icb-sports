@@ -14,21 +14,17 @@ import ProfileSettings from "./pages/shared/ProfileSettings";
 
 import UserDashboard from "./pages/user/Dashboard";
 import Booking from "./pages/user/Booking";
-import Coaching from "./pages/user/Coaching";
+import MyBookings from "./pages/user/MyBookings";
 import UserNotifications from "./pages/user/Notifications";
 import UserProfile from "./pages/user/Profile";
 
 import StaffDashboard from "./pages/staff/Dashboard";
 import ManageBookings from "./pages/staff/ManageBookings";
-import CoachingManager from "./pages/staff/CoachingManager";
-import CoachBookings from "./pages/staff/CoachBookings";
 import Inventory from "./pages/staff/Inventory";
 import Maintenance from "./pages/staff/Maintenance";
 import StaffNotifications from "./pages/staff/Notifications";
 import StaffProfile from "./pages/staff/Profile";
 import ActivityLogs from "./pages/staff/ActivityLogs";
-
-import CoachDashboard from "./pages/coach/Dashboard";
 
 import AdminDashboard from "./pages/admin/Dashboard";
 import Facilities from "./pages/admin/Facility";
@@ -36,26 +32,36 @@ import Users from "./pages/admin/Users";
 import Reports from "./pages/admin/Reports";
 import Settings from "./pages/admin/Settings";
 
-function getDashboardPath(role) {
+function normalizeRole(role) {
   const userRole = String(role || "user").toLowerCase();
+
+  if (userRole === "admin") return "admin";
+  if (userRole === "staff") return "staff";
+
+  return "user";
+}
+
+function getDashboardPath(role) {
+  const userRole = normalizeRole(role);
 
   if (userRole === "admin") return "/admin/dashboard";
   if (userRole === "staff") return "/staff/dashboard";
-  if (userRole === "coach") return "/coach/dashboard";
 
   return "/dashboard";
+}
+
+function LoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#F5F3F1]">
+      <div className="text-lg font-bold text-[#2B2B2B]">Loading...</div>
+    </div>
+  );
 }
 
 function PublicLandingRoute() {
   const { user, loading, profile } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F5F3F1]">
-        <div className="text-lg font-bold text-[#2B2B2B]">Loading...</div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingScreen />;
 
   if (user) {
     return <Navigate to={getDashboardPath(profile?.role)} replace />;
@@ -67,13 +73,7 @@ function PublicLandingRoute() {
 function PublicAuthRoute({ children }) {
   const { user, loading, profile } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F5F3F1]">
-        <div className="text-lg font-bold text-[#2B2B2B]">Loading...</div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingScreen />;
 
   if (user) {
     return <Navigate to={getDashboardPath(profile?.role)} replace />;
@@ -85,17 +85,11 @@ function PublicAuthRoute({ children }) {
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading, profile } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F5F3F1]">
-        <div className="text-lg font-bold text-[#2B2B2B]">Loading...</div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingScreen />;
 
   if (!user) return <Navigate to="/login" replace />;
 
-  const role = String(profile?.role || "user").toLowerCase();
+  const role = normalizeRole(profile?.role);
 
   if (allowedRoles && !allowedRoles.includes(role)) {
     return <Navigate to={getDashboardPath(role)} replace />;
@@ -153,20 +147,22 @@ export default function App() {
       <Route
         path="/booking"
         element={
-          <ProtectedRoute allowedRoles={["user", "coach"]}>
+          <ProtectedRoute allowedRoles={["user"]}>
             <Booking />
           </ProtectedRoute>
         }
       />
 
       <Route
-        path="/coaching"
+        path="/my-bookings"
         element={
           <ProtectedRoute allowedRoles={["user"]}>
-            <Coaching />
+            <MyBookings />
           </ProtectedRoute>
         }
       />
+
+      <Route path="/coaching" element={<Navigate to="/my-bookings" replace />} />
 
       <Route
         path="/notifications"
@@ -182,24 +178,6 @@ export default function App() {
         element={
           <ProtectedRoute allowedRoles={["user"]}>
             <UserProfile />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/coach"
-        element={
-          <ProtectedRoute allowedRoles={["coach"]}>
-            <CoachDashboard />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/coach/dashboard"
-        element={
-          <ProtectedRoute allowedRoles={["coach"]}>
-            <CoachDashboard />
           </ProtectedRoute>
         }
       />
@@ -233,20 +211,12 @@ export default function App() {
 
       <Route
         path="/staff/coaching"
-        element={
-          <ProtectedRoute allowedRoles={["staff"]}>
-            <CoachingManager />
-          </ProtectedRoute>
-        }
+        element={<Navigate to="/staff/bookings" replace />}
       />
 
       <Route
         path="/staff/coach-bookings"
-        element={
-          <ProtectedRoute allowedRoles={["staff"]}>
-            <CoachBookings />
-          </ProtectedRoute>
-        }
+        element={<Navigate to="/staff/bookings" replace />}
       />
 
       <Route

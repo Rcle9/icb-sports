@@ -1,7 +1,11 @@
 import { supabase } from "./supabaseClient";
 
 function normalizeRole(role) {
-  return String(role || "").toLowerCase();
+  const cleanRole = String(role || "").toLowerCase();
+
+  if (cleanRole === "coach") return "user";
+
+  return cleanRole;
 }
 
 function normalizeNotification(notification) {
@@ -46,6 +50,7 @@ export async function createNotification(payload) {
     type: payload.type || "general",
     is_read: false,
     booking_id: bookingId,
+    reference_id: bookingId,
   };
 
   const { data, error } = await supabase
@@ -91,14 +96,18 @@ export async function getCurrentProfile() {
 
   if (error) throw error;
 
-  return (
+  const profile =
     data || {
       id: user.id,
       full_name: user.email,
       email: user.email,
       role: "user",
-    }
-  );
+    };
+
+  return {
+    ...profile,
+    role: normalizeRole(profile.role || "user"),
+  };
 }
 
 export async function getUserNotifications(userId, role) {
