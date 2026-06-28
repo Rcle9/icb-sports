@@ -1,0 +1,200 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #c97b6c;
+  --primary-hover: #b96a5d;
+  --primary-soft: #f3e4df;
+  --bg: #f5f3f1;
+  --card: #ffffff;
+  --border: #ded8d2;
+  --text: #2b2b2b;
+  --muted: #6b7280;
+  --dark: #2b2b2b;
+
+  --approved: #6baa75;
+  --pending: #d9a441;
+  --rejected: #c65b5b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+.page-shell {
+  min-height: 100vh;
+  width: 100%;
+  background: var(--bg);
+}
+
+.page-main {
+  margin-left: 260px;
+  min-height: 100vh;
+  width: calc(100% - 260px);
+  padding: 24px 32px;
+  overflow-x: hidden;
+}
+
+.page-container {
+  width: 100%;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding-bottom: 90px;
+}
+
+/* NO GRADIENT HERO */
+.page-hero {
+  background: var(--primary);
+  color: white;
+  border-radius: 28px;
+  padding: 32px;
+  box-shadow: 0 16px 35px rgba(201, 123, 108, 0.22);
+}
+
+.page-hero-dark {
+  background: var(--dark);
+  color: white;
+  border-radius: 28px;
+  padding: 32px;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+  border-radius: 16px;
+  padding: 12px 18px;
+  font-weight: 800;
+  transition: 0.2s ease;
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn-dark {
+  background: var(--dark);
+  color: white;
+  border-radius: 16px;
+  padding: 12px 18px;
+  font-weight: 800;
+}
+
+.card-soft {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  box-shadow: 0 8px 25px rgba(43, 43, 43, 0.04);
+}
+
+input,
+select,
+textarea {
+  border-color: var(--border);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.badge-approved {
+  background: rgba(107, 170, 117, 0.16);
+  color: var(--approved);
+}
+
+.badge-pending {
+  background: rgba(217, 164, 65, 0.18);
+  color: var(--pending);
+}
+
+.badge-rejected {
+  background: rgba(198, 91, 91, 0.16);
+  color: var(--rejected);
+}
+
+.booking-card-list,
+.activity-scroll {
+  max-height: calc(100vh - 390px);
+  overflow-y: auto;
+  padding-right: 10px;
+}
+
+.booking-card {
+  width: 100%;
+  min-height: 112px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 18px;
+}
+
+.booking-card-left {
+  min-width: 0;
+  flex: 1;
+}
+
+.booking-card-right {
+  width: 150px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.booking-card-list::-webkit-scrollbar,
+.activity-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.booking-card-list::-webkit-scrollbar-thumb,
+.activity-scroll::-webkit-scrollbar-thumb {
+  background: #b8b1aa;
+  border-radius: 999px;
+}
+
+@media (max-width: 1024px) {
+  .page-main {
+    margin-left: 0;
+    width: 100%;
+    padding: 16px;
+  }
+
+  .page-container {
+    max-width: 100%;
+  }
+
+  .booking-card-list,
+  .activity-scroll {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .booking-card {
+    flex-direction: column;
+  }
+
+  .booking-card-right {
+    width: 100%;
+    text-align: left;
+  }
+}
