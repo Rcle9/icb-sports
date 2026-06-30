@@ -1,286 +1,360 @@
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "../../services/supabaseClient";
+import { useAuth } from "../../context/AuthContext";
 import {
-  getCurrentProfile,
-  getUserNotifications,
   getUnreadNotificationCount,
+  getUserNotifications,
   markAsRead,
-  markAllAsRead,
 } from "../../services/notificationService";
 
 function normalizeRole(role) {
   const cleanRole = String(role || "user").toLowerCase();
 
+  if (cleanRole === "coach") return "user";
   if (cleanRole === "admin") return "admin";
   if (cleanRole === "staff") return "staff";
 
   return "user";
 }
 
+function getRoleTargets(role) {
+  const cleanRole = normalizeRole(role);
+
+  if (cleanRole === "admin") return ["admin", "staff"];
+  if (cleanRole === "staff") return ["staff"];
+
+  return [];
+}
+
+function getNotificationPage(role) {
+  const cleanRole = normalizeRole(role);
+
+  if (cleanRole === "staff") return "/staff/notifications";
+  if (cleanRole === "admin") return "/admin/notifications";
+
+  return "/notifications";
+}
+
+function getNotificationRedirect(notification, role) {
+  const cleanRole = normalizeRole(role);
+  const metadata = notification?.metadata || {};
+  const bookingId =
+    metadata.booking_id ||
+    metadata.reference_id ||
+    notification?.reference_id ||
+    notification?.booking_id ||
+    null;
+
+  if (!bookingId) {
+    return getNotificationPage(cleanRole);
+  }
+
+  if (cleanRole === "staff") {
+    return `/staff/bookings?highlight=${bookingId}`;
+  }
+
+  if (cleanRole === "admin") {
+    return `/staff/bookings?highlight=${bookingId}`;
+  }
+
+  return `/my-bookings?highlight=${bookingId}`;
+}
+
+function formatNotificationTime(value) {
+  if (!value) return "";
+
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return "";
+  }
+}
+
 export default function Topbar({ title = "Dashboard" }) {
   const navigate = useNavigate();
-  const channelRef = useRef(null);
-  const intervalRef = useRef(null);
+  const { user, profile } = useAuth();
 
-  const [profile, setProfile] = useState(null);
-  const [notifications, setNotifications] = useState([]);
+  const role = normalizeRole(profile?.role);
+  const roleTargets = getRoleTargets(role);
+  const notificationPath = getNotificationPage(role);
+
   const [unreadCount, setUnreadCount] = useState(0);
-  const [open, setOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [recentNotifications, setRecentNotifications] = useState([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  const dropdownRef = useRef(null);
 
   useEffect(() => {
-    let mounted = true;
+    if (user?.id) {
+      loadUnreadCount();
+      loadRecentNotifications();
+    }
+  }, [user?.id, role]);
 
-    async function initTopbar() {
-      const currentProfile = await getCurrentProfile();
-      if (!currentProfile || !mounted) return;
+  useEffect(() => {
+    if (!user?.id) return;
 
-      const normalizedProfile = {
-        ...currentProfile,
-        role: normalizeRole(currentProfile.role),
-      };
-
-      setProfile(normalizedProfile);
-
-      await refreshNotifications(
-        normalizedProfile.id,
-        normalizedProfile.role,
-        mounted
+    const channel = supabase
+      .channel(`topbar-notifications-${user.id}-${role}-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        async () => {
+          await refreshNotifications();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        async () => {
+          await refreshNotifications();
+        }
       );
 
-      if (channelRef.current) {
-        await supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-
-      const channel = supabase
-        .channel(`notifications-live-${normalizedProfile.id}-${Date.now()}`)
+    roleTargets.forEach((targetRole) => {
+      channel
         .on(
           "postgres_changes",
           {
-            event: "*",
+            event: "INSERT",
             schema: "public",
             table: "notifications",
-            filter: `user_id=eq.${normalizedProfile.id}`,
+            filter: `role=eq.${targetRole}`,
           },
           async () => {
-            await refreshNotifications(
-              normalizedProfile.id,
-              normalizedProfile.role,
-              mounted
-            );
+            await refreshNotifications();
           }
         )
-        .subscribe();
-
-      channelRef.current = channel;
-
-      intervalRef.current = setInterval(async () => {
-        await refreshNotifications(
-          normalizedProfile.id,
-          normalizedProfile.role,
-          mounted
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
+            filter: `role=eq.${targetRole}`,
+          },
+          async () => {
+            await refreshNotifications();
+          }
         );
-      }, 5000);
-    }
+    });
 
-    initTopbar();
+    channel.subscribe();
 
     return () => {
-      mounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, role]);
 
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setDropdownOpen(false);
       }
+    }
 
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
 
-  async function refreshNotifications(userId, role, mounted = true) {
+  async function refreshNotifications() {
+    await Promise.all([loadUnreadCount(), loadRecentNotifications()]);
+  }
+
+  async function loadUnreadCount() {
     try {
-      const safeRole = normalizeRole(role);
+      if (!user?.id) return;
 
-      const [items, count] = await Promise.all([
-        getUserNotifications(userId, safeRole),
-        getUnreadNotificationCount(userId, safeRole),
-      ]);
-
-      if (!mounted) return;
-
-      setNotifications(items || []);
-      setUnreadCount(count || 0);
-    } catch (err) {
-      console.error("Notification refresh error:", err.message);
+      const count = await getUnreadNotificationCount(user.id, role);
+      setUnreadCount(count);
+    } catch (error) {
+      console.error("Failed to load unread count:", error.message);
     }
   }
 
-  function getNotificationPage() {
-    const role = normalizeRole(profile?.role);
+  async function loadRecentNotifications() {
+    try {
+      if (!user?.id) return;
 
-    if (role === "staff") return "/staff/notifications";
-    if (role === "admin") return "/admin/reports";
+      setLoadingPreview(true);
 
-    return "/notifications";
-  }
-
-  function getNotificationRedirect(item) {
-    if (!item?.reference_id) return getNotificationPage();
-
-    const role = normalizeRole(profile?.role);
-    const type = String(item.type || "").toLowerCase();
-
-    if (
-      role === "staff" &&
-      (type.includes("booking") || type.includes("facility"))
-    ) {
-      return `/staff/bookings?highlight=${item.reference_id}`;
+      const data = await getUserNotifications(user.id, role, 10);
+      setRecentNotifications((data || []).slice(0, 5));
+    } catch (error) {
+      console.error("Failed to load notification preview:", error.message);
+    } finally {
+      setLoadingPreview(false);
     }
+  }
 
-    if (role === "admin") {
-      return `/admin/reports?highlight=${item.reference_id}`;
+  async function handleNotificationClick(notification) {
+    try {
+      if (!notification?.is_read) {
+        await markAsRead(notification.id);
+
+        setRecentNotifications((prev) =>
+          prev.map((item) =>
+            item.id === notification.id ? { ...item, is_read: true } : item
+          )
+        );
+
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+
+      setDropdownOpen(false);
+      navigate(getNotificationRedirect(notification, role));
+    } catch (error) {
+      console.error("Failed to open notification:", error.message);
     }
-
-    return `/my-bookings?highlight=${item.reference_id}`;
   }
 
-  async function handleViewAll() {
-    if (!profile?.id) return;
+  function getGreeting() {
+    const hour = new Date().getHours();
 
-    await markAllAsRead(profile.id, profile.role);
-    await refreshNotifications(profile.id, profile.role);
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
 
-    setOpen(false);
-    navigate(getNotificationPage());
+    return "Good evening";
   }
 
-  async function handleNotificationClick(item) {
-    if (!profile?.id) return;
-
-    await markAsRead(item.id);
-    await refreshNotifications(profile.id, profile.role);
-
-    setOpen(false);
-    navigate(getNotificationRedirect(item));
-  }
+  const displayName =
+    profile?.full_name?.split(" ")[0] || user?.email?.split("@")[0] || "User";
 
   return (
-    <div className="relative mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold text-[#C97B6C]">
-            Good day, {profile?.full_name || "User"}
-          </p>
+    <div className="mb-8">
+      <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-blue-600">
+              {getGreeting()}, {displayName}
+            </p>
 
-          <h1 className="text-3xl font-black text-[#2B2B2B]">{title}</h1>
+            <h1 className="mt-1 break-words text-3xl font-bold tracking-tight text-black">
+              {title}
+            </h1>
 
-          <p className="mt-1 text-sm text-slate-600">
-            Welcome to InCredoBall Sports Management System.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="hidden items-center gap-3 rounded-2xl border border-[#DED8D2] bg-white px-5 py-3 shadow-sm md:flex">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#C97B6C] font-bold text-white">
-              {(profile?.full_name || "U").charAt(0)}
-            </div>
-
-            <div>
-              <p className="text-sm font-bold text-[#2B2B2B]">
-                {profile?.full_name || "User"}
-              </p>
-
-              <p className="text-xs capitalize text-slate-500">
-                {normalizeRole(profile?.role)}
-              </p>
-            </div>
+            <p className="mt-2 text-sm text-black">
+              Welcome to InCredoBall Sports Management System.
+            </p>
           </div>
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={async () => {
-                setOpen((prev) => !prev);
+          <div className="flex items-center gap-3" ref={dropdownRef}>
+            <div className="hidden min-w-[180px] items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 lg:flex">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+                {displayName.charAt(0).toUpperCase()}
+              </div>
 
-                if (profile?.id) {
-                  await refreshNotifications(profile.id, profile.role);
-                }
-              }}
-              className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white text-xl shadow-sm transition hover:bg-[#F3E4DF]"
-            >
-              🔔
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-black">
+                  {profile?.full_name || "Account"}
+                </p>
 
-              {unreadCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-[#C65B5B] px-1 text-xs font-bold text-white">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
+                <p className="truncate text-xs capitalize text-black">
+                  {role}
+                </p>
+              </div>
+            </div>
 
-            {open && (
-              <div className="absolute right-0 top-16 z-50 w-[380px] overflow-hidden rounded-3xl border border-[#DED8D2] bg-white shadow-2xl">
-                <div className="flex items-center justify-between border-b border-[#DED8D2] px-5 py-4">
-                  <div>
-                    <h3 className="text-lg font-black text-[#2B2B2B]">
-                      Notifications
-                    </h3>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setDropdownOpen((prev) => !prev)}
+                className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:bg-slate-50"
+                title="Notifications"
+              >
+                <span className="text-xl">🔔</span>
 
-                    <p className="text-sm text-slate-500">
-                      {unreadCount} unread
-                    </p>
+                {unreadCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : null}
+              </button>
+
+              {dropdownOpen ? (
+                <div className="absolute right-0 z-50 mt-3 w-[360px] max-w-[90vw] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.12)]">
+                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
+                    <div>
+                      <h3 className="font-semibold text-black">
+                        Notifications
+                      </h3>
+
+                      <p className="text-xs text-black">
+                        {unreadCount} unread
+                      </p>
+                    </div>
+
+                    <Link
+                      to={notificationPath}
+                      onClick={() => setDropdownOpen(false)}
+                      className="text-sm font-semibold text-blue-600 hover:underline"
+                    >
+                      View all
+                    </Link>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleViewAll}
-                    className="text-sm font-bold text-[#C97B6C] hover:text-[#D88E80]"
-                  >
-                    View all
-                  </button>
+                  <div className="max-h-[360px] overflow-y-auto">
+                    {loadingPreview ? (
+                      <div className="px-4 py-6 text-sm text-black">
+                        Loading notifications...
+                      </div>
+                    ) : recentNotifications.length === 0 ? (
+                      <div className="px-4 py-6 text-sm text-black">
+                        No notifications yet.
+                      </div>
+                    ) : (
+                      recentNotifications.map((notification) => (
+                        <button
+                          type="button"
+                          key={notification.id}
+                          onClick={() => handleNotificationClick(notification)}
+                          className={`block w-full border-b border-slate-100 px-4 py-4 text-left transition last:border-b-0 hover:bg-slate-50 ${
+                            notification.is_read ? "bg-white" : "bg-blue-50/60"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-black">
+                                {notification.title}
+                              </p>
+
+                              <p className="mt-1 line-clamp-2 text-xs text-black">
+                                {notification.message}
+                              </p>
+
+                              <p className="mt-2 text-[11px] text-black">
+                                {formatNotificationTime(
+                                  notification.created_at
+                                )}
+                              </p>
+                            </div>
+
+                            {!notification.is_read ? (
+                              <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-red-500"></span>
+                            ) : null}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
                 </div>
-
-                <div className="max-h-[420px] overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-sm text-slate-500">
-                      No notifications yet.
-                    </div>
-                  ) : (
-                    notifications.slice(0, 10).map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => handleNotificationClick(item)}
-                        className={`relative block w-full border-b border-[#DED8D2] px-5 py-4 text-left transition hover:bg-[#F3E4DF] ${
-                          item.is_read ? "bg-white" : "bg-[#F3E4DF]"
-                        }`}
-                      >
-                        {!item.is_read && (
-                          <span className="absolute right-5 top-5 h-3 w-3 rounded-full bg-[#C65B5B]" />
-                        )}
-
-                        <h4 className="pr-8 text-sm font-black text-[#2B2B2B]">
-                          {item.title}
-                        </h4>
-
-                        <p className="mt-1 pr-8 text-sm text-slate-700">
-                          {item.message}
-                        </p>
-
-                        <p className="mt-2 text-xs text-slate-500">
-                          {item.created_at
-                            ? new Date(item.created_at).toLocaleString()
-                            : ""}
-                        </p>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

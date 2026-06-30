@@ -1,410 +1,91 @@
 import { supabase } from "./supabaseClient";
-import {
-  createNotification,
-  createStaffBookingNotifications,
-} from "./notificationService";
+import { getReservationExpirationMinutes } from "./paymentSettingsService";
 
-function cleanText(value) {
-  return String(value || "").trim();
-}
-
-function normalizeStatus(status) {
-  return String(status || "pending").toLowerCase();
-}
+const PAYMENT_PROOF_BUCKET = "payment-proofs";
 
 function cleanTime(time) {
-  if (!time) return "";
+  if (!time) return "00:00";
   return String(time).slice(0, 5);
 }
 
-function timeToMinutes(time) {
-  const value = cleanTime(time);
-  if (!value || !value.includes(":")) return 0;
-
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
+function normalizeStatus(status) {
+  return String(status || "").toLowerCase();
 }
 
-function timesOverlap(startA, endA, startB, endB) {
-  return (
-    timeToMinutes(startA) < timeToMinutes(endB) &&
-    timeToMinutes(endA) > timeToMinutes(startB)
-  );
+function normalizePaymentStatus(status) {
+  return String(status || "unpaid").toLowerCase();
 }
 
-function validateTimeRange(startTime, endTime) {
-  if (!startTime || !endTime) {
-    throw new Error("Please select a valid time slot.");
-  }
-
-  const startMinutes = timeToMinutes(startTime);
-  const endMinutes = timeToMinutes(endTime);
-
-  if (endMinutes <= startMinutes) {
-    throw new Error("End time must be later than start time.");
-  }
-}
-
-function validateNotPastDate(bookingDate) {
-  if (!bookingDate) throw new Error("Please select a booking date.");
-
-  const today = new Date().toISOString().split("T")[0];
-
-  if (bookingDate < today) {
-    throw new Error("You cannot book a past date.");
-  }
-}
-
-async function safeCreateNotification(payload) {
-  try {
-    await createNotification({
-      user_id: payload.user_id,
-      target_role: payload.target_role || null,
-      title: payload.title || "Notification",
-      message: payload.message || "",
-      type: payload.type || "general",
-      booking_id: payload.booking_id || payload.reference_id || null,
-      reference_id: payload.reference_id || payload.booking_id || null,
-    });
-  } catch (err) {
-    console.error("Create notification error:", err.message);
-  }
-}
-
-async function getStaffAndAdminProfiles() {
-  const { data, error } = await supabase.from("profiles").select("id, role");
-
-  if (error) throw error;
-
-  return (data || []).filter((profile) => {
-    const role = String(profile.role || "").toLowerCase();
-    return role === "staff" || role === "admin";
-  });
-}
-
-async function notifyStaffAndAdmin(booking) {
-  try {
-    await createStaffBookingNotifications(booking.id);
-    return;
-  } catch (rpcError) {
-    console.error("Staff booking notification RPC error:", rpcError.message);
-  }
-
-  try {
-    const receivers = await getStaffAndAdminProfiles();
-
-    if (receivers.length === 0) return;
-
-    await Promise.all(
-      receivers.map((person) =>
-        safeCreateNotification({
-          user_id: person.id,
-          target_role: String(person.role || "").toLowerCase(),
-          title: "New Facility Booking",
-          message: "A new facility booking request was submitted.",
-          type: "booking_request",
-          booking_id: booking.id,
-          reference_id: booking.id,
-        })
-      )
-    );
-  } catch (err) {
-    console.error("Staff/Admin notification fallback error:", err.message);
-  }
-}
-
-async function notifyStaffAndAdminStatusUpdate(booking, title, message, type) {
-  try {
-    const receivers = await getStaffAndAdminProfiles();
-
-    if (receivers.length === 0) return;
-
-    await Promise.all(
-      receivers.map((person) =>
-        safeCreateNotification({
-          user_id: person.id,
-          target_role: String(person.role || "").toLowerCase(),
-          title,
-          message,
-          type,
-          booking_id: booking.id,
-          reference_id: booking.id,
-        })
-      )
-    );
-  } catch (err) {
-    console.error("Staff/Admin status notification error:", err.message);
-  }
-}
-
-async function getBookingById(id) {
-  if (!id) throw new Error("Missing booking ID.");
-
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) throw new Error("Booking not found.");
-
-  return data;
-}
-
-function validatePendingBooking(booking) {
-  const currentStatus = normalizeStatus(booking.status);
-
-  if (["approved", "rejected", "cancelled"].includes(currentStatus)) {
-    throw new Error("This booking request is no longer pending.");
-  }
-}
-
-async function updateBookingWithFallback(id, primaryPayload, fallbackPayload) {
-  const { data, error } = await supabase
-    .from("bookings")
-    .update(primaryPayload)
-    .eq("id", id)
-    .select("*")
-    .maybeSingle();
-
-  if (!error) return data;
-
-  const errorMessage = String(error.message || "").toLowerCase();
-
-  const likelyMissingColumn =
-    errorMessage.includes("column") ||
-    errorMessage.includes("schema cache") ||
-    errorMessage.includes("could not find");
-
-  if (!likelyMissingColumn) throw error;
-
-  console.warn("Retrying booking update without optional fields:", error.message);
-
-  const retry = await supabase
-    .from("bookings")
-    .update(fallbackPayload)
-    .eq("id", id)
-    .select("*")
-    .maybeSingle();
-
-  if (retry.error) throw retry.error;
-
-  return retry.data;
-}
-
-async function findConflictingBooking({
-  facilityId,
-  bookingDate,
-  startTime,
-  endTime,
-  statuses = ["approved"],
-  excludeBookingId = null,
-}) {
-  if (!facilityId || !bookingDate || !startTime || !endTime) return null;
-
-  let query = supabase
-    .from("bookings")
-    .select("id, facility_id, booking_date, start_time, end_time, status")
-    .eq("facility_id", facilityId)
-    .eq("booking_date", bookingDate)
-    .in("status", statuses);
-
-  if (excludeBookingId) {
-    query = query.neq("id", excludeBookingId);
-  }
-
-  const { data, error } = await query;
-
-  if (error) throw error;
-
-  const conflict = (data || []).find((booking) =>
-    timesOverlap(startTime, endTime, booking.start_time, booking.end_time)
-  );
-
-  return conflict || null;
-}
-
-async function validateNoBookingConflict({
-  facilityId,
-  bookingDate,
-  startTime,
-  endTime,
-  statuses = ["approved"],
-  excludeBookingId = null,
-}) {
-  validateNotPastDate(bookingDate);
-  validateTimeRange(startTime, endTime);
-
-  const conflict = await findConflictingBooking({
-    facilityId,
-    bookingDate,
-    startTime,
-    endTime,
-    statuses,
-    excludeBookingId,
-  });
-
-  if (conflict) {
-    throw new Error("This time slot is already taken. Please select another slot.");
-  }
-
-  return true;
-}
-
-async function getOverlappingPendingBookings(approvedBooking) {
-  if (!approvedBooking?.id) return [];
-
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("facility_id", approvedBooking.facility_id)
-    .eq("booking_date", approvedBooking.booking_date)
-    .eq("status", "pending")
-    .neq("id", approvedBooking.id);
-
-  if (error) throw error;
-
-  return (data || []).filter((booking) =>
-    timesOverlap(
-      approvedBooking.start_time,
-      approvedBooking.end_time,
-      booking.start_time,
-      booking.end_time
-    )
-  );
-}
-
-async function autoRejectOverlappingPendingBookings(approvedBooking) {
-  const conflictingPendingBookings = await getOverlappingPendingBookings(
-    approvedBooking
-  );
-
-  if (conflictingPendingBookings.length === 0) return [];
-
-  const autoRejectReason =
-    "This booking request was automatically rejected because the selected time slot has already been approved for another user.";
-
-  const rejectedBookings = [];
-
-  for (const booking of conflictingPendingBookings) {
-    const basePayload = {
-      status: "rejected",
-      facility_approval_status: "rejected",
-      coach_approval_status: "not_required",
-      includes_coach: false,
-      linked_coach_id: null,
-      coach_rate_per_hour: 0,
-      coach_session_mode: null,
-      coach_participants: 1,
-    };
-
-    const payloadWithReason = {
-      ...basePayload,
-      rejection_reason: autoRejectReason,
-    };
-
-    const rejectedBooking = await updateBookingWithFallback(
-      booking.id,
-      payloadWithReason,
-      basePayload
-    );
-
-    if (rejectedBooking?.user_id) {
-      await safeCreateNotification({
-        user_id: rejectedBooking.user_id,
-        target_role: "user",
-        title: "Booking Rejected",
-        message:
-          "Your facility booking was rejected because the time slot has already been booked.",
-        type: "booking_update",
-        booking_id: rejectedBooking.id,
-        reference_id: rejectedBooking.id,
-      });
-    }
-
-    rejectedBookings.push({
-      ...rejectedBooking,
-      rejection_reason: rejectedBooking?.rejection_reason || autoRejectReason,
-    });
-  }
-
-  return rejectedBookings;
-}
-
-export async function createBooking(payload) {
+function getTotalAmount(payload) {
   const totalHours = Number(payload.total_hours || 0);
   const ratePerHour = Number(payload.rate_per_hour || 0);
-  const facilityTotal = totalHours * ratePerHour;
+  const computedTotal = totalHours * ratePerHour;
 
-  if (!payload.user_id) throw new Error("Missing user account.");
-  if (!payload.facility_id) throw new Error("Please select a facility.");
-  if (!payload.booking_date) throw new Error("Please select a booking date.");
-  if (!payload.start_time || !payload.end_time) {
-    throw new Error("Please select a valid time slot.");
-  }
-
-  if (totalHours <= 0) {
-    throw new Error("Please select at least one valid booking hour.");
-  }
-
-  await validateNoBookingConflict({
-    facilityId: payload.facility_id,
-    bookingDate: payload.booking_date,
-    startTime: payload.start_time,
-    endTime: payload.end_time,
-    statuses: ["approved"],
-  });
-
-  const { data: facilityBooking, error } = await supabase
-    .from("bookings")
-    .insert([
-      {
-        user_id: payload.user_id,
-        facility_id: payload.facility_id,
-        booking_date: payload.booking_date,
-        start_time: payload.start_time,
-        end_time: payload.end_time,
-        session_type: payload.session_type || "recreational",
-        notes: payload.notes || "",
-
-        total_hours: totalHours,
-        rate_per_hour: ratePerHour,
-        total_amount: facilityTotal,
-
-        includes_coach: false,
-        linked_coach_id: null,
-        coach_rate_per_hour: 0,
-        coach_session_mode: null,
-        coach_participants: 1,
-
-        status: "pending",
-        facility_approval_status: "pending",
-        coach_approval_status: "not_required",
-      },
-    ])
-    .select("*")
-    .single();
-
-  if (error) throw error;
-
-  await notifyStaffAndAdmin(facilityBooking);
-
-  return facilityBooking;
+  return Number(payload.total_amount || 0) || computedTotal;
 }
 
-export async function getUserBookings(userId) {
-  if (!userId) return [];
+function getReservationExpirationDate(minutes) {
+  const expiration = new Date();
+  expiration.setMinutes(expiration.getMinutes() + Number(minutes || 15));
 
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*, facilities (*)")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+  return expiration.toISOString();
+}
 
-  if (error) throw error;
+function generateReceiptNumber(bookingId) {
+  const date = new Date();
+  const datePart = date.toISOString().slice(0, 10).replaceAll("-", "");
+  const idPart = String(bookingId || "")
+    .replaceAll("-", "")
+    .slice(0, 6)
+    .toUpperCase();
 
-  return data || [];
+  return `ICB-${datePart}-${idPart || Date.now().toString().slice(-6)}`;
+}
+
+function isExpiredUnpaidReservation(booking) {
+  const status = normalizeStatus(booking.status);
+  const paymentStatus = normalizePaymentStatus(booking.payment_status);
+
+  if (status !== "reserved") return false;
+  if (!["unpaid", "rejected_payment"].includes(paymentStatus)) return false;
+  if (!booking.reservation_expires_at) return false;
+
+  return new Date(booking.reservation_expires_at).getTime() <= Date.now();
+}
+
+async function getCurrentUserId() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  return user?.id || null;
+}
+
+function getFileExtension(file) {
+  const name = file?.name || "";
+  return name.split(".").pop() || "png";
+}
+
+async function uploadPaymentProof(file, bookingId) {
+  if (!file) return null;
+
+  const extension = getFileExtension(file);
+  const filePath = `${bookingId}/proof-${Date.now()}.${extension}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(PAYMENT_PROOF_BUCKET)
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: true,
+    });
+
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage
+    .from(PAYMENT_PROOF_BUCKET)
+    .getPublicUrl(filePath);
+
+  return data?.publicUrl || null;
 }
 
 export async function getAllBookings() {
@@ -428,186 +109,265 @@ export async function getAllBookings() {
   return data || [];
 }
 
-export async function approveBooking(id) {
-  const booking = await getBookingById(id);
-  validatePendingBooking(booking);
+export async function createBooking(payload) {
+  const reservationMinutes = await getReservationExpirationMinutes();
+  const totalAmount = getTotalAmount(payload);
 
-  await validateNoBookingConflict({
-    facilityId: booking.facility_id,
-    bookingDate: booking.booking_date,
-    startTime: booking.start_time,
-    endTime: booking.end_time,
-    statuses: ["approved"],
-    excludeBookingId: booking.id,
-  });
+  const { data, error } = await supabase.rpc(
+    "create_booking_with_conflict_check",
+    {
+      p_user_id: payload.user_id,
+      p_facility_id: payload.facility_id,
+      p_booking_date: String(payload.booking_date),
+      p_start_time: cleanTime(payload.start_time),
+      p_end_time: cleanTime(payload.end_time),
+      p_session_type: payload.session_type || "training",
+      p_notes: payload.notes || "",
+      p_total_hours: Number(payload.total_hours || 0),
+      p_rate_per_hour: Number(payload.rate_per_hour || 0),
+      p_total_amount: totalAmount,
+      p_reservation_expires_at: getReservationExpirationDate(reservationMinutes),
+    }
+  );
 
-  const updatePayload = {
-    status: "approved",
-    facility_approval_status: "approved",
-    coach_approval_status: "not_required",
-    includes_coach: false,
-    linked_coach_id: null,
-    coach_rate_per_hour: 0,
-    coach_session_mode: null,
-    coach_participants: 1,
-  };
-
-  const data = await updateBookingWithFallback(id, updatePayload, updatePayload);
-
-  if (!data) throw new Error("Failed to approve booking.");
-
-  if (data.user_id) {
-    await safeCreateNotification({
-      user_id: data.user_id,
-      target_role: "user",
-      title: "Booking Approved",
-      message: "Your facility booking has been approved.",
-      type: "booking_update",
-      booking_id: data.id,
-      reference_id: data.id,
-    });
+  if (error) {
+    console.error("createBooking RPC error:", error);
+    throw error;
   }
-
-  await autoRejectOverlappingPendingBookings(data);
 
   return data;
 }
 
-export async function rejectBooking(id, reason = "") {
-  const booking = await getBookingById(id);
-  validatePendingBooking(booking);
+export async function submitPaymentProof(bookingId, payload) {
+  if (!bookingId) throw new Error("Booking ID is required.");
 
-  const cleanReason = cleanText(reason);
+  const { data: booking, error: bookingError } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("id", bookingId)
+    .maybeSingle();
 
-  const basePayload = {
-    status: "rejected",
-    facility_approval_status: "rejected",
-    coach_approval_status: "not_required",
-    includes_coach: false,
-    linked_coach_id: null,
-    coach_rate_per_hour: 0,
-    coach_session_mode: null,
-    coach_participants: 1,
-  };
+  if (bookingError) throw bookingError;
+  if (!booking) throw new Error("Booking not found.");
 
-  const payloadWithReason = {
-    ...basePayload,
-    rejection_reason: cleanReason,
-  };
-
-  const data = await updateBookingWithFallback(
-    id,
-    payloadWithReason,
-    basePayload
-  );
-
-  if (!data) throw new Error("Failed to reject booking.");
-
-  if (data.user_id) {
-    await safeCreateNotification({
-      user_id: data.user_id,
-      target_role: "user",
-      title: "Booking Rejected",
-      message: cleanReason
-        ? `Your facility booking has been rejected. Reason: ${cleanReason}`
-        : "Your facility booking has been rejected.",
-      type: "booking_update",
-      booking_id: data.id,
-      reference_id: data.id,
-    });
+  if (normalizeStatus(booking.status) !== "reserved") {
+    throw new Error("Only reserved bookings can submit payment proof.");
   }
 
-  return {
-    ...data,
-    rejection_reason: data.rejection_reason || cleanReason,
-  };
-}
+  if (isExpiredUnpaidReservation(booking)) {
+    await expireBookingReservation(booking.id);
+    throw new Error("This reservation already expired. Please book again.");
+  }
 
-export async function cancelBooking(bookingId, reason = "") {
-  if (!bookingId) throw new Error("Missing booking ID.");
+  const proofUrl =
+    payload.payment_proof_url ||
+    (payload.file ? await uploadPaymentProof(payload.file, bookingId) : null);
 
-  const cleanReason = cleanText(reason);
+  if (!proofUrl) {
+    throw new Error("Please upload a payment screenshot.");
+  }
 
-  const basePayload = {
-    status: "cancelled",
-    facility_approval_status: "cancelled",
-    coach_approval_status: "not_required",
-    includes_coach: false,
-    linked_coach_id: null,
-    coach_rate_per_hour: 0,
-    coach_session_mode: null,
-    coach_participants: 1,
-  };
-
-  const payloadWithReason = {
-    ...basePayload,
-    cancellation_reason: cleanReason,
-  };
+  const amountPaid = Number(payload.amount_paid || 0);
+  const totalAmount = Number(booking.total_amount || 0);
+  const balance = Math.max(totalAmount - amountPaid, 0);
 
   const { data, error } = await supabase
     .from("bookings")
-    .update(payloadWithReason)
+    .update({
+      payment_status: "pending_verification",
+      amount_paid: amountPaid,
+      balance_amount: balance,
+      payment_method: payload.payment_method || null,
+      payment_reference: payload.payment_reference || null,
+      payment_notes: payload.payment_notes || null,
+      payment_proof_url: proofUrl,
+      payment_date: new Date().toISOString(),
+      payment_submitted_at: new Date().toISOString(),
+      payment_rejection_reason: null,
+      payment_verification_result: null,
+    })
     .eq("id", bookingId)
-    .eq("status", "pending")
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+export async function verifyPayment(bookingId, verificationPayload = {}) {
+  const staffId = await getCurrentUserId();
+
+  const { data: booking, error: bookingError } = await supabase
+    .from("bookings")
     .select("*")
+    .eq("id", bookingId)
     .maybeSingle();
 
-  if (!error && data) {
-    await notifyStaffAndAdminStatusUpdate(
-      data,
-      "Booking Cancelled",
-      cleanReason
-        ? `A user cancelled a pending facility booking. Reason: ${cleanReason}`
-        : "A user cancelled a pending facility booking.",
-      "booking_cancelled"
-    );
+  if (bookingError) throw bookingError;
+  if (!booking) throw new Error("Booking not found.");
 
-    return data;
+  if (normalizePaymentStatus(booking.payment_status) !== "pending_verification") {
+    throw new Error("This booking has no payment proof pending verification.");
   }
 
-  if (error) {
-    const errorMessage = String(error.message || "").toLowerCase();
+  const amountPaid = Number(booking.amount_paid || 0);
+  const totalAmount = Number(booking.total_amount || 0);
 
-    const likelyMissingColumn =
-      errorMessage.includes("column") ||
-      errorMessage.includes("schema cache") ||
-      errorMessage.includes("could not find");
-
-    if (!likelyMissingColumn) throw error;
-
-    console.warn(
-      "Retrying booking cancellation without optional fields:",
-      error.message
-    );
-
-    const retry = await supabase
-      .from("bookings")
-      .update(basePayload)
-      .eq("id", bookingId)
-      .eq("status", "pending")
-      .select("*")
-      .maybeSingle();
-
-    if (retry.error) throw retry.error;
-
-    if (!retry.data) {
-      throw new Error("Only pending bookings can be cancelled.");
-    }
-
-    await notifyStaffAndAdminStatusUpdate(
-      retry.data,
-      "Booking Cancelled",
-      cleanReason
-        ? `A user cancelled a pending facility booking. Reason: ${cleanReason}`
-        : "A user cancelled a pending facility booking.",
-      "booking_cancelled"
-    );
-
-    return {
-      ...retry.data,
-      cancellation_reason: cleanReason,
-    };
+  if (amountPaid < totalAmount) {
+    throw new Error("Amount paid is lower than the total booking amount.");
   }
 
-  throw new Error("Only pending bookings can be cancelled.");
+  const checklist = verificationPayload.checklist || {};
+
+  const requiredChecklist = [
+    checklist.amount_matches,
+    checklist.proof_readable,
+    checklist.reference_visible,
+    checklist.receiver_confirmed,
+  ];
+
+  if (requiredChecklist.some((item) => item !== true)) {
+    throw new Error("Please complete the payment verification checklist first.");
+  }
+
+  const receiptNumber =
+    booking.receipt_number || generateReceiptNumber(booking.id);
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({
+      status: "approved",
+      facility_approval_status: "approved",
+      payment_status: "paid",
+      balance_amount: 0,
+      payment_verified_by: staffId,
+      payment_verified_at: new Date().toISOString(),
+      payment_rejection_reason: null,
+      receipt_number: receiptNumber,
+      receipt_issued_at: new Date().toISOString(),
+      payment_verification_checklist: checklist,
+      payment_verification_notes: verificationPayload.notes || "",
+      payment_verification_result: "verified",
+    })
+    .eq("id", bookingId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+export async function rejectPayment(
+  bookingId,
+  reason = "",
+  verificationPayload = {}
+) {
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({
+      status: "reserved",
+      payment_status: "rejected_payment",
+      payment_rejection_reason: reason || "Payment proof was rejected.",
+      payment_verified_by: null,
+      payment_verified_at: null,
+      payment_verification_checklist: verificationPayload.checklist || {},
+      payment_verification_notes: verificationPayload.notes || "",
+      payment_verification_result: "rejected",
+    })
+    .eq("id", bookingId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+export async function expireBookingReservation(bookingId) {
+  if (!bookingId) return null;
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({
+      status: "expired",
+      payment_status: "expired",
+      facility_approval_status: "expired",
+      balance_amount: 0,
+    })
+    .eq("id", bookingId)
+    .eq("status", "reserved")
+    .in("payment_status", ["unpaid", "rejected_payment"])
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return data;
+}
+
+export async function approveBooking(bookingId) {
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({
+      status: "approved",
+      facility_approval_status: "approved",
+    })
+    .eq("id", bookingId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+export async function rejectBooking(bookingId, reason = "") {
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({
+      status: "rejected",
+      facility_approval_status: "rejected",
+      rejection_reason: reason || "Booking request was rejected.",
+    })
+    .eq("id", bookingId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+export async function cancelBooking(bookingId, reason = "") {
+  const { data: booking, error: bookingError } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("id", bookingId)
+    .maybeSingle();
+
+  if (bookingError) throw bookingError;
+  if (!booking) throw new Error("Booking not found.");
+
+  const status = normalizeStatus(booking.status);
+
+  if (!["reserved", "pending"].includes(status)) {
+    throw new Error("Only reserved or pending bookings can be cancelled.");
+  }
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({
+      status: "cancelled",
+      facility_approval_status: "cancelled",
+      cancellation_reason: reason || "Cancelled by user.",
+    })
+    .eq("id", bookingId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
 }

@@ -1,26 +1,47 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
+import { useAuth } from "../../context/AuthContext";
 import {
-  getCurrentProfile,
   getUserNotifications,
-  markAsRead,
   markAllAsRead,
+  markAsRead,
 } from "../../services/notificationService";
 
 function normalizeRole(role) {
   const cleanRole = String(role || "user").toLowerCase();
 
+  if (cleanRole === "coach") return "user";
   if (cleanRole === "admin") return "admin";
   if (cleanRole === "staff") return "staff";
 
   return "user";
 }
 
-function normalizeStatus(status) {
-  return String(status || "pending").toLowerCase();
+function roleFromPath(pathname, profileRole) {
+  if (pathname.startsWith("/staff")) return "staff";
+  if (pathname.startsWith("/admin")) return "admin";
+
+  return normalizeRole(profileRole);
+}
+
+function cleanTime(time) {
+  if (!time) return "";
+  return String(time).slice(0, 5);
+}
+
+function formatTime(time24) {
+  if (!time24) return "-";
+
+  const [h, m] = cleanTime(time24).split(":");
+  let hour = Number(h);
+  const suffix = hour >= 12 ? "PM" : "AM";
+
+  hour = hour % 12 || 12;
+
+  return `${hour}:${m} ${suffix}`;
 }
 
 function formatDate(value) {
@@ -37,193 +58,228 @@ function formatDate(value) {
   }
 }
 
-function formatTime(time) {
-  if (!time) return "-";
+function formatDateTime(value) {
+  if (!value) return "-";
 
-  const [h, m] = String(time).slice(0, 5).split(":");
-  let hour = Number(h);
-  const suffix = hour >= 12 ? "PM" : "AM";
-
-  hour = hour % 12 || 12;
-
-  return `${hour}:${m} ${suffix}`;
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
 }
 
 function money(value) {
   return `₱${Number(value || 0).toLocaleString()}`;
 }
 
-function getStatusClass(status) {
-  const value = normalizeStatus(status);
+function formatStatusLabel(status) {
+  return String(status || "-").replaceAll("_", " ");
+}
+
+function getNotificationBookingId(notification) {
+  const metadata = notification?.metadata || {};
+
+  return (
+    metadata.booking_id ||
+    metadata.reference_id ||
+    notification?.reference_id ||
+    notification?.booking_id ||
+    null
+  );
+}
+
+function getNotificationRedirect(notification, role) {
+  const cleanRole = normalizeRole(role);
+  const bookingId = getNotificationBookingId(notification);
+
+  if (!bookingId) {
+    if (cleanRole === "staff") return "/staff/notifications";
+    if (cleanRole === "admin") return "/admin/notifications";
+    return "/notifications";
+  }
+
+  if (cleanRole === "staff") {
+    return `/staff/bookings?highlight=${bookingId}`;
+  }
+
+  if (cleanRole === "admin") {
+    return `/staff/bookings?highlight=${bookingId}`;
+  }
+
+  return `/my-bookings?highlight=${bookingId}`;
+}
+
+function notificationTypeClass(type) {
+  const value = String(type || "").toLowerCase();
+
+  if (value.includes("verified") || value.includes("approved")) {
+    return "bg-green-100 text-green-700";
+  }
+
+  if (value.includes("rejected")) {
+    return "bg-red-100 text-red-700";
+  }
+
+  if (value.includes("expired")) {
+    return "bg-orange-100 text-orange-700";
+  }
+
+  if (value.includes("payment")) {
+    return "bg-yellow-100 text-yellow-700";
+  }
+
+  if (value.includes("cancelled")) {
+    return "bg-slate-200 text-slate-700";
+  }
+
+  return "bg-blue-100 text-blue-700";
+}
+
+function bookingStatusClass(status) {
+  const value = String(status || "").toLowerCase();
 
   if (value === "approved") return "bg-green-100 text-green-700";
+  if (value === "reserved") return "bg-blue-100 text-blue-700";
+  if (value === "pending") return "bg-yellow-100 text-yellow-700";
   if (value === "rejected") return "bg-red-100 text-red-700";
   if (value === "cancelled") return "bg-slate-200 text-slate-700";
+  if (value === "expired") return "bg-orange-100 text-orange-700";
 
-  return "bg-yellow-100 text-yellow-700";
+  return "bg-slate-100 text-slate-700";
 }
 
-function getNotificationIcon(type, status) {
-  const cleanType = String(type || "").toLowerCase();
-  const cleanStatus = normalizeStatus(status);
+function paymentStatusClass(status) {
+  const value = String(status || "").toLowerCase();
 
-  if (cleanStatus === "approved") return "✓";
-  if (cleanStatus === "rejected") return "!";
-  if (cleanStatus === "cancelled") return "×";
-  if (cleanType.includes("booking")) return "📅";
+  if (value === "paid") return "bg-green-100 text-green-700";
+  if (value === "pending_verification") return "bg-yellow-100 text-yellow-700";
+  if (value === "rejected_payment") return "bg-red-100 text-red-700";
+  if (value === "expired") return "bg-orange-100 text-orange-700";
 
-  return "🔔";
+  return "bg-slate-100 text-slate-700";
 }
 
-function getNotificationTitle(role) {
-  if (role === "staff") return "Staff Notifications";
-  if (role === "admin") return "Admin Notifications";
-
-  return "My Notifications";
-}
-
-function getNotificationDescription(role) {
-  if (role === "staff") {
-    return "Review booking requests, booking updates, and operational notifications.";
-  }
-
-  if (role === "admin") {
-    return "Monitor system notifications, booking activity, and admin-related updates.";
-  }
-
-  return "Track your booking approvals, rejections, cancellations, and account updates.";
-}
-
-function getBookingTitle(booking) {
-  return booking?.facilities?.name || "Facility Booking";
-}
-
-function getRequesterName(booking) {
-  return booking?.profiles?.full_name || "User";
-}
-
-function getFinalTotal(booking) {
-  const totalHours = Number(booking?.total_hours || 0);
-  const rate = Number(booking?.rate_per_hour || 0);
-  const computed = totalHours * rate;
-
-  return Number(booking?.total_amount || 0) || computed;
-}
-
-export default function Notifications({ forcedRole }) {
+export default function Notifications() {
+  const { user, profile } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate();
-  const channelRef = useRef(null);
 
-  const [profile, setProfile] = useState(null);
-  const [role, setRole] = useState("user");
+  const role = roleFromPath(location.pathname, profile?.role);
+
   const [notifications, setNotifications] = useState([]);
   const [bookingDetails, setBookingDetails] = useState({});
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all");
+
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter((item) => {
+      const bookingId = getNotificationBookingId(item);
+      const booking = bookingDetails[bookingId];
+
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "unread" && !item.is_read) ||
+        (filter === "read" && item.is_read) ||
+        String(item.type || "").toLowerCase().includes(filter);
+
+      const searchText = [
+        item.title,
+        item.message,
+        item.type,
+        item.created_at,
+        booking?.facilities?.name,
+        booking?.profiles?.full_name,
+        booking?.booking_date,
+        booking?.status,
+        booking?.payment_status,
+        booking?.payment_reference,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch =
+        search.trim() === "" || searchText.includes(search.toLowerCase());
+
+      return matchesFilter && matchesSearch;
+    });
+  }, [notifications, bookingDetails, filter, search]);
+
+  const stats = useMemo(() => {
+    return {
+      total: notifications.length,
+      unread: notifications.filter((item) => !item.is_read).length,
+      payment: notifications.filter((item) =>
+        String(item.type || "").toLowerCase().includes("payment")
+      ).length,
+      expired: notifications.filter((item) =>
+        String(item.type || "").toLowerCase().includes("expired")
+      ).length,
+    };
+  }, [notifications]);
 
   useEffect(() => {
-    let mounted = true;
-
-    async function init() {
-      try {
-        setLoading(true);
-        setError("");
-
-        const currentProfile = await getCurrentProfile();
-        if (!currentProfile || !mounted) return;
-
-        const activeRole = normalizeRole(forcedRole || currentProfile.role || "user");
-
-        const normalizedProfile = {
-          ...currentProfile,
-          role: activeRole,
-        };
-
-        setProfile(normalizedProfile);
-        setRole(activeRole);
-
-        await loadNotifications(currentProfile.id, activeRole, mounted);
-
-        if (channelRef.current) {
-          await supabase.removeChannel(channelRef.current);
-          channelRef.current = null;
-        }
-
-        const channel = supabase
-          .channel(`notifications-page-${currentProfile.id}-${Date.now()}`)
-          .on(
-            "postgres_changes",
-            {
-              event: "*",
-              schema: "public",
-              table: "notifications",
-              filter: `user_id=eq.${currentProfile.id}`,
-            },
-            async () => {
-              await loadNotifications(currentProfile.id, activeRole, mounted);
-            }
-          )
-          .subscribe();
-
-        channelRef.current = channel;
-      } catch (err) {
-        console.error("Notifications load error:", err.message);
-
-        if (mounted) {
-          setError(err.message || "Failed to load notifications.");
-        }
-      } finally {
-        if (mounted) setLoading(false);
-      }
+    if (user?.id) {
+      loadNotifications();
     }
+  }, [user?.id, role]);
 
-    init();
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`notifications-page-${user.id}-${role}-${Date.now()}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+        },
+        () => {
+          loadNotifications(false);
+        }
+      )
+      .subscribe();
 
     return () => {
-      mounted = false;
-
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
+      supabase.removeChannel(channel);
     };
-  }, [forcedRole]);
+  }, [user?.id, role]);
 
-  async function loadNotifications(userId, activeRole, mounted = true) {
+  async function loadNotifications(showLoading = true) {
     try {
-      if (!userId) return;
+      if (showLoading) setLoading(true);
 
-      const safeRole = normalizeRole(activeRole);
-      const items = await getUserNotifications(userId, safeRole);
+      setError("");
 
-      if (!mounted) return;
+      const data = await getUserNotifications(user.id, role, 100);
+      setNotifications(data || []);
 
-      setNotifications(items || []);
-      await loadBookingDetails(items || [], mounted);
+      await loadBookingDetails(data || []);
     } catch (err) {
-      console.error("Load notifications error:", err.message);
-
-      if (mounted) {
-        setError(err.message || "Failed to load notifications.");
-      }
+      console.error(err);
+      setError(err.message || "Failed to load notifications.");
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function loadBookingDetails(items, mounted = true) {
+  async function loadBookingDetails(items) {
     const bookingIds = items
-      .filter((item) => item.reference_id)
-      .map((item) => item.reference_id);
+      .map((item) => getNotificationBookingId(item))
+      .filter(Boolean);
 
     const uniqueIds = [...new Set(bookingIds)];
 
     if (uniqueIds.length === 0) {
-      if (mounted) setBookingDetails({});
+      setBookingDetails({});
       return;
     }
 
-    const { data, error: bookingError } = await supabase
+    const { data, error } = await supabase
       .from("bookings")
       .select(
         `
@@ -238,8 +294,9 @@ export default function Notifications({ forcedRole }) {
       )
       .in("id", uniqueIds);
 
-    if (bookingError) {
-      console.error("Booking details error:", bookingError.message);
+    if (error) {
+      console.error("Booking details error:", error.message);
+      setBookingDetails({});
       return;
     }
 
@@ -249,122 +306,43 @@ export default function Notifications({ forcedRole }) {
       mapped[booking.id] = booking;
     });
 
-    if (mounted) setBookingDetails(mapped);
-  }
-
-  const filteredNotifications = useMemo(() => {
-    if (activeFilter === "unread") {
-      return notifications.filter((item) => !item.is_read);
-    }
-
-    if (activeFilter === "read") {
-      return notifications.filter((item) => item.is_read);
-    }
-
-    if (activeFilter === "booking") {
-      return notifications.filter((item) =>
-        String(item.type || "").toLowerCase().includes("booking")
-      );
-    }
-
-    return notifications;
-  }, [notifications, activeFilter]);
-
-  const unreadCount = useMemo(() => {
-    return notifications.filter((item) => !item.is_read).length;
-  }, [notifications]);
-
-  const readCount = useMemo(() => {
-    return notifications.filter((item) => item.is_read).length;
-  }, [notifications]);
-
-  const bookingCount = useMemo(() => {
-    return notifications.filter((item) =>
-      String(item.type || "").toLowerCase().includes("booking")
-    ).length;
-  }, [notifications]);
-
-  function getNotificationRedirect(item) {
-    const referenceId = item?.reference_id;
-
-    if (role === "staff") {
-      if (referenceId) return `/staff/bookings?highlight=${referenceId}`;
-      return "/staff/notifications";
-    }
-
-    if (role === "admin") {
-      if (referenceId) return `/admin/reports?highlight=${referenceId}`;
-      return "/admin/notifications";
-    }
-
-    if (referenceId) return `/my-bookings?highlight=${referenceId}`;
-    return "/notifications";
+    setBookingDetails(mapped);
   }
 
   async function handleNotificationClick(item) {
     try {
+      setError("");
+      setMessage("");
+
       if (!item.is_read) {
         await markAsRead(item.id);
       }
 
-      navigate(getNotificationRedirect(item));
+      navigate(getNotificationRedirect(item, role));
     } catch (err) {
-      console.error("Notification click error:", err.message);
-      navigate(getNotificationRedirect(item));
+      console.error(err);
+      setError(err.message || "Failed to open notification.");
     }
   }
 
   async function handleMarkAllAsRead() {
-    if (!profile?.id) return;
-
     try {
-      setActionLoading(true);
-      await markAllAsRead(profile.id, role);
-      await loadNotifications(profile.id, role);
+      setError("");
+      setMessage("");
+
+      await markAllAsRead(user.id, role);
+      await loadNotifications(false);
+
+      setMessage("All notifications marked as read.");
     } catch (err) {
-      console.error("Mark all as read error:", err.message);
+      console.error(err);
       setError(err.message || "Failed to mark notifications as read.");
-    } finally {
-      setActionLoading(false);
     }
   }
 
-  async function handleClearRead() {
-    if (!profile?.id) return;
-
-    const confirmClear = window.confirm(
-      "Clear all read notifications? Unread notifications will remain."
-    );
-
-    if (!confirmClear) return;
-
-    try {
-      setActionLoading(true);
-
-      let query = supabase
-        .from("notifications")
-        .delete()
-        .eq("user_id", profile.id)
-        .eq("is_read", true);
-
-      if (role) {
-        query = query.or(`target_role.eq.${role},target_role.is.null`);
-      }
-
-      const { error: deleteError } = await query;
-
-      if (deleteError) throw deleteError;
-
-      await loadNotifications(profile.id, role);
-    } catch (err) {
-      console.error("Clear read notifications error:", err.message);
-      setError(
-        err.message ||
-          "Failed to clear read notifications. Please check your notification RLS policy."
-      );
-    } finally {
-      setActionLoading(false);
-    }
+  function resetFilters() {
+    setFilter("all");
+    setSearch("");
   }
 
   return (
@@ -375,114 +353,135 @@ export default function Notifications({ forcedRole }) {
         <div className="page-container">
           <Topbar title="Notifications" />
 
-          {error ? (
+          {error && (
             <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
               {error}
             </div>
-          ) : null}
+          )}
+
+          {message && (
+            <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
+              {message}
+            </div>
+          )}
 
           <section className="page-hero mb-6">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
-                <p className="text-sm font-semibold">Notification Center</p>
+                <p className="text-sm font-semibold">
+                  {role === "staff"
+                    ? "Staff Notifications"
+                    : role === "admin"
+                    ? "Admin Notifications"
+                    : "My Notifications"}
+                </p>
 
-                <h2 className="mt-3 text-4xl font-black">
-                  {getNotificationTitle(role)}
+                <h2 className="mt-2 text-3xl font-black">
+                  Stay updated with booking and payment activity.
                 </h2>
 
-                <p className="mt-4 max-w-3xl text-base text-white/90">
-                  {getNotificationDescription(role)}
+                <p className="mt-2 text-sm text-white/90">
+                  Notifications include reservations, payment verification,
+                  approvals, rejections, cancellations, and expired bookings.
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <NotificationStat label="All" value={notifications.length} />
-                <NotificationStat label="Unread" value={unreadCount} />
-                <NotificationStat label="Read" value={readCount} />
-                <NotificationStat label="Booking" value={bookingCount} />
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <HeroStat label="Total" value={stats.total} />
+                <HeroStat label="Unread" value={stats.unread} />
+                <HeroStat label="Payment" value={stats.payment} />
+                <HeroStat label="Expired" value={stats.expired} />
               </div>
             </div>
           </section>
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-wrap gap-2">
-                <FilterButton
-                  label="All"
-                  active={activeFilter === "all"}
-                  onClick={() => setActiveFilter("all")}
-                />
+          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr_auto_auto]">
+              <div>
+                <label className="mb-2 block text-sm font-semibold">
+                  Search
+                </label>
 
-                <FilterButton
-                  label={`Unread (${unreadCount})`}
-                  active={activeFilter === "unread"}
-                  onClick={() => setActiveFilter("unread")}
-                />
-
-                <FilterButton
-                  label={`Read (${readCount})`}
-                  active={activeFilter === "read"}
-                  onClick={() => setActiveFilter("read")}
-                />
-
-                <FilterButton
-                  label={`Booking (${bookingCount})`}
-                  active={activeFilter === "booking"}
-                  onClick={() => setActiveFilter("booking")}
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by title, message, facility, customer, status, date, or reference"
+                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
                 />
               </div>
 
-              <div className="flex flex-wrap gap-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold">
+                  Filter
+                </label>
+
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                >
+                  <option value="all">All</option>
+                  <option value="unread">Unread</option>
+                  <option value="read">Read</option>
+                  <option value="payment">Payment</option>
+                  <option value="expired">Expired</option>
+                  <option value="reserved">Reserved</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1]"
+                >
+                  Reset
+                </button>
+              </div>
+
+              <div className="flex items-end">
                 <button
                   type="button"
                   onClick={handleMarkAllAsRead}
-                  disabled={actionLoading || notifications.length === 0}
-                  className="rounded-2xl bg-[#C97B6C] px-4 py-3 text-sm font-bold text-white hover:bg-[#B96A5D] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463]"
                 >
-                  {actionLoading ? "Please wait..." : "Mark All as Read"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleClearRead}
-                  disabled={actionLoading || readCount === 0}
-                  className="rounded-2xl border border-[#DED8D2] bg-white px-4 py-3 text-sm font-bold text-[#2B2B2B] hover:bg-[#F5F3F1] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Clear Read
+                  Mark All Read
                 </button>
               </div>
             </div>
           </section>
 
           <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="mb-6 flex items-center justify-between gap-4">
               <div>
                 <h3 className="text-2xl font-black text-[#2B2B2B]">
                   Notification List
                 </h3>
 
                 <p className="text-sm text-slate-500">
-                  Click a notification to open its related page.
+                  Click a notification to open the related booking.
                 </p>
               </div>
 
-              <p className="text-sm font-semibold text-slate-500">
-                Showing {filteredNotifications.length} of {notifications.length}
-              </p>
+              <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-bold text-[#C97B6C]">
+                {filteredNotifications.length} shown
+              </span>
             </div>
 
             {loading ? (
-              <p className="rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">
-                Loading notifications...
-              </p>
+              <p className="text-slate-500">Loading notifications...</p>
             ) : filteredNotifications.length === 0 ? (
-              <p className="rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
                 No notifications found.
-              </p>
+              </div>
             ) : (
               <div className="space-y-4">
                 {filteredNotifications.map((item) => {
-                  const booking = bookingDetails[item.reference_id];
+                  const bookingId = getNotificationBookingId(item);
+                  const booking = bookingDetails[bookingId];
 
                   return (
                     <NotificationCard
@@ -490,7 +489,7 @@ export default function Notifications({ forcedRole }) {
                       item={item}
                       booking={booking}
                       role={role}
-                      onClick={() => handleNotificationClick(item)}
+                      onOpen={() => handleNotificationClick(item)}
                     />
                   );
                 })}
@@ -503,190 +502,132 @@ export default function Notifications({ forcedRole }) {
   );
 }
 
-function NotificationCard({ item, booking, role, onClick }) {
-  const status = normalizeStatus(booking?.status);
-  const icon = getNotificationIcon(item.type, booking?.status);
-  const finalTotal = getFinalTotal(booking);
-  const totalHours = Number(booking?.total_hours || 0);
-  const facilityRate = Number(booking?.rate_per_hour || 0);
-  const facilityTotal = totalHours * facilityRate;
+function NotificationCard({ item, booking, role, onOpen }) {
+  const bookingStatus = booking?.status || "";
+  const paymentStatus = booking?.payment_status || "";
 
   return (
     <button
       type="button"
-      onClick={onClick}
-      className={`w-full rounded-2xl border p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
+      onClick={onOpen}
+      className={`block w-full rounded-2xl border p-5 text-left transition hover:border-[#C97B6C] hover:bg-[#FFF8F5] ${
         item.is_read
           ? "border-[#DED8D2] bg-white"
-          : "border-[#C97B6C]/40 bg-[#FDF3EF]"
+          : "border-[#C97B6C] bg-[#FFF6F3] shadow-sm"
       }`}
     >
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="flex w-full gap-4">
-          <div
-            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-lg font-black ${
-              item.is_read
-                ? "bg-slate-100 text-slate-500"
-                : "bg-[#C97B6C] text-white"
-            }`}
-          >
-            {icon}
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {!item.is_read && (
+              <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black uppercase text-red-700">
+                Unread
+              </span>
+            )}
+
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-black uppercase ${notificationTypeClass(
+                item.type
+              )}`}
+            >
+              {formatStatusLabel(item.type)}
+            </span>
+
+            {bookingStatus && (
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-black uppercase ${bookingStatusClass(
+                  bookingStatus
+                )}`}
+              >
+                Booking: {formatStatusLabel(bookingStatus)}
+              </span>
+            )}
+
+            {paymentStatus && (
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-black uppercase ${paymentStatusClass(
+                  paymentStatus
+                )}`}
+              >
+                Payment: {formatStatusLabel(paymentStatus)}
+              </span>
+            )}
           </div>
 
-          <div className="w-full">
-            <div className="flex flex-wrap items-center gap-2">
-              <h4 className="text-lg font-black text-[#2B2B2B]">
-                {item.title || "Notification"}
-              </h4>
+          <h4 className="text-lg font-black text-[#2B2B2B]">{item.title}</h4>
 
-              {!item.is_read && (
-                <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black uppercase text-red-600">
-                  Unread
-                </span>
+          <p className="mt-2 text-sm font-semibold text-slate-600">
+            {item.message}
+          </p>
+
+          <p className="mt-2 text-xs font-semibold text-slate-400">
+            {formatDateTime(item.created_at)}
+          </p>
+
+          {booking ? (
+            <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm font-black text-[#2B2B2B]">
+                {booking.facilities?.name || "Facility Booking"}
+              </p>
+
+              {role !== "user" && (
+                <p className="mt-1 text-sm text-slate-600">
+                  Customer:{" "}
+                  <b>{booking.profiles?.full_name || "Unknown User"}</b>
+                </p>
               )}
 
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase text-slate-600">
-                {item.type || "general"}
-              </span>
+              <p className="mt-1 text-sm text-slate-600">
+                {formatDate(booking.booking_date)} •{" "}
+                {formatTime(booking.start_time)} -{" "}
+                {formatTime(booking.end_time)}
+              </p>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <MiniDetail label="Total" value={money(booking.total_amount)} />
+                <MiniDetail label="Paid" value={money(booking.amount_paid)} />
+                <MiniDetail
+                  label="Reference"
+                  value={booking.payment_reference || "-"}
+                />
+              </div>
             </div>
-
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              {item.message || "No message provided."}
-            </p>
-
-            {booking ? (
-              <div className="mt-4 rounded-2xl border border-[#DED8D2] bg-white p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <p className="text-base font-black text-[#2B2B2B]">
-                      {getBookingTitle(booking)}
-                    </p>
-
-                    <p className="mt-1 text-sm text-slate-500">
-                      {formatDate(booking.booking_date)} •{" "}
-                      {formatTime(booking.start_time)} -{" "}
-                      {formatTime(booking.end_time)}
-                    </p>
-                  </div>
-
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(
-                      status
-                    )}`}
-                  >
-                    {status}
-                  </span>
-                </div>
-
-                <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-slate-600 md:grid-cols-2">
-                  <DetailItem
-                    label="Session Type"
-                    value={booking.session_type || "-"}
-                  />
-
-                  <DetailItem label="Total Hours" value={`${totalHours} hour(s)`} />
-
-                  <DetailItem
-                    label="Facility Rate"
-                    value={`${money(facilityRate)} / hour`}
-                  />
-
-                  <DetailItem label="Facility Total" value={money(facilityTotal)} />
-
-                  {role !== "user" && (
-                    <DetailItem label="Requested By" value={getRequesterName(booking)} />
-                  )}
-
-                  <DetailItem label="Final Total" value={money(finalTotal)} strong />
-                </div>
-
-                {booking.notes ? (
-                  <p className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
-                    <b>Notes:</b> {booking.notes}
-                  </p>
-                ) : null}
-
-                {status === "rejected" && booking.rejection_reason ? (
-                  <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-semibold text-red-600">
-                    <b>Rejection Reason:</b> {booking.rejection_reason}
-                  </p>
-                ) : null}
-
-                {status === "cancelled" && booking.cancellation_reason ? (
-                  <p className="mt-3 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-600">
-                    <b>Cancellation Reason:</b> {booking.cancellation_reason}
-                  </p>
-                ) : null}
-              </div>
-            ) : item.reference_id ? (
-              <div className="mt-4 rounded-2xl border border-dashed border-[#DED8D2] bg-slate-50 p-4 text-sm text-slate-500">
-                Related booking details could not be loaded, but clicking this
-                notification will still open the related page.
-              </div>
-            ) : null}
-
-            <p className="mt-3 text-xs capitalize text-slate-400">
-              Role: {item.target_role || role}
-            </p>
-          </div>
+          ) : (
+            <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+              Booking details are not available or may have been removed.
+            </div>
+          )}
         </div>
 
-        <div className="shrink-0 text-left md:text-right">
-          <p className="text-xs text-slate-400">
-            {item.created_at ? new Date(item.created_at).toLocaleString() : ""}
-          </p>
-
-          <p className="mt-2 text-xs font-bold text-[#C97B6C]">
-            Click to open
-          </p>
+        <div className="shrink-0">
+          <span className="inline-flex rounded-2xl bg-[#2B2B2B] px-5 py-3 text-sm font-bold text-white">
+            Open
+          </span>
         </div>
       </div>
     </button>
   );
 }
 
-function NotificationStat({ label, value }) {
+function MiniDetail({ label, value }) {
   return (
-    <div className="rounded-2xl bg-white/15 px-5 py-4 text-white">
-      <p className="text-xs font-bold uppercase tracking-widest text-white/80">
+    <div className="rounded-2xl bg-white px-4 py-3">
+      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
         {label}
       </p>
 
-      <p className="mt-1 text-2xl font-black">{value}</p>
+      <p className="mt-1 truncate text-sm font-black text-[#2B2B2B]">
+        {value}
+      </p>
     </div>
   );
 }
 
-function FilterButton({ label, active, onClick }) {
+function HeroStat({ label, value }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-2xl px-4 py-3 text-sm font-bold ${
-        active
-          ? "bg-[#C97B6C] text-white"
-          : "bg-slate-100 text-[#2B2B2B] hover:bg-slate-200"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function DetailItem({ label, value, strong = false }) {
-  return (
-    <div>
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-        {label}
-      </p>
-
-      <p
-        className={`mt-1 capitalize ${
-          strong ? "text-lg font-black text-[#C97B6C]" : "font-semibold text-slate-700"
-        }`}
-      >
-        {value}
-      </p>
+    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white">
+      <p className="text-xs font-black uppercase tracking-widest">{label}</p>
+      <h3 className="mt-1 text-2xl font-black">{value}</h3>
     </div>
   );
 }

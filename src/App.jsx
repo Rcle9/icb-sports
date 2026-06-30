@@ -1,144 +1,158 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
-import Landing from "./pages/public/Landing";
-import About from "./pages/public/About";
-import FacilitiesPage from "./pages/public/Facilities";
-import Contact from "./pages/public/Contact";
-import PublicShop from "./pages/public/Shop";
-
+// Auth / public pages
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 
+// Shared pages
 import ProfileSettings from "./pages/shared/ProfileSettings";
 
+// User pages
 import UserDashboard from "./pages/user/Dashboard";
 import Booking from "./pages/user/Booking";
 import MyBookings from "./pages/user/MyBookings";
 import UserNotifications from "./pages/user/Notifications";
-import UserProfile from "./pages/user/Profile";
 
+// Staff pages
 import StaffDashboard from "./pages/staff/Dashboard";
 import ManageBookings from "./pages/staff/ManageBookings";
 import Inventory from "./pages/staff/Inventory";
 import Maintenance from "./pages/staff/Maintenance";
-import StaffNotifications from "./pages/staff/Notifications";
-import StaffProfile from "./pages/staff/Profile";
 import ActivityLogs from "./pages/staff/ActivityLogs";
 
+// Admin pages
 import AdminDashboard from "./pages/admin/Dashboard";
-import Facilities from "./pages/admin/Facility";
-import Users from "./pages/admin/Users";
+import UserManagement from "./pages/admin/Users";
+import FacilityControl from "./pages/admin/Facility";
 import Reports from "./pages/admin/Reports";
 import Settings from "./pages/admin/Settings";
+import PaymentSettings from "./pages/admin/PaymentSettings";
 
-function normalizeRole(role) {
-  const userRole = String(role || "user").toLowerCase();
-
-  if (userRole === "admin") return "admin";
-  if (userRole === "staff") return "staff";
-
-  return "user";
-}
-
-function getDashboardPath(role) {
-  const userRole = normalizeRole(role);
-
-  if (userRole === "admin") return "/admin/dashboard";
-  if (userRole === "staff") return "/staff/dashboard";
-
-  return "/dashboard";
-}
-
-function LoadingScreen() {
+function ScreenLoader() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F5F3F1]">
-      <div className="text-lg font-bold text-[#2B2B2B]">Loading...</div>
+    <div className="min-h-screen flex items-center justify-center bg-[#f5f6f8]">
+      <div className="rounded-2xl bg-white px-6 py-4 shadow text-black">
+        Loading...
+      </div>
     </div>
   );
 }
 
-function PublicLandingRoute() {
-  const { user, loading, profile } = useAuth();
+function ProtectedRoute({ children, allowRoles = [] }) {
+  const { user, profile, loading } = useAuth();
 
-  if (loading) return <LoadingScreen />;
+  if (loading) return <ScreenLoader />;
 
-  if (user) {
-    return <Navigate to={getDashboardPath(profile?.role)} replace />;
+  if (!user) {
+    return <Navigate to="/login" replace />;
   }
 
-  return <Landing />;
-}
+  if (allowRoles.length > 0 && !allowRoles.includes(profile?.role)) {
+    if (profile?.role === "admin") {
+      return <Navigate to="/admin/dashboard" replace />;
+    }
 
-function PublicAuthRoute({ children }) {
-  const { user, loading, profile } = useAuth();
+    if (profile?.role === "staff") {
+      return <Navigate to="/staff/dashboard" replace />;
+    }
 
-  if (loading) return <LoadingScreen />;
-
-  if (user) {
-    return <Navigate to={getDashboardPath(profile?.role)} replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;
 }
 
-function ProtectedRoute({ children, allowedRoles }) {
-  const { user, loading, profile } = useAuth();
+function PublicRoute({ children }) {
+  const { user, profile, loading } = useAuth();
 
-  if (loading) return <LoadingScreen />;
+  if (loading) return <ScreenLoader />;
+
+  if (user) {
+    if (profile?.role === "admin") {
+      return <Navigate to="/admin/dashboard" replace />;
+    }
+
+    if (profile?.role === "staff") {
+      return <Navigate to="/staff/dashboard" replace />;
+    }
+
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+}
+
+function RootRedirect() {
+  const { user, profile, loading } = useAuth();
+
+  if (loading) return <ScreenLoader />;
 
   if (!user) return <Navigate to="/login" replace />;
 
-  const role = normalizeRole(profile?.role);
-
-  if (allowedRoles && !allowedRoles.includes(role)) {
-    return <Navigate to={getDashboardPath(role)} replace />;
+  if (profile?.role === "admin") {
+    return <Navigate to="/admin/dashboard" replace />;
   }
 
-  return children;
+  if (profile?.role === "staff") {
+    return <Navigate to="/staff/dashboard" replace />;
+  }
+
+  return <Navigate to="/dashboard" replace />;
+}
+
+function NotFound() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[#f5f6f8] p-6">
+      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
+        <p className="text-sm font-medium text-blue-600">404 Error</p>
+
+        <h1 className="mt-2 text-3xl font-bold text-black">Page not found</h1>
+
+        <p className="mt-3 text-sm text-slate-600">
+          The page you are trying to open does not exist or the route is wrong.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<PublicLandingRoute />} />
-
-      <Route path="/about" element={<About />} />
-      <Route path="/facilities" element={<FacilitiesPage />} />
-      <Route path="/shop" element={<PublicShop />} />
-      <Route path="/contact" element={<Contact />} />
+      <Route path="/" element={<RootRedirect />} />
 
       <Route
         path="/login"
         element={
-          <PublicAuthRoute>
+          <PublicRoute>
             <Login />
-          </PublicAuthRoute>
+          </PublicRoute>
         }
       />
 
       <Route
         path="/register"
         element={
-          <PublicAuthRoute>
+          <PublicRoute>
             <Register />
-          </PublicAuthRoute>
-        }
-      />
-
-      <Route
-        path="/profile-settings"
-        element={
-          <ProtectedRoute>
-            <ProfileSettings />
-          </ProtectedRoute>
+          </PublicRoute>
         }
       />
 
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
+          <ProtectedRoute allowRoles={["user"]}>
+            <UserDashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/user/dashboard"
+        element={
+          <ProtectedRoute allowRoles={["user"]}>
             <UserDashboard />
           </ProtectedRoute>
         }
@@ -147,7 +161,7 @@ export default function App() {
       <Route
         path="/booking"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
+          <ProtectedRoute allowRoles={["user"]}>
             <Booking />
           </ProtectedRoute>
         }
@@ -156,18 +170,16 @@ export default function App() {
       <Route
         path="/my-bookings"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
+          <ProtectedRoute allowRoles={["user"]}>
             <MyBookings />
           </ProtectedRoute>
         }
       />
 
-      <Route path="/coaching" element={<Navigate to="/my-bookings" replace />} />
-
       <Route
         path="/notifications"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
+          <ProtectedRoute allowRoles={["user"]}>
             <UserNotifications />
           </ProtectedRoute>
         }
@@ -175,26 +187,24 @@ export default function App() {
 
       <Route
         path="/profile"
+        element={<Navigate to="/profile-settings" replace />}
+      />
+
+      <Route
+        path="/profile-settings"
         element={
-          <ProtectedRoute allowedRoles={["user"]}>
-            <UserProfile />
+          <ProtectedRoute allowRoles={["user", "staff", "admin"]}>
+            <ProfileSettings />
           </ProtectedRoute>
         }
       />
 
-      <Route
-        path="/staff"
-        element={
-          <ProtectedRoute allowedRoles={["staff"]}>
-            <StaffDashboard />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/staff" element={<Navigate to="/staff/dashboard" replace />} />
 
       <Route
         path="/staff/dashboard"
         element={
-          <ProtectedRoute allowedRoles={["staff"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <StaffDashboard />
           </ProtectedRoute>
         }
@@ -203,26 +213,16 @@ export default function App() {
       <Route
         path="/staff/bookings"
         element={
-          <ProtectedRoute allowedRoles={["staff"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <ManageBookings />
           </ProtectedRoute>
         }
       />
 
       <Route
-        path="/staff/coaching"
-        element={<Navigate to="/staff/bookings" replace />}
-      />
-
-      <Route
-        path="/staff/coach-bookings"
-        element={<Navigate to="/staff/bookings" replace />}
-      />
-
-      <Route
         path="/staff/inventory"
         element={
-          <ProtectedRoute allowedRoles={["staff"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <Inventory />
           </ProtectedRoute>
         }
@@ -231,26 +231,17 @@ export default function App() {
       <Route
         path="/staff/maintenance"
         element={
-          <ProtectedRoute allowedRoles={["staff"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <Maintenance />
           </ProtectedRoute>
         }
       />
 
       <Route
-        path="/staff/notifications"
+        path="/staff/logs"
         element={
-          <ProtectedRoute allowedRoles={["staff"]}>
-            <StaffNotifications />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/staff/profile"
-        element={
-          <ProtectedRoute allowedRoles={["staff"]}>
-            <StaffProfile />
+          <ProtectedRoute allowRoles={["staff"]}>
+            <ActivityLogs />
           </ProtectedRoute>
         }
       />
@@ -258,35 +249,33 @@ export default function App() {
       <Route
         path="/staff/activity-logs"
         element={
-          <ProtectedRoute allowedRoles={["staff"]}>
+          <ProtectedRoute allowRoles={["staff"]}>
             <ActivityLogs />
           </ProtectedRoute>
         }
       />
 
       <Route
-        path="/admin"
+        path="/staff/notifications"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
-            <AdminDashboard />
+          <ProtectedRoute allowRoles={["staff"]}>
+            <UserNotifications />
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/staff/profile"
+        element={<Navigate to="/profile-settings" replace />}
+      />
+
+      <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
 
       <Route
         path="/admin/dashboard"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
+          <ProtectedRoute allowRoles={["admin"]}>
             <AdminDashboard />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/admin/facilities"
-        element={
-          <ProtectedRoute allowedRoles={["admin"]}>
-            <Facilities />
           </ProtectedRoute>
         }
       />
@@ -294,8 +283,26 @@ export default function App() {
       <Route
         path="/admin/users"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
-            <Users />
+          <ProtectedRoute allowRoles={["admin"]}>
+            <UserManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/facility"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <FacilityControl />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/facilities"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <FacilityControl />
           </ProtectedRoute>
         }
       />
@@ -303,8 +310,17 @@ export default function App() {
       <Route
         path="/admin/reports"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
+          <ProtectedRoute allowRoles={["admin"]}>
             <Reports />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/activity-logs"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <ActivityLogs />
           </ProtectedRoute>
         }
       />
@@ -312,13 +328,32 @@ export default function App() {
       <Route
         path="/admin/settings"
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
+          <ProtectedRoute allowRoles={["admin"]}>
             <Settings />
           </ProtectedRoute>
         }
       />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route
+        path="/admin/payment-settings"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <PaymentSettings />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/notifications"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <UserNotifications />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route path="/help" element={<NotFound />} />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }

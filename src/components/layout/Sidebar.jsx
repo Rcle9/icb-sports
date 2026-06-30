@@ -7,6 +7,7 @@ import {
   Settings,
   Boxes,
   UserRound,
+  FileClock,
 } from "lucide-react";
 
 import { supabase } from "../../services/supabaseClient";
@@ -43,11 +44,6 @@ export default function Sidebar({ role = "user" }) {
       name: "Maintenance",
       path: "/staff/maintenance",
       icon: <Wrench size={18} />,
-    },
-    {
-      name: "Activity Logs",
-      path: "/staff/activity-logs",
-      icon: <ClipboardList size={18} />,
     },
     {
       name: "Profile Settings",
@@ -99,6 +95,11 @@ export default function Sidebar({ role = "user" }) {
       name: "Reports",
       path: "/admin/reports",
       icon: <ClipboardList size={18} />,
+    },
+    {
+      name: "Activity Logs",
+      path: "/admin/activity-logs",
+      icon: <FileClock size={18} />,
     },
     {
       name: "Settings",

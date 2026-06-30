@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
-import { createBooking } from "../../services/bookingService";
+import {
+  createBooking,
+  expireBookingReservation,
+} from "../../services/bookingService";
+import { getReservationExpirationMinutes } from "../../services/paymentSettingsService";
 import { useAuth } from "../../context/AuthContext";
+
+const FACILITY_FALLBACK = "https://via.placeholder.com/800x500?text=Facility";
 
 const SESSION_TYPES = [
   { value: "training", label: "Training" },
@@ -25,27 +31,6 @@ function getTodayDate() {
   return new Date().toISOString().split("T")[0];
 }
 
-function addDays(dateString, days) {
-  const date = new Date(`${dateString}T00:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().split("T")[0];
-}
-
-function formatDate(value) {
-  if (!value) return "-";
-
-  try {
-    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return value;
-  }
-}
-
 function formatTime(time24) {
   if (!time24) return "";
 
@@ -58,8 +43,23 @@ function formatTime(time24) {
   return `${hour}:${m} ${suffix}`;
 }
 
-function formatSlotLabel(start, end) {
-  return `${formatTime(start)}-${formatTime(end)}`;
+function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return value;
+  }
+}
+
+function formatStatusLabel(status) {
+  return String(status || "-").replaceAll("_", " ");
 }
 
 function generateSlots() {
@@ -74,7 +74,7 @@ function generateSlots() {
       index,
       start_time: start,
       end_time: end,
-      label: formatSlotLabel(start, end),
+      label: `${formatTime(start)} - ${formatTime(end)}`,
     };
   });
 }
@@ -89,122 +89,253 @@ function hoursBetween(start, end) {
 }
 
 function overlaps(aStart, aEnd, bStart, bEnd) {
-  return (
-    cleanTime(aStart) < cleanTime(bEnd) &&
-    cleanTime(aEnd) > cleanTime(bStart)
-  );
+  return cleanTime(aStart) < cleanTime(bEnd) && cleanTime(aEnd) > cleanTime(bStart);
 }
 
-function isPastSlot(date, startTime) {
-  const today = getTodayDate();
+function normalizeStatus(status) {
+  return String(status || "").toLowerCase();
+}
 
-  if (date > today) return false;
-  if (date < today) return true;
+function normalizePaymentStatus(status) {
+  return String(status || "unpaid").toLowerCase();
+}
 
-  const now = new Date();
-  const [hour, minute] = cleanTime(startTime).split(":").map(Number);
-  const slotDate = new Date();
+function getFacilityImages(item) {
+  const images = [
+    ...(Array.isArray(item?.image_urls) ? item.image_urls : []),
+    ...(Array.isArray(item?.images) ? item.images : []),
+    item?.image_url,
+    item?.image,
+  ].filter(Boolean);
 
-  slotDate.setHours(hour, minute, 0, 0);
-
-  return slotDate <= now;
+  return [...new Set(images)].length ? [...new Set(images)] : [FACILITY_FALLBACK];
 }
 
 function getFacilityRate(facility) {
-  return Number(facility?.price_per_hour || facility?.price || 0);
+  return Number(
+    facility?.rate_per_hour ||
+      facility?.price_per_hour ||
+      facility?.hourly_rate ||
+      facility?.price ||
+      0
+  );
 }
 
-function getFacilityType(facility) {
-  return facility?.type || facility?.category || "Facility";
+function getReservationMinutesLeft(booking) {
+  if (!booking?.reservation_expires_at) return null;
+
+  const expiresAt = new Date(booking.reservation_expires_at).getTime();
+
+  if (Number.isNaN(expiresAt)) return null;
+
+  const diff = expiresAt - Date.now();
+
+  if (diff <= 0) return 0;
+
+  return Math.ceil(diff / 60000);
 }
 
-function getSelectedKey(facilityId, slot) {
-  return `${facilityId}-${slot.start_time}-${slot.end_time}`;
+function isExpiredReservedBooking(booking) {
+  const status = normalizeStatus(booking?.status);
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+  const minutesLeft = getReservationMinutesLeft(booking);
+
+  return (
+    status === "reserved" &&
+    ["unpaid", "rejected_payment"].includes(paymentStatus) &&
+    minutesLeft !== null &&
+    minutesLeft <= 0
+  );
 }
 
-function groupSelectedSlots(selectedCells) {
-  if (!selectedCells.length) return [];
+function normalizeBookedLabel(status, paymentStatus) {
+  const statusValue = normalizeStatus(status);
+  const paymentValue = normalizePaymentStatus(paymentStatus);
 
-  const sorted = [...selectedCells].sort((a, b) => a.slot_index - b.slot_index);
-  const groups = [];
+  if (statusValue === "reserved") {
+    if (paymentValue === "pending_verification") return "Payment Review";
+    return "Reserved";
+  }
 
-  sorted.forEach((cell) => {
-    const lastGroup = groups[groups.length - 1];
-    const lastCell = lastGroup?.[lastGroup.length - 1];
+  if (statusValue === "pending") return "Pending";
+  if (statusValue === "approved") return "Booked";
+  if (statusValue === "expired") return "Expired";
+  if (statusValue === "cancelled") return "Cancelled";
 
-    if (!lastGroup || cell.slot_index !== lastCell.slot_index + 1) {
-      groups.push([cell]);
-      return;
+  return "Unavailable";
+}
+
+function buildSelectedGroups(selectedSlots, slots, facilities) {
+  const groupedByFacility = new Map();
+
+  selectedSlots.forEach((item) => {
+    if (!groupedByFacility.has(item.facility_id)) {
+      groupedByFacility.set(item.facility_id, []);
     }
 
-    lastGroup.push(cell);
+    groupedByFacility.get(item.facility_id).push(item.slot_index);
   });
 
-  return groups;
+  const groups = [];
+
+  groupedByFacility.forEach((indexes, facilityId) => {
+    const facility = facilities.find(
+      (item) => String(item.id) === String(facilityId)
+    );
+
+    const sortedIndexes = [...indexes].sort((a, b) => a - b);
+
+    if (sortedIndexes.length === 0) return;
+
+    let currentGroup = [sortedIndexes[0]];
+
+    for (let i = 1; i < sortedIndexes.length; i += 1) {
+      const currentIndex = sortedIndexes[i];
+      const previousIndex = sortedIndexes[i - 1];
+
+      if (currentIndex === previousIndex + 1) {
+        currentGroup.push(currentIndex);
+      } else {
+        groups.push(buildGroup(currentGroup, facility, slots));
+        currentGroup = [currentIndex];
+      }
+    }
+
+    groups.push(buildGroup(currentGroup, facility, slots));
+  });
+
+  return groups.filter(Boolean);
+}
+
+function buildGroup(indexes, facility, slots) {
+  if (!facility || indexes.length === 0) return null;
+
+  const groupSlots = indexes.map((index) => slots[index]);
+  const startTime = groupSlots[0]?.start_time || "";
+  const endTime = groupSlots[groupSlots.length - 1]?.end_time || "";
+  const totalHours = hoursBetween(startTime, endTime);
+  const rate = getFacilityRate(facility);
+
+  return {
+    facility,
+    facility_id: facility.id,
+    indexes,
+    slots: groupSlots,
+    start_time: startTime,
+    end_time: endTime,
+    total_hours: totalHours,
+    rate_per_hour: rate,
+    total_amount: totalHours * rate,
+  };
+}
+
+function getSelectionKey(facilityId, slotIndex) {
+  return `${facilityId}-${slotIndex}`;
+}
+
+function getBlockedClass(booking) {
+  const status = normalizeStatus(booking?.status);
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+
+  if (status === "reserved" && paymentStatus === "pending_verification") {
+    return "cursor-not-allowed border-yellow-500 bg-yellow-100 text-yellow-800";
+  }
+
+  if (status === "approved") {
+    return "cursor-not-allowed border-green-600 bg-green-100 text-green-800";
+  }
+
+  if (status === "pending") {
+    return "cursor-not-allowed border-yellow-500 bg-yellow-100 text-yellow-800";
+  }
+
+  return "cursor-not-allowed border-blue-500 bg-blue-100 text-blue-800";
 }
 
 export default function Booking() {
-  const { user, profile: authProfile } = useAuth();
+  const navigate = useNavigate();
+  const { user, profile: authProfile, loading: authLoading } = useAuth();
 
   const [profile, setProfile] = useState(null);
   const [facilities, setFacilities] = useState([]);
-  const [bookings, setBookings] = useState([]);
+  const [bookingsForDate, setBookingsForDate] = useState([]);
 
-  const [selectedDate, setSelectedDate] = useState(getTodayDate());
-  const [selectedCells, setSelectedCells] = useState([]);
-
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const [confirmModal, setConfirmModal] = useState(false);
+  const [reservationMinutes, setReservationMinutes] = useState(15);
+  const [selectedSlots, setSelectedSlots] = useState([]);
 
   const [form, setForm] = useState({
+    booking_date: getTodayDate(),
     session_type: "training",
     notes: "",
   });
 
+  const [confirmModal, setConfirmModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [loadingFacilities, setLoadingFacilities] = useState(true);
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
+
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
   const slots = useMemo(() => generateSlots(), []);
 
-  const selectedFacility = useMemo(() => {
-    if (!selectedCells.length) return null;
-
-    return facilities.find(
-      (facility) => String(facility.id) === String(selectedCells[0].facility_id)
-    );
-  }, [facilities, selectedCells]);
-
   const selectedGroups = useMemo(() => {
-    return groupSelectedSlots(selectedCells);
-  }, [selectedCells]);
+    return buildSelectedGroups(selectedSlots, slots, facilities);
+  }, [selectedSlots, slots, facilities]);
 
   const totalHours = useMemo(() => {
-    return selectedCells.reduce((sum, cell) => {
-      return sum + hoursBetween(cell.start_time, cell.end_time);
-    }, 0);
-  }, [selectedCells]);
+    return selectedGroups.reduce(
+      (sum, group) => sum + Number(group.total_hours || 0),
+      0
+    );
+  }, [selectedGroups]);
 
-  const facilityRate = getFacilityRate(selectedFacility);
-  const totalAmount = totalHours * facilityRate;
+  const totalAmount = useMemo(() => {
+    return selectedGroups.reduce(
+      (sum, group) => sum + Number(group.total_amount || 0),
+      0
+    );
+  }, [selectedGroups]);
 
   useEffect(() => {
-    if (user?.id) loadInitialData();
+    if (!user?.id) return;
+
+    loadProfile();
+    loadFacilities();
+    loadReservationMinutes();
   }, [user?.id]);
 
   useEffect(() => {
-    loadBookingsForDate();
-    setSelectedCells([]);
-    setConfirmModal(false);
-  }, [selectedDate]);
+    if (form.booking_date) {
+      loadBookingsForDate();
+    }
+  }, [form.booking_date, facilities.length]);
 
   useEffect(() => {
+    if (!form.booking_date) return;
+
     const channel = supabase
-      .channel(`booking-schedule-live-${Date.now()}`)
+      .channel(`booking-calendar-${form.booking_date}-${Date.now()}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "bookings" },
+        {
+          event: "*",
+          schema: "public",
+          table: "bookings",
+        },
         () => {
-          loadBookingsForDate();
+          loadBookingsForDate(false);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "payment_settings",
+        },
+        () => {
+          loadReservationMinutes();
         }
       )
       .subscribe();
@@ -212,65 +343,139 @@ export default function Booking() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedDate]);
+  }, [form.booking_date]);
 
-  if (authProfile?.role === "staff") return <Navigate to="/staff" replace />;
-  if (authProfile?.role === "admin") return <Navigate to="/admin" replace />;
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (form.booking_date) {
+        loadBookingsForDate(false);
+      }
+    }, 10000);
 
-  async function loadInitialData() {
+    return () => clearInterval(interval);
+  }, [form.booking_date, facilities.length]);
+
+  async function loadReservationMinutes() {
     try {
-      setError("");
+      const minutes = await getReservationExpirationMinutes();
+      setReservationMinutes(minutes);
+    } catch (err) {
+      console.error("Failed to load reservation minutes:", err.message);
+      setReservationMinutes(15);
+    }
+  }
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) return;
-
-      const { data: profileData } = await supabase
+  async function loadProfile() {
+    try {
+      const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .maybeSingle();
 
-      setProfile(
-        profileData || {
-          id: user.id,
-          role: "user",
-          full_name: user.email,
-        }
-      );
+      if (error) throw error;
 
-      const { data: facilitiesData, error: facilitiesError } = await supabase
-        .from("facilities")
-        .select("*")
-        .order("created_at", { ascending: true });
-
-      if (facilitiesError) throw facilitiesError;
-
-      setFacilities(facilitiesData || []);
+      setProfile(data || authProfile || null);
     } catch (err) {
       console.error(err);
-      setError(err.message || "Failed to load booking page.");
+      setProfile(authProfile || null);
     }
   }
 
-  async function loadBookingsForDate() {
+  async function loadFacilities() {
     try {
+      setLoadingFacilities(true);
+      setError("");
+
+      const { data, error } = await supabase
+        .from("facilities")
+        .select("*")
+        .order("name", {
+          ascending: true,
+        });
+
+      if (error) throw error;
+
+      const activeFacilities = (data || []).filter((facility) => {
+        if (facility.is_active === undefined || facility.is_active === null) {
+          return true;
+        }
+
+        return facility.is_active;
+      });
+
+      setFacilities(activeFacilities);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to load facilities.");
+    } finally {
+      setLoadingFacilities(false);
+    }
+  }
+
+  async function expireOldReservations(bookings) {
+    const expiredBookings = (bookings || []).filter(isExpiredReservedBooking);
+
+    if (expiredBookings.length === 0) return false;
+
+    await Promise.all(
+      expiredBookings.map((booking) => expireBookingReservation(booking.id))
+    );
+
+    return true;
+  }
+
+  async function loadBookingsForDate(showLoading = true) {
+    try {
+      if (!form.booking_date) return;
+
+      if (showLoading) setLoadingSchedule(true);
+
       setError("");
 
       const { data, error } = await supabase
         .from("bookings")
-        .select("*")
-        .eq("booking_date", selectedDate)
-        .in("status", ["approved", "pending"]);
+        .select(`
+          *,
+          profiles:user_id (
+            id,
+            full_name,
+            role
+          )
+        `)
+        .eq("booking_date", form.booking_date)
+        .in("status", ["reserved", "pending", "approved"]);
 
       if (error) throw error;
 
-      setBookings(data || []);
+      const didExpire = await expireOldReservations(data || []);
+
+      if (didExpire) {
+        const { data: refreshedData, error: refreshedError } = await supabase
+          .from("bookings")
+          .select(`
+            *,
+            profiles:user_id (
+              id,
+              full_name,
+              role
+            )
+          `)
+          .eq("booking_date", form.booking_date)
+          .in("status", ["reserved", "pending", "approved"]);
+
+        if (refreshedError) throw refreshedError;
+
+        setBookingsForDate(refreshedData || []);
+        return;
+      }
+
+      setBookingsForDate(data || []);
     } catch (err) {
       console.error(err);
-      setError(err.message || "Failed to load court schedule.");
+      setError(err.message || "Failed to load schedule.");
+    } finally {
+      setLoadingSchedule(false);
     }
   }
 
@@ -281,246 +486,285 @@ export default function Booking() {
       ...prev,
       [name]: value,
     }));
+
+    if (name === "booking_date") {
+      setSelectedSlots([]);
+    }
   }
 
-  function getBookingForCell(facilityId, slot) {
-    return bookings.find((booking) => {
-      return (
-        String(booking.facility_id) === String(facilityId) &&
-        overlaps(
-          slot.start_time,
-          slot.end_time,
-          booking.start_time,
-          booking.end_time
-        )
+  function goToPreviousDate() {
+    const current = new Date(`${form.booking_date}T00:00:00`);
+    current.setDate(current.getDate() - 1);
+
+    const nextValue = current.toISOString().split("T")[0];
+
+    if (nextValue < getTodayDate()) return;
+
+    setForm((prev) => ({
+      ...prev,
+      booking_date: nextValue,
+    }));
+
+    setSelectedSlots([]);
+  }
+
+  function goToNextDate() {
+    const current = new Date(`${form.booking_date}T00:00:00`);
+    current.setDate(current.getDate() + 1);
+
+    setForm((prev) => ({
+      ...prev,
+      booking_date: current.toISOString().split("T")[0],
+    }));
+
+    setSelectedSlots([]);
+  }
+
+  function getBlockingBooking(facilityId, slot) {
+    return (bookingsForDate || []).find((booking) => {
+      const status = normalizeStatus(booking.status);
+      const paymentStatus = normalizePaymentStatus(booking.payment_status);
+
+      if (String(booking.facility_id) !== String(facilityId)) return false;
+
+      if (!["reserved", "pending", "approved"].includes(status)) return false;
+
+      if (
+        status === "reserved" &&
+        ["unpaid", "rejected_payment"].includes(paymentStatus) &&
+        isExpiredReservedBooking(booking)
+      ) {
+        return false;
+      }
+
+      return overlaps(
+        slot.start_time,
+        slot.end_time,
+        booking.start_time,
+        booking.end_time
       );
     });
   }
 
-  function isCellSelected(facilityId, slot) {
-    const key = getSelectedKey(facilityId, slot);
-
-    return selectedCells.some((cell) => cell.key === key);
+  function isSlotBlocked(facilityId, slot) {
+    return Boolean(getBlockingBooking(facilityId, slot));
   }
 
-  function getCellState(facility, slot) {
-    const existingBooking = getBookingForCell(facility.id, slot);
-
-    if (existingBooking) {
-      return {
-        state: "booked",
-        label: normalizeBookedLabel(existingBooking.status),
-        booking: existingBooking,
-      };
-    }
-
-    if (isPastSlot(selectedDate, slot.start_time)) {
-      return {
-        state: "past",
-        label: "Unavailable",
-        booking: null,
-      };
-    }
-
-    if (isCellSelected(facility.id, slot)) {
-      return {
-        state: "selected",
-        label: "Selected",
-        booking: null,
-      };
-    }
-
-    return {
-      state: "open",
-      label: "Open",
-      booking: null,
-    };
+  function isSlotSelected(facilityId, slotIndex) {
+    return selectedSlots.some(
+      (item) =>
+        String(item.facility_id) === String(facilityId) &&
+        Number(item.slot_index) === Number(slotIndex)
+    );
   }
 
-  function normalizeBookedLabel(status) {
-    const value = String(status || "").toLowerCase();
+  function handleSlotClick(facility, slot) {
+    const blockingBooking = getBlockingBooking(facility.id, slot);
 
-    if (value === "pending") return "Pending";
-    if (value === "approved") return "Booked";
-
-    return "Booked";
-  }
-
-  function handleCellClick(facility, slot) {
-    const cell = getCellState(facility, slot);
-
-    if (cell.state === "booked" || cell.state === "past") return;
-
-    const key = getSelectedKey(facility.id, slot);
-
-    setMessage("");
-    setError("");
-    setConfirmModal(false);
-
-    if (cell.state === "selected") {
-      setSelectedCells((prev) => prev.filter((item) => item.key !== key));
+    if (blockingBooking) {
+      setError("This timeslot is already reserved or booked.");
+      loadBookingsForDate(false);
       return;
     }
 
-    if (
-      selectedCells.length > 0 &&
-      String(selectedCells[0].facility_id) !== String(facility.id)
-    ) {
-      setSelectedCells([
-        {
-          key,
-          facility_id: facility.id,
-          facility_name: facility.name,
-          facility_type: getFacilityType(facility),
-          slot_index: slot.index,
-          start_time: slot.start_time,
-          end_time: slot.end_time,
-        },
-      ]);
+    setError("");
+    setMessage("");
 
-      setMessage(
-        "Selection moved to another facility. Previous selected slots were cleared."
+    setSelectedSlots((prev) => {
+      const exists = prev.some(
+        (item) =>
+          String(item.facility_id) === String(facility.id) &&
+          Number(item.slot_index) === Number(slot.index)
       );
 
-      return;
-    }
+      if (exists) {
+        return prev.filter(
+          (item) =>
+            !(
+              String(item.facility_id) === String(facility.id) &&
+              Number(item.slot_index) === Number(slot.index)
+            )
+        );
+      }
 
-    setSelectedCells((prev) => [
-      ...prev,
-      {
-        key,
-        facility_id: facility.id,
-        facility_name: facility.name,
-        facility_type: getFacilityType(facility),
-        slot_index: slot.index,
-        start_time: slot.start_time,
-        end_time: slot.end_time,
-      },
-    ]);
+      return [
+        ...prev,
+        {
+          facility_id: facility.id,
+          slot_index: slot.index,
+        },
+      ];
+    });
   }
 
-  function validateSelectedCells() {
-    if (!selectedFacility) return "Please select an available slot.";
-    if (!selectedDate) return "Please select a booking date.";
-    if (!selectedCells.length) return "Please select at least one time slot.";
+  function selectAllOpenSlots() {
+    const openSlots = [];
 
-    for (const cell of selectedCells) {
-      const existingBooking = getBookingForCell(cell.facility_id, {
-        start_time: cell.start_time,
-        end_time: cell.end_time,
+    facilities.forEach((facility) => {
+      slots.forEach((slot) => {
+        if (!isSlotBlocked(facility.id, slot)) {
+          openSlots.push({
+            facility_id: facility.id,
+            slot_index: slot.index,
+          });
+        }
       });
+    });
 
-      if (existingBooking) {
-        return "One or more selected slots are no longer available.";
-      }
-
-      if (isPastSlot(selectedDate, cell.start_time)) {
-        return "You cannot book a past time slot.";
-      }
-    }
-
-    return "";
+    setSelectedSlots(openSlots);
   }
 
-  function handleSubmit(event) {
-    event.preventDefault();
-
+  function validateBeforeConfirm() {
     setError("");
     setMessage("");
 
-    if (!profile?.id) return setError("Please login first.");
-
-    const validationError = validateSelectedCells();
-
-    if (validationError) {
-      return setError(validationError);
+    if (!user?.id) {
+      setError("Please login first.");
+      return false;
     }
+
+    if (!form.booking_date) {
+      setError("Please select a booking date.");
+      return false;
+    }
+
+    if (form.booking_date < getTodayDate()) {
+      setError("Past dates are not allowed.");
+      return false;
+    }
+
+    if (selectedSlots.length === 0 || selectedGroups.length === 0) {
+      setError("Please select at least one time slot.");
+      return false;
+    }
+
+    const selectedHasBlockedSlot = selectedSlots.some((item) => {
+      const slot = slots[item.slot_index];
+      return isSlotBlocked(item.facility_id, slot);
+    });
+
+    if (selectedHasBlockedSlot) {
+      setError("Selected time includes unavailable slots.");
+      loadBookingsForDate(false);
+      return false;
+    }
+
+    return true;
+  }
+
+  function openConfirmModal() {
+    if (!validateBeforeConfirm()) return;
 
     setConfirmModal(true);
   }
 
+  function closeConfirmModal() {
+    if (submitting) return;
+    setConfirmModal(false);
+  }
+
   async function confirmBookingSubmit() {
-    setError("");
-    setMessage("");
-
-    if (!profile?.id) return setError("Please login first.");
-
-    const validationError = validateSelectedCells();
-
-    if (validationError) {
-      setConfirmModal(false);
-      return setError(validationError);
-    }
+    if (!validateBeforeConfirm()) return;
 
     try {
       setSubmitting(true);
+      setError("");
+      setMessage("");
+
+      await loadBookingsForDate(false);
+
+      const selectedHasBlockedSlot = selectedSlots.some((item) => {
+        const slot = slots[item.slot_index];
+        return isSlotBlocked(item.facility_id, slot);
+      });
+
+      if (selectedHasBlockedSlot) {
+        setError("One of your selected slots is already reserved or booked.");
+        setConfirmModal(false);
+        return;
+      }
+
+      const createdBookings = [];
 
       for (const group of selectedGroups) {
-        const firstSlot = group[0];
-        const lastSlot = group[group.length - 1];
-        const groupStartTime = firstSlot.start_time;
-        const groupEndTime = lastSlot.end_time;
-        const groupHours = hoursBetween(groupStartTime, groupEndTime);
-        const groupTotal = groupHours * facilityRate;
-
-        await createBooking({
-          user_id: profile.id,
-          facility_id: selectedFacility.id,
-          booking_date: selectedDate,
-          start_time: groupStartTime,
-          end_time: groupEndTime,
+        const savedBooking = await createBooking({
+          user_id: user.id,
+          facility_id: group.facility_id,
+          booking_date: form.booking_date,
+          start_time: group.start_time,
+          end_time: group.end_time,
           session_type: form.session_type,
           notes: form.notes || "",
-          total_hours: groupHours,
-          rate_per_hour: facilityRate,
-          total_amount: groupTotal,
+          total_hours: group.total_hours,
+          rate_per_hour: group.rate_per_hour,
+          total_amount: group.total_amount,
           includes_coach: false,
           linked_coach_id: null,
           coach_rate_per_hour: 0,
           coach_session_mode: null,
           coach_participants: 1,
         });
+
+        if (savedBooking?.id) {
+          createdBookings.push(savedBooking);
+        }
+      }
+
+      setSelectedSlots([]);
+      setForm((prev) => ({
+        ...prev,
+        notes: "",
+      }));
+
+      setConfirmModal(false);
+
+      await loadBookingsForDate(false);
+
+      const firstBooking = createdBookings[0];
+
+      if (firstBooking?.id) {
+        navigate(`/my-bookings?highlight=${firstBooking.id}&pay=1`);
+        return;
       }
 
       setMessage(
-        selectedGroups.length > 1
-          ? `${selectedGroups.length} booking requests submitted successfully.`
-          : "Facility booking request submitted successfully."
+        "Booking reserved successfully. Go to My Bookings to upload your payment proof."
       );
-
-      setSelectedCells([]);
-      setConfirmModal(false);
-      setForm({
-        session_type: "training",
-        notes: "",
-      });
-
-      await loadBookingsForDate();
     } catch (err) {
       console.error(err);
-      setError(err.message || "Failed to submit booking.");
+      setError(
+        err.message ||
+          "Failed to submit booking. The selected slot may already be reserved or booked."
+      );
+      setConfirmModal(false);
+      await loadBookingsForDate(false);
     } finally {
       setSubmitting(false);
     }
   }
 
-  function goToPreviousDay() {
-    const previousDate = addDays(selectedDate, -1);
-
-    if (previousDate < getTodayDate()) return;
-
-    setSelectedDate(previousDate);
-  }
-
-  function goToNextDay() {
-    setSelectedDate(addDays(selectedDate, 1));
-  }
-
-  function clearSelection() {
-    setSelectedCells([]);
-    setConfirmModal(false);
+  function resetSelection() {
+    setSelectedSlots([]);
     setMessage("");
     setError("");
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#F5F3F1] flex items-center justify-center">
+        <div className="rounded-2xl bg-white px-6 py-4 shadow text-[#2B2B2B]">
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
+  if (authProfile?.role === "staff") {
+    return <Navigate to="/staff/dashboard" replace />;
+  }
+
+  if (authProfile?.role === "admin") {
+    return <Navigate to="/admin/dashboard" replace />;
   }
 
   return (
@@ -544,164 +788,81 @@ export default function Booking() {
           )}
 
           <section className="page-hero mb-6">
-            <p className="text-sm font-semibold">Court Schedule Booking</p>
-
-            <h2 className="mt-2 text-3xl font-black">
-              Choose open slots from the court schedule.
-            </h2>
-
-            <p className="mt-2 text-sm text-white/90">
-              Click green slots to select them. Click selected orange slots again
-              to deselect them.
-            </p>
-          </section>
-
-          <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
-                  Today&apos;s Court Schedule
-                </h3>
+                <p className="text-sm font-semibold">Court Schedule Booking</p>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  Select one or more available slots to book.
+                <h2 className="mt-2 text-3xl font-black">
+                  Choose open slots and reserve your court.
+                </h2>
+
+                <p className="mt-2 text-sm text-white/90">
+                  Click a slot to select it. Click it again to deselect it.
+                  Current reservation limit is {reservationMinutes} minute(s).
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={goToPreviousDay}
-                  disabled={selectedDate <= getTodayDate()}
-                  className="rounded-xl border border-[#DED8D2] px-4 py-3 font-black text-[#2B2B2B] hover:bg-[#F5F3F1] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  ‹
-                </button>
-
-                <input
-                  type="date"
-                  min={getTodayDate()}
-                  value={selectedDate}
-                  onChange={(event) => setSelectedDate(event.target.value)}
-                  className="rounded-xl border border-[#DED8D2] px-4 py-3 text-sm font-bold outline-none focus:border-[#C97B6C]"
-                />
-
-                <button
-                  type="button"
-                  onClick={goToNextDay}
-                  className="rounded-xl border border-[#DED8D2] px-4 py-3 font-black text-[#2B2B2B] hover:bg-[#F5F3F1]"
-                >
-                  ›
-                </button>
+              <div className="rounded-2xl bg-white/15 px-5 py-4 text-white">
+                <p className="text-xs font-black uppercase tracking-widest">
+                  Reservation Timer
+                </p>
+                <h3 className="mt-1 text-2xl font-black">
+                  {reservationMinutes} min
+                </h3>
               </div>
             </div>
+          </section>
 
-            <div className="mb-5">
-              <h4 className="text-xl font-black text-[#2B2B2B]">
-                {formatDate(selectedDate)}
-              </h4>
+          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                  Available Facilities
+                </h3>
 
-              <div className="mt-3 flex flex-wrap gap-4 text-xs font-semibold text-slate-600">
-                <Legend color="bg-green-100 border-green-400" label="Open" />
-                <Legend
-                  color="bg-orange-100 border-orange-400"
-                  label="Selected"
-                />
-                <Legend
-                  color="bg-slate-100 border-slate-300"
-                  label="Booked / Unavailable"
-                />
+                <p className="text-sm text-slate-500">
+                  Facility cards show prices. The booking calendar below shows all schedules.
+                </p>
               </div>
+
+              <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-bold text-[#C97B6C]">
+                {selectedSlots.length} selected slot(s)
+              </span>
             </div>
 
-            {facilities.length === 0 ? (
+            {loadingFacilities ? (
+              <p className="text-sm text-slate-500">Loading facilities...</p>
+            ) : facilities.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
-                No facilities available yet.
+                No active facilities found.
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
-                <table className="w-full min-w-[980px] border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-slate-100">
-                      <th className="w-[120px] border border-[#DED8D2] px-4 py-4 text-left font-black text-[#2B2B2B]">
-                        Time
-                      </th>
-
-                      {facilities.map((facility, index) => (
-                        <th
-                          key={facility.id}
-                          className="min-w-[130px] border border-[#DED8D2] px-4 py-4 text-center"
-                        >
-                          <p className="font-black text-[#2B2B2B]">
-                            {facility.name || `Court ${index + 1}`}
-                          </p>
-
-                          <p className="mt-1 text-xs font-medium text-slate-500">
-                            {getFacilityType(facility)}
-                          </p>
-
-                          <p className="mt-1 text-xs font-bold text-[#C97B6C]">
-                            {money(getFacilityRate(facility))}/hr
-                          </p>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {slots.map((slot) => (
-                      <tr key={slot.start_time}>
-                        <td className="border border-[#DED8D2] bg-slate-50 px-4 py-3 font-bold text-slate-600">
-                          {slot.label}
-                        </td>
-
-                        {facilities.map((facility) => {
-                          const cell = getCellState(facility, slot);
-
-                          return (
-                            <td
-                              key={`${facility.id}-${slot.start_time}`}
-                              className="border border-[#DED8D2] p-0"
-                            >
-                              <button
-                                type="button"
-                                disabled={
-                                  cell.state === "booked" ||
-                                  cell.state === "past"
-                                }
-                                onClick={() => handleCellClick(facility, slot)}
-                                className={`flex h-[58px] w-full items-center justify-center px-2 text-xs font-bold transition ${getCellClass(
-                                  cell.state
-                                )}`}
-                                title={`${facility.name} • ${slot.label} • ${cell.label}`}
-                              >
-                                {cell.label}
-                              </button>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {facilities.map((facility) => (
+                  <FacilityCard key={facility.id} facility={facility} />
+                ))}
               </div>
             )}
           </section>
 
-          <form
-            onSubmit={handleSubmit}
-            className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_420px]"
-          >
-            <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-              <h3 className="text-2xl font-black text-[#2B2B2B]">
-                Booking Information
-              </h3>
+          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_auto_auto]">
+              <div>
+                <label className="mb-2 block text-sm font-semibold">
+                  Booking Date
+                </label>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Add the session type and optional notes before submitting.
-              </p>
+                <input
+                  type="date"
+                  name="booking_date"
+                  value={form.booking_date}
+                  min={getTodayDate()}
+                  onChange={handleChange}
+                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                />
+              </div>
 
-              <div className="mt-6">
+              <div>
                 <label className="mb-2 block text-sm font-semibold">
                   Session Type
                 </label>
@@ -720,128 +881,225 @@ export default function Booking() {
                 </select>
               </div>
 
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={selectAllOpenSlots}
+                  className="w-full rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1]"
+                >
+                  Select All Open
+                </button>
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={resetSelection}
+                  className="w-full rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1]"
+                >
+                  Clear Selection
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-2 block text-sm font-semibold">Notes</label>
+
               <textarea
                 name="notes"
                 value={form.notes}
                 onChange={handleChange}
-                placeholder="Optional notes about your booking"
-                className="mt-5 min-h-[140px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                placeholder="Optional notes for your booking"
+                className="min-h-[90px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
               />
-            </section>
+            </div>
+          </section>
 
-            <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-2xl font-black text-[#2B2B2B]">
-                    Booking Summary
-                  </h3>
+          <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                  Court Schedule Calendar
+                </h3>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    Selected slots will be submitted for staff approval.
-                  </p>
+                <p className="text-sm text-slate-500">
+                  All facilities are visible in one calendar view. Reserved and booked slots update in real time.
+                </p>
+
+                <h4 className="mt-4 text-xl font-black text-[#2B2B2B]">
+                  {formatDate(form.booking_date)}
+                </h4>
+
+                <div className="mt-3 flex flex-wrap gap-4 text-xs font-semibold text-slate-600">
+                  <Legend color="bg-green-100 border-green-500" label="Open" />
+                  <Legend color="bg-[#F3E4DF] border-[#C97B6C]" label="Selected" />
+                  <Legend color="bg-blue-100 border-blue-500" label="Reserved" />
+                  <Legend color="bg-yellow-100 border-yellow-500" label="Payment Review" />
+                  <Legend color="bg-green-100 border-green-600" label="Booked/Paid" />
                 </div>
+              </div>
 
-                {selectedCells.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    className="rounded-xl border border-[#DED8D2] px-3 py-2 text-xs font-bold hover:bg-[#F5F3F1]"
-                  >
-                    Clear
-                  </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={goToPreviousDate}
+                  disabled={form.booking_date <= getTodayDate()}
+                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-black hover:bg-[#F5F3F1] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  ‹
+                </button>
+
+                <input
+                  type="date"
+                  name="booking_date"
+                  value={form.booking_date}
+                  min={getTodayDate()}
+                  onChange={handleChange}
+                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
+                />
+
+                <button
+                  type="button"
+                  onClick={goToNextDate}
+                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-black hover:bg-[#F5F3F1]"
+                >
+                  ›
+                </button>
+              </div>
+            </div>
+
+            {facilities.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
+                No facilities found.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
+                <table className="w-full min-w-[980px] border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-100">
+                      <th className="w-[140px] border border-[#DED8D2] px-4 py-4 text-left text-[#2B2B2B]">
+                        Time
+                      </th>
+
+                      {facilities.map((facility) => (
+                        <th
+                          key={facility.id}
+                          className="border border-[#DED8D2] px-4 py-4 text-center text-[#2B2B2B]"
+                        >
+                          <div className="font-black">{facility.name}</div>
+
+                          <div className="mt-1 text-xs font-semibold text-slate-500">
+                            {facility.type || "Facility"}
+                          </div>
+
+                          <div className="mt-1 text-xs font-black text-[#C97B6C]">
+                            {money(getFacilityRate(facility))}/hr
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {slots.map((slot) => (
+                      <tr key={slot.label}>
+                        <td className="border border-[#DED8D2] px-4 py-4 font-bold text-[#2B2B2B]">
+                          {slot.label}
+                        </td>
+
+                        {facilities.map((facility) => {
+                          const blockingBooking = getBlockingBooking(facility.id, slot);
+                          const blocked = Boolean(blockingBooking);
+                          const selected = isSlotSelected(facility.id, slot.index);
+                          const minutesLeft = blockingBooking
+                            ? getReservationMinutesLeft(blockingBooking)
+                            : null;
+
+                          return (
+                            <td
+                              key={getSelectionKey(facility.id, slot.index)}
+                              className="border border-[#DED8D2] p-1"
+                            >
+                              <button
+                                type="button"
+                                disabled={blocked || loadingSchedule}
+                                onClick={() => handleSlotClick(facility, slot)}
+                                className={`min-h-[64px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${
+                                  blocked
+                                    ? getBlockedClass(blockingBooking)
+                                    : selected
+                                    ? "border-[#C97B6C] bg-[#F3E4DF] text-[#C97B6C] ring-2 ring-[#C97B6C]/25"
+                                    : "border-green-500 bg-green-100 text-green-700 hover:bg-green-200"
+                                }`}
+                              >
+                                {blocked ? (
+                                  <BlockedSlotLabel
+                                    booking={blockingBooking}
+                                    minutesLeft={minutesLeft}
+                                  />
+                                ) : selected ? (
+                                  "Selected - Click to Deselect"
+                                ) : (
+                                  "Open - Click to Select"
+                                )}
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="mt-6 flex flex-col gap-4 rounded-2xl bg-[#F5F3F1] p-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-black text-[#2B2B2B]">
+                  Selected Booking Summary
+                </p>
+
+                {selectedGroups.length === 0 ? (
+                  <p className="mt-1 text-sm text-slate-500">
+                    No time slot selected yet.
+                  </p>
+                ) : (
+                  <div className="mt-2 space-y-1 text-sm text-slate-600">
+                    <p>
+                      {selectedSlots.length} slot(s) selected • {totalHours} total hour(s) •{" "}
+                      <b>{money(totalAmount)}</b>
+                    </p>
+
+                    <p className="text-xs text-slate-500">
+                      Non-continuous selected slots will be saved as separate reservation requests.
+                    </p>
+                  </div>
                 )}
               </div>
 
-              {!selectedFacility || selectedCells.length === 0 ? (
-                <div className="mt-5 rounded-2xl border border-dashed border-[#DED8D2] p-5 text-sm text-slate-500">
-                  Select open slot(s) from the schedule to see the booking
-                  summary.
-                </div>
-              ) : (
-                <div className="mt-5 space-y-4">
-                  <SummaryRow label="Facility" value={selectedFacility.name} />
-                  <SummaryRow
-                    label="Facility Type"
-                    value={getFacilityType(selectedFacility)}
-                  />
-                  <SummaryRow label="Date" value={formatDate(selectedDate)} />
-                  <SummaryRow
-                    label="Selected Slots"
-                    value={`${selectedCells.length} slot(s)`}
-                  />
-                  <SummaryRow
-                    label="Total Hours"
-                    value={`${totalHours} hour(s)`}
-                  />
-                  <SummaryRow
-                    label="Rate"
-                    value={`${money(facilityRate)} / hour`}
-                  />
-
-                  <div className="rounded-2xl bg-slate-50 p-4">
-                    <p className="mb-3 text-sm font-black text-[#2B2B2B]">
-                      Selected Time Range(s)
-                    </p>
-
-                    <div className="space-y-2">
-                      {selectedGroups.map((group, index) => {
-                        const firstSlot = group[0];
-                        const lastSlot = group[group.length - 1];
-
-                        return (
-                          <div
-                            key={`${firstSlot.start_time}-${lastSlot.end_time}`}
-                            className="flex justify-between gap-3 rounded-xl bg-white px-3 py-2 text-sm"
-                          >
-                            <span>Request {index + 1}</span>
-                            <b>
-                              {formatTime(firstSlot.start_time)} -{" "}
-                              {formatTime(lastSlot.end_time)}
-                            </b>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl bg-[#F5F3F1] p-4">
-                    <div className="flex items-center justify-between">
-                      <span className="font-black text-[#2B2B2B]">
-                        Total Amount
-                      </span>
-
-                      <span className="text-2xl font-black text-[#C97B6C]">
-                        {money(totalAmount)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <button
-                type="submit"
-                disabled={submitting || selectedCells.length === 0}
-                className="mt-5 w-full rounded-2xl bg-[#C97B6C] px-6 py-4 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                onClick={openConfirmModal}
+                disabled={selectedGroups.length === 0}
+                className="rounded-2xl bg-[#C97B6C] px-6 py-4 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {submitting
-                  ? "Submitting..."
-                  : `Review Booking — ${money(totalAmount)}`}
+                Review Reservation
               </button>
-            </section>
-          </form>
+            </div>
+          </section>
 
-          {confirmModal && selectedFacility && selectedCells.length > 0 && (
+          {confirmModal && (
             <ConfirmBookingModal
-              selectedFacility={selectedFacility}
-              selectedDate={selectedDate}
               selectedGroups={selectedGroups}
-              selectedCells={selectedCells}
-              form={form}
+              bookingDate={form.booking_date}
+              sessionType={form.session_type}
+              notes={form.notes}
               totalHours={totalHours}
-              facilityRate={facilityRate}
               totalAmount={totalAmount}
+              reservationMinutes={reservationMinutes}
               submitting={submitting}
-              onClose={() => setConfirmModal(false)}
+              onClose={closeConfirmModal}
+              onEdit={closeConfirmModal}
               onConfirm={confirmBookingSubmit}
             />
           )}
@@ -851,26 +1109,97 @@ export default function Booking() {
   );
 }
 
-function ConfirmBookingModal({
-  selectedFacility,
-  selectedDate,
-  selectedGroups,
-  selectedCells,
-  form,
-  totalHours,
-  facilityRate,
-  totalAmount,
-  submitting,
-  onClose,
-  onConfirm,
-}) {
-  const selectedSession =
-    SESSION_TYPES.find((type) => type.value === form.session_type)?.label ||
-    form.session_type;
+function FacilityCard({ facility }) {
+  const images = getFacilityImages(facility);
+  const rate = getFacilityRate(facility);
 
   return (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 px-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
+    <div className="overflow-hidden rounded-2xl border border-[#DED8D2] bg-white">
+      <img
+        src={images[0]}
+        alt={facility.name}
+        className="h-36 w-full object-cover"
+        onError={(event) => {
+          event.currentTarget.src = FACILITY_FALLBACK;
+        }}
+      />
+
+      <div className="p-4">
+        <p className="text-lg font-black text-[#2B2B2B]">{facility.name}</p>
+
+        <p className="mt-1 text-sm font-semibold text-slate-500">
+          {facility.type || "Facility"}
+        </p>
+
+        <p className="mt-3 text-sm font-black text-[#C97B6C]">
+          {money(rate)}/hr
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function Legend({ color, label }) {
+  return (
+    <span className="flex items-center gap-2">
+      <span className={`h-4 w-4 rounded border ${color}`}></span>
+      {label}
+    </span>
+  );
+}
+
+function BlockedSlotLabel({ booking, minutesLeft }) {
+  const status = normalizeStatus(booking?.status);
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+  const label = normalizeBookedLabel(status, paymentStatus);
+  const customerName = booking?.profiles?.full_name || "User";
+
+  if (
+    status === "reserved" &&
+    ["unpaid", "rejected_payment"].includes(paymentStatus) &&
+    minutesLeft !== null &&
+    minutesLeft > 0
+  ) {
+    return (
+      <span>
+        Reserved
+        <br />
+        <span className="text-xs font-bold">{customerName}</span>
+        <br />
+        <span className="text-xs font-bold">{minutesLeft} min left</span>
+      </span>
+    );
+  }
+
+  return (
+    <span>
+      {label}
+      <br />
+      <span className="text-xs font-bold">{customerName}</span>
+      <br />
+      <span className="text-xs font-bold">
+        {formatStatusLabel(paymentStatus)}
+      </span>
+    </span>
+  );
+}
+
+function ConfirmBookingModal({
+  selectedGroups,
+  bookingDate,
+  sessionType,
+  notes,
+  totalHours,
+  totalAmount,
+  reservationMinutes,
+  submitting,
+  onClose,
+  onEdit,
+  onConfirm,
+}) {
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
@@ -878,11 +1207,12 @@ function ConfirmBookingModal({
             </p>
 
             <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
-              Review your booking request
+              Review your reservation
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Please check the details before submitting for staff approval.
+              After confirming, your selected slot(s) will be reserved and you will be
+              redirected to upload payment proof.
             </p>
           </div>
 
@@ -897,75 +1227,84 @@ function ConfirmBookingModal({
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <DetailItem label="Facility" value={selectedFacility.name} />
-          <DetailItem label="Facility Type" value={getFacilityType(selectedFacility)} />
-          <DetailItem label="Date" value={formatDate(selectedDate)} />
-          <DetailItem label="Session Type" value={selectedSession} />
-          <DetailItem label="Selected Slots" value={`${selectedCells.length} slot(s)`} />
-          <DetailItem label="Total Hours" value={`${totalHours} hour(s)`} />
-          <DetailItem label="Rate Per Hour" value={money(facilityRate)} />
-          <DetailItem label="Total Amount" value={money(totalAmount)} />
+          <ConfirmItem label="Date" value={formatDate(bookingDate)} />
+          <ConfirmItem
+            label="Session Type"
+            value={
+              SESSION_TYPES.find((item) => item.value === sessionType)?.label ||
+              sessionType
+            }
+          />
+          <ConfirmItem
+            label="Selected Slots"
+            value={`${selectedGroups.reduce(
+              (sum, group) => sum + group.slots.length,
+              0
+            )} slot(s)`}
+          />
+          <ConfirmItem label="Total Hours" value={`${totalHours} hour(s)`} />
+          <ConfirmItem
+            label="Total Reservation Request"
+            value={`${selectedGroups.length} request(s)`}
+          />
+          <ConfirmItem label="Total Amount" value={money(totalAmount)} />
         </div>
 
         <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-          <p className="mb-3 text-sm font-black text-[#2B2B2B]">
-            Booking Request(s)
+          <p className="text-sm font-black text-[#2B2B2B]">
+            Booking Reservation(s)
           </p>
 
-          <div className="space-y-2">
-            {selectedGroups.map((group, index) => {
-              const firstSlot = group[0];
-              const lastSlot = group[group.length - 1];
-              const hours = hoursBetween(firstSlot.start_time, lastSlot.end_time);
-              const total = hours * facilityRate;
+          <div className="mt-3 space-y-3">
+            {selectedGroups.map((group, index) => (
+              <div
+                key={`${group.facility_id}-${group.start_time}-${group.end_time}-${index}`}
+                className="flex items-center justify-between gap-4 rounded-2xl bg-white px-4 py-3"
+              >
+                <div>
+                  <p className="font-black text-[#2B2B2B]">
+                    Request {index + 1}: {group.facility?.name}
+                  </p>
 
-              return (
-                <div
-                  key={`${firstSlot.start_time}-${lastSlot.end_time}`}
-                  className="rounded-2xl bg-white px-4 py-3"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <p className="font-black text-[#2B2B2B]">
-                      Request {index + 1}
-                    </p>
-
-                    <p className="text-sm font-black text-[#C97B6C]">
-                      {money(total)}
-                    </p>
-                  </div>
-
-                  <p className="mt-1 text-sm text-slate-600">
-                    {formatTime(firstSlot.start_time)} -{" "}
-                    {formatTime(lastSlot.end_time)} • {hours} hour(s)
+                  <p className="mt-1 text-sm text-slate-500">
+                    {formatTime(group.start_time)} - {formatTime(group.end_time)} •{" "}
+                    {group.total_hours} hour(s) • {money(group.rate_per_hour)}/hr
                   </p>
                 </div>
-              );
-            })}
+
+                <p className="font-black text-[#C97B6C]">
+                  {money(group.total_amount)}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="mt-5 rounded-2xl bg-[#F5F3F1] p-4">
-          <div className="flex items-center justify-between">
-            <span className="font-black text-[#2B2B2B]">Final Total</span>
+        <div className="mt-5 flex items-center justify-between rounded-2xl bg-[#F5F3F1] px-4 py-4">
+          <p className="font-black text-[#2B2B2B]">Final Total</p>
 
-            <span className="text-2xl font-black text-[#C97B6C]">
-              {money(totalAmount)}
-            </span>
-          </div>
+          <p className="text-2xl font-black text-[#C97B6C]">
+            {money(totalAmount)}
+          </p>
+        </div>
+
+        <div className="mt-5 rounded-2xl bg-yellow-50 px-4 py-4 text-sm text-yellow-800">
+          Your selected slot(s) will be reserved for {reservationMinutes} minute(s).
+          Upload your payment proof immediately so staff can verify and approve
+          your booking.
         </div>
 
         <div className="mt-5 rounded-2xl bg-slate-50 p-4">
           <p className="text-sm font-black text-slate-700">Notes</p>
-
           <p className="mt-2 text-sm text-slate-600">
-            {form.notes?.trim() || "No notes provided."}
+            {notes?.trim() || "No notes provided."}
           </p>
         </div>
 
         <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
           <button
             type="button"
-            onClick={onClose}
+            onClick={onEdit}
             disabled={submitting}
             className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
           >
@@ -976,9 +1315,9 @@ function ConfirmBookingModal({
             type="button"
             onClick={onConfirm}
             disabled={submitting}
-            className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463] disabled:opacity-60"
+            className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {submitting ? "Submitting..." : "Confirm and Submit"}
+            {submitting ? "Submitting..." : "Confirm and Proceed to Payment"}
           </button>
         </div>
       </div>
@@ -986,48 +1325,14 @@ function ConfirmBookingModal({
   );
 }
 
-function getCellClass(state) {
-  if (state === "booked") {
-    return "cursor-not-allowed bg-slate-100 text-slate-500";
-  }
-
-  if (state === "past") {
-    return "cursor-not-allowed bg-slate-50 text-slate-300";
-  }
-
-  if (state === "selected") {
-    return "border border-orange-400 bg-orange-100 text-orange-700 hover:bg-orange-200";
-  }
-
-  return "border border-green-400 bg-green-100 text-green-700 hover:bg-green-200";
-}
-
-function Legend({ color, label }) {
-  return (
-    <span className="inline-flex items-center gap-2">
-      <span className={`h-4 w-4 rounded border ${color}`} />
-      {label}
-    </span>
-  );
-}
-
-function SummaryRow({ label, value }) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-b border-[#DED8D2] pb-3 text-sm">
-      <span className="text-slate-500">{label}</span>
-      <b className="text-right text-[#2B2B2B]">{value || "-"}</b>
-    </div>
-  );
-}
-
-function DetailItem({ label, value }) {
+function ConfirmItem({ label, value }) {
   return (
     <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
       <p className="text-xs font-black uppercase tracking-widest text-slate-400">
         {label}
       </p>
 
-      <p className="mt-2 break-words text-sm font-bold text-[#2B2B2B]">
+      <p className="mt-2 break-words text-sm font-black text-[#2B2B2B]">
         {value || "-"}
       </p>
     </div>
