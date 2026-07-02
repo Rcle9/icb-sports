@@ -12,6 +12,12 @@ import { useAuth } from "../../context/AuthContext";
 
 const FACILITY_FALLBACK = "https://via.placeholder.com/800x500?text=Facility";
 
+const SPORT_TYPES = [
+  { value: "pickleball", label: "Pickleball" },
+  { value: "basketball", label: "Basketball" },
+  { value: "table_tennis", label: "Table Tennis" },
+];
+
 const SESSION_TYPES = [
   { value: "training", label: "Training" },
   { value: "instructional", label: "Instructional" },
@@ -28,7 +34,46 @@ function cleanTime(time) {
 }
 
 function getTodayDate() {
-  return new Date().toISOString().split("T")[0];
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysToDateString(dateString, days) {
+  if (!dateString) return getTodayDate();
+
+  const [year, month, day] = dateString.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  date.setDate(date.getDate() + days);
+
+  const nextYear = date.getFullYear();
+  const nextMonth = String(date.getMonth() + 1).padStart(2, "0");
+  const nextDay = String(date.getDate()).padStart(2, "0");
+
+  return `${nextYear}-${nextMonth}-${nextDay}`;
+}
+
+function getCurrentTimeValue() {
+  const now = new Date();
+  const hour = String(now.getHours()).padStart(2, "0");
+  const minute = String(now.getMinutes()).padStart(2, "0");
+
+  return `${hour}:${minute}`;
+}
+
+function isPastSlot(bookingDate, slot) {
+  const today = getTodayDate();
+
+  if (!bookingDate) return false;
+
+  if (bookingDate < today) return true;
+  if (bookingDate > today) return false;
+
+  return cleanTime(slot.end_time) <= getCurrentTimeValue();
 }
 
 function formatTime(time24) {
@@ -58,8 +103,43 @@ function formatDate(value) {
   }
 }
 
-function formatStatusLabel(status) {
-  return String(status || "-").replaceAll("_", " ");
+function normalizeStatus(status) {
+  return String(status || "").toLowerCase();
+}
+
+function normalizePaymentStatus(status) {
+  return String(status || "unpaid").toLowerCase();
+}
+
+function normalizeFacilityType(value) {
+  const type = String(value || "").toLowerCase().trim();
+
+  if (type.includes("pickle")) return "pickleball";
+  if (type.includes("basket")) return "basketball";
+  if (type.includes("table") || type.includes("tennis")) return "table_tennis";
+
+  return type.replaceAll(" ", "_");
+}
+
+function getFacilityImages(item) {
+  const images = [
+    ...(Array.isArray(item?.image_urls) ? item.image_urls : []),
+    ...(Array.isArray(item?.images) ? item.images : []),
+    item?.image_url,
+    item?.image,
+  ].filter(Boolean);
+
+  return [...new Set(images)].length ? [...new Set(images)] : [FACILITY_FALLBACK];
+}
+
+function getFacilityRate(facility) {
+  return Number(
+    facility?.rate_per_hour ||
+      facility?.price_per_hour ||
+      facility?.hourly_rate ||
+      facility?.price ||
+      0
+  );
 }
 
 function generateSlots() {
@@ -92,35 +172,6 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
   return cleanTime(aStart) < cleanTime(bEnd) && cleanTime(aEnd) > cleanTime(bStart);
 }
 
-function normalizeStatus(status) {
-  return String(status || "").toLowerCase();
-}
-
-function normalizePaymentStatus(status) {
-  return String(status || "unpaid").toLowerCase();
-}
-
-function getFacilityImages(item) {
-  const images = [
-    ...(Array.isArray(item?.image_urls) ? item.image_urls : []),
-    ...(Array.isArray(item?.images) ? item.images : []),
-    item?.image_url,
-    item?.image,
-  ].filter(Boolean);
-
-  return [...new Set(images)].length ? [...new Set(images)] : [FACILITY_FALLBACK];
-}
-
-function getFacilityRate(facility) {
-  return Number(
-    facility?.rate_per_hour ||
-      facility?.price_per_hour ||
-      facility?.hourly_rate ||
-      facility?.price ||
-      0
-  );
-}
-
 function getReservationMinutesLeft(booking) {
   if (!booking?.reservation_expires_at) return null;
 
@@ -146,23 +197,6 @@ function isExpiredReservedBooking(booking) {
     minutesLeft !== null &&
     minutesLeft <= 0
   );
-}
-
-function normalizeBookedLabel(status, paymentStatus) {
-  const statusValue = normalizeStatus(status);
-  const paymentValue = normalizePaymentStatus(paymentStatus);
-
-  if (statusValue === "reserved") {
-    if (paymentValue === "pending_verification") return "Payment Review";
-    return "Reserved";
-  }
-
-  if (statusValue === "pending") return "Pending";
-  if (statusValue === "approved") return "Booked";
-  if (statusValue === "expired") return "Expired";
-  if (statusValue === "cancelled") return "Cancelled";
-
-  return "Unavailable";
 }
 
 function buildSelectedGroups(selectedSlots, slots, facilities) {
@@ -233,33 +267,38 @@ function getSelectionKey(facilityId, slotIndex) {
   return `${facilityId}-${slotIndex}`;
 }
 
-function getBlockedClass(booking) {
+function getUserBlockedClass(booking) {
   const status = normalizeStatus(booking?.status);
   const paymentStatus = normalizePaymentStatus(booking?.payment_status);
 
-  if (status === "reserved" && paymentStatus === "pending_verification") {
-    return "cursor-not-allowed border-yellow-500 bg-yellow-100 text-yellow-800";
+  if (status === "approved" || paymentStatus === "paid") {
+    return "cursor-not-allowed border-[#9CA3AF] bg-[#E5E7EB] text-[#374151]";
   }
 
-  if (status === "approved") {
-    return "cursor-not-allowed border-green-600 bg-green-100 text-green-800";
+  if (status === "reserved" && paymentStatus === "pending_verification") {
+    return "cursor-not-allowed border-[#60A5FA] bg-[#DBEAFE] text-[#1D4ED8]";
   }
 
   if (status === "pending") {
-    return "cursor-not-allowed border-yellow-500 bg-yellow-100 text-yellow-800";
+    return "cursor-not-allowed border-[#60A5FA] bg-[#DBEAFE] text-[#1D4ED8]";
   }
 
-  return "cursor-not-allowed border-blue-500 bg-blue-100 text-blue-800";
+  if (status === "reserved") {
+    return "cursor-not-allowed border-[#F59E0B] bg-[#FEF3C7] text-[#92400E]";
+  }
+
+  return "cursor-not-allowed border-[#9CA3AF] bg-[#E5E7EB] text-[#374151]";
 }
 
 export default function Booking() {
   const navigate = useNavigate();
   const { user, profile: authProfile, loading: authLoading } = useAuth();
 
-  const [profile, setProfile] = useState(null);
   const [facilities, setFacilities] = useState([]);
   const [bookingsForDate, setBookingsForDate] = useState([]);
+  const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
 
+  const [selectedSport, setSelectedSport] = useState("pickleball");
   const [reservationMinutes, setReservationMinutes] = useState(15);
   const [selectedSlots, setSelectedSlots] = useState([]);
 
@@ -279,9 +318,22 @@ export default function Booking() {
 
   const slots = useMemo(() => generateSlots(), []);
 
+  const selectedSportLabel = useMemo(() => {
+    return (
+      SPORT_TYPES.find((sport) => sport.value === selectedSport)?.label ||
+      "Facility"
+    );
+  }, [selectedSport]);
+
+  const filteredFacilities = useMemo(() => {
+    return facilities.filter(
+      (facility) => normalizeFacilityType(facility.type) === selectedSport
+    );
+  }, [facilities, selectedSport]);
+
   const selectedGroups = useMemo(() => {
-    return buildSelectedGroups(selectedSlots, slots, facilities);
-  }, [selectedSlots, slots, facilities]);
+    return buildSelectedGroups(selectedSlots, slots, filteredFacilities);
+  }, [selectedSlots, slots, filteredFacilities]);
 
   const totalHours = useMemo(() => {
     return selectedGroups.reduce(
@@ -300,7 +352,6 @@ export default function Booking() {
   useEffect(() => {
     if (!user?.id) return;
 
-    loadProfile();
     loadFacilities();
     loadReservationMinutes();
   }, [user?.id]);
@@ -308,8 +359,15 @@ export default function Booking() {
   useEffect(() => {
     if (form.booking_date) {
       loadBookingsForDate();
+      loadMaintenanceBlocksForDate();
     }
   }, [form.booking_date, facilities.length]);
+
+  useEffect(() => {
+    setSelectedSlots([]);
+    setError("");
+    setMessage("");
+  }, [selectedSport]);
 
   useEffect(() => {
     if (!form.booking_date) return;
@@ -325,6 +383,17 @@ export default function Booking() {
         },
         () => {
           loadBookingsForDate(false);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "facility_maintenance_blocks",
+        },
+        () => {
+          loadMaintenanceBlocksForDate(false);
         }
       )
       .on(
@@ -349,6 +418,7 @@ export default function Booking() {
     const interval = setInterval(() => {
       if (form.booking_date) {
         loadBookingsForDate(false);
+        loadMaintenanceBlocksForDate(false);
       }
     }, 10000);
 
@@ -362,23 +432,6 @@ export default function Booking() {
     } catch (err) {
       console.error("Failed to load reservation minutes:", err.message);
       setReservationMinutes(15);
-    }
-  }
-
-  async function loadProfile() {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      setProfile(data || authProfile || null);
-    } catch (err) {
-      console.error(err);
-      setProfile(authProfile || null);
     }
   }
 
@@ -410,6 +463,27 @@ export default function Booking() {
       setError(err.message || "Failed to load facilities.");
     } finally {
       setLoadingFacilities(false);
+    }
+  }
+
+  async function loadMaintenanceBlocksForDate() {
+    try {
+      if (!form.booking_date) return;
+
+      const { data, error } = await supabase
+        .from("facility_maintenance_blocks")
+        .select(`
+          *,
+          facilities (*)
+        `)
+        .eq("maintenance_date", form.booking_date)
+        .eq("status", "active");
+
+      if (error) throw error;
+
+      setMaintenanceBlocks(data || []);
+    } catch (err) {
+      console.error("Failed to load maintenance blocks:", err);
     }
   }
 
@@ -492,13 +566,34 @@ export default function Booking() {
     }
   }
 
+  function handleSportChange(sport) {
+    setSelectedSport(sport);
+  }
+
   function goToPreviousDate() {
-    const current = new Date(`${form.booking_date}T00:00:00`);
-    current.setDate(current.getDate() - 1);
+  const previousDate = addDaysToDateString(form.booking_date, -1);
+  const today = getTodayDate();
 
-    const nextValue = current.toISOString().split("T")[0];
+  if (previousDate < today) {
+    setForm((prev) => ({
+      ...prev,
+      booking_date: today,
+    }));
 
-    if (nextValue < getTodayDate()) return;
+    setSelectedSlots([]);
+    return;
+  }
+
+  setForm((prev) => ({
+    ...prev,
+    booking_date: previousDate,
+  }));
+
+  setSelectedSlots([]);
+}
+
+  function goToNextDate() {
+    const nextValue = addDaysToDateString(form.booking_date, 1);
 
     setForm((prev) => ({
       ...prev,
@@ -508,16 +603,18 @@ export default function Booking() {
     setSelectedSlots([]);
   }
 
-  function goToNextDate() {
-    const current = new Date(`${form.booking_date}T00:00:00`);
-    current.setDate(current.getDate() + 1);
+  function getMaintenanceBlock(facilityId, slot) {
+    return (maintenanceBlocks || []).find((block) => {
+      if (String(block.facility_id) !== String(facilityId)) return false;
+      if (normalizeStatus(block.status) !== "active") return false;
 
-    setForm((prev) => ({
-      ...prev,
-      booking_date: current.toISOString().split("T")[0],
-    }));
-
-    setSelectedSlots([]);
+      return overlaps(
+        slot.start_time,
+        slot.end_time,
+        block.start_time,
+        block.end_time
+      );
+    });
   }
 
   function getBlockingBooking(facilityId, slot) {
@@ -547,7 +644,11 @@ export default function Booking() {
   }
 
   function isSlotBlocked(facilityId, slot) {
-    return Boolean(getBlockingBooking(facilityId, slot));
+    return (
+      isPastSlot(form.booking_date, slot) ||
+      Boolean(getBlockingBooking(facilityId, slot)) ||
+      Boolean(getMaintenanceBlock(facilityId, slot))
+    );
   }
 
   function isSlotSelected(facilityId, slotIndex) {
@@ -559,6 +660,19 @@ export default function Booking() {
   }
 
   function handleSlotClick(facility, slot) {
+    if (isPastSlot(form.booking_date, slot)) {
+      setError("Past time slots are no longer available.");
+      return;
+    }
+
+    const maintenanceBlock = getMaintenanceBlock(facility.id, slot);
+
+    if (maintenanceBlock) {
+      setError("This facility is under maintenance during this timeslot.");
+      loadMaintenanceBlocksForDate(false);
+      return;
+    }
+
     const blockingBooking = getBlockingBooking(facility.id, slot);
 
     if (blockingBooking) {
@@ -600,9 +714,9 @@ export default function Booking() {
   function selectAllOpenSlots() {
     const openSlots = [];
 
-    facilities.forEach((facility) => {
+    filteredFacilities.forEach((facility) => {
       slots.forEach((slot) => {
-        if (!isSlotBlocked(facility.id, slot)) {
+        if (!isPastSlot(form.booking_date, slot) && !isSlotBlocked(facility.id, slot)) {
           openSlots.push({
             facility_id: facility.id,
             slot_index: slot.index,
@@ -633,6 +747,11 @@ export default function Booking() {
       return false;
     }
 
+    if (filteredFacilities.length === 0) {
+      setError(`No active ${selectedSportLabel} facility found.`);
+      return false;
+    }
+
     if (selectedSlots.length === 0 || selectedGroups.length === 0) {
       setError("Please select at least one time slot.");
       return false;
@@ -640,12 +759,17 @@ export default function Booking() {
 
     const selectedHasBlockedSlot = selectedSlots.some((item) => {
       const slot = slots[item.slot_index];
-      return isSlotBlocked(item.facility_id, slot);
+
+      return (
+        isPastSlot(form.booking_date, slot) ||
+        isSlotBlocked(item.facility_id, slot)
+      );
     });
 
     if (selectedHasBlockedSlot) {
       setError("Selected time includes unavailable slots.");
       loadBookingsForDate(false);
+      loadMaintenanceBlocksForDate(false);
       return false;
     }
 
@@ -672,14 +796,19 @@ export default function Booking() {
       setMessage("");
 
       await loadBookingsForDate(false);
+      await loadMaintenanceBlocksForDate(false);
 
       const selectedHasBlockedSlot = selectedSlots.some((item) => {
         const slot = slots[item.slot_index];
-        return isSlotBlocked(item.facility_id, slot);
+
+        return (
+          isPastSlot(form.booking_date, slot) ||
+          isSlotBlocked(item.facility_id, slot)
+        );
       });
 
       if (selectedHasBlockedSlot) {
-        setError("One of your selected slots is already reserved or booked.");
+        setError("One of your selected slots is already unavailable.");
         setConfirmModal(false);
         return;
       }
@@ -698,11 +827,6 @@ export default function Booking() {
           total_hours: group.total_hours,
           rate_per_hour: group.rate_per_hour,
           total_amount: group.total_amount,
-          includes_coach: false,
-          linked_coach_id: null,
-          coach_rate_per_hour: 0,
-          coach_session_mode: null,
-          coach_participants: 1,
         });
 
         if (savedBooking?.id) {
@@ -734,10 +858,11 @@ export default function Booking() {
       console.error(err);
       setError(
         err.message ||
-          "Failed to submit booking. The selected slot may already be reserved or booked."
+          "Failed to submit booking. The selected slot may already be reserved, booked, past time, or under maintenance."
       );
       setConfirmModal(false);
       await loadBookingsForDate(false);
+      await loadMaintenanceBlocksForDate(false);
     } finally {
       setSubmitting(false);
     }
@@ -793,12 +918,12 @@ export default function Booking() {
                 <p className="text-sm font-semibold">Court Schedule Booking</p>
 
                 <h2 className="mt-2 text-3xl font-black">
-                  Choose open slots and reserve your court.
+                  Choose a sport, select a court, and reserve your time slot.
                 </h2>
 
                 <p className="mt-2 text-sm text-white/90">
-                  Click a slot to select it. Click it again to deselect it.
-                  Current reservation limit is {reservationMinutes} minute(s).
+                  The calendar is filtered by sport type. Each court or table has
+                  its own column to prevent double-booking.
                 </p>
               </div>
 
@@ -814,14 +939,53 @@ export default function Booking() {
           </section>
 
           <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+            <div className="mb-5">
+              <h3 className="text-2xl font-black text-[#2B2B2B]">
+                Choose Sport
+              </h3>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Select a sport to show its available courts or tables.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              {SPORT_TYPES.map((sport) => (
+                <button
+                  key={sport.value}
+                  type="button"
+                  onClick={() => handleSportChange(sport.value)}
+                  className={`rounded-2xl border px-5 py-4 text-left transition ${
+                    selectedSport === sport.value
+                      ? "border-[#C97B6C] bg-[#F3E4DF] text-[#C97B6C] ring-2 ring-[#C97B6C]/20"
+                      : "border-[#DED8D2] bg-white text-[#2B2B2B] hover:bg-[#F5F3F1]"
+                  }`}
+                >
+                  <p className="text-lg font-black">{sport.label}</p>
+
+                  <p className="mt-1 text-sm font-semibold opacity-80">
+                    {sport.value === "pickleball" &&
+                      "6 pickleball courts available"}
+                    {sport.value === "basketball" &&
+                      "1 basketball court available"}
+                    {sport.value === "table_tennis" &&
+                      "2 table tennis tables available"}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <h3 className="text-2xl font-black text-[#2B2B2B]">
-                  Available Facilities
+                  {selectedSportLabel} Facilities
                 </h3>
 
                 <p className="text-sm text-slate-500">
-                  Facility cards show prices. The booking calendar below shows all schedules.
+                  Facility cards show prices. The calendar below shows only{" "}
+                  {selectedSportLabel.toLowerCase()} schedules.
                 </p>
               </div>
 
@@ -832,13 +996,14 @@ export default function Booking() {
 
             {loadingFacilities ? (
               <p className="text-sm text-slate-500">Loading facilities...</p>
-            ) : facilities.length === 0 ? (
+            ) : filteredFacilities.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
-                No active facilities found.
+                No active {selectedSportLabel} facility found. Please add this
+                facility type in admin Facility Management.
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {facilities.map((facility) => (
+                {filteredFacilities.map((facility) => (
                   <FacilityCard key={facility.id} facility={facility} />
                 ))}
               </div>
@@ -919,11 +1084,12 @@ export default function Booking() {
             <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 className="text-2xl font-black text-[#2B2B2B]">
-                  Court Schedule Calendar
+                  {selectedSportLabel} Schedule Calendar
                 </h3>
 
                 <p className="text-sm text-slate-500">
-                  All facilities are visible in one calendar view. Reserved and booked slots update in real time.
+                  Rows are time slots. Columns are courts or tables. Customer
+                  names are hidden for privacy.
                 </p>
 
                 <h4 className="mt-4 text-xl font-black text-[#2B2B2B]">
@@ -931,11 +1097,13 @@ export default function Booking() {
                 </h4>
 
                 <div className="mt-3 flex flex-wrap gap-4 text-xs font-semibold text-slate-600">
-                  <Legend color="bg-green-100 border-green-500" label="Open" />
+                  <Legend color="bg-[#DCFCE7] border-[#4ADE80]" label="Open" />
                   <Legend color="bg-[#F3E4DF] border-[#C97B6C]" label="Selected" />
-                  <Legend color="bg-blue-100 border-blue-500" label="Reserved" />
-                  <Legend color="bg-yellow-100 border-yellow-500" label="Payment Review" />
-                  <Legend color="bg-green-100 border-green-600" label="Booked/Paid" />
+                  <Legend color="bg-[#FEF3C7] border-[#F59E0B]" label="Reserved" />
+                  <Legend color="bg-[#DBEAFE] border-[#60A5FA]" label="Payment Review" />
+                  <Legend color="bg-[#E5E7EB] border-[#9CA3AF]" label="Booked / Paid" />
+                  <Legend color="bg-[#EDE9FE] border-[#A78BFA]" label="Maintenance" />
+                  <Legend color="bg-slate-200 border-slate-400" label="Past Time" />
                 </div>
               </div>
 
@@ -968,9 +1136,9 @@ export default function Booking() {
               </div>
             </div>
 
-            {facilities.length === 0 ? (
+            {filteredFacilities.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
-                No facilities found.
+                No {selectedSportLabel.toLowerCase()} facilities found.
               </div>
             ) : (
               <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
@@ -981,7 +1149,7 @@ export default function Booking() {
                         Time
                       </th>
 
-                      {facilities.map((facility) => (
+                      {filteredFacilities.map((facility) => (
                         <th
                           key={facility.id}
                           className="border border-[#DED8D2] px-4 py-4 text-center text-[#2B2B2B]"
@@ -1007,10 +1175,18 @@ export default function Booking() {
                           {slot.label}
                         </td>
 
-                        {facilities.map((facility) => {
+                        {filteredFacilities.map((facility) => {
+                          const pastSlot = isPastSlot(form.booking_date, slot);
+                          const maintenanceBlock = getMaintenanceBlock(facility.id, slot);
                           const blockingBooking = getBlockingBooking(facility.id, slot);
-                          const blocked = Boolean(blockingBooking);
+
+                          const blocked =
+                            pastSlot ||
+                            Boolean(blockingBooking) ||
+                            Boolean(maintenanceBlock);
+
                           const selected = isSlotSelected(facility.id, slot.index);
+
                           const minutesLeft = blockingBooking
                             ? getReservationMinutesLeft(blockingBooking)
                             : null;
@@ -1026,14 +1202,22 @@ export default function Booking() {
                                 onClick={() => handleSlotClick(facility, slot)}
                                 className={`min-h-[64px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${
                                   blocked
-                                    ? getBlockedClass(blockingBooking)
+                                    ? pastSlot
+                                      ? "cursor-not-allowed border-slate-400 bg-slate-200 text-slate-600"
+                                      : maintenanceBlock
+                                      ? "cursor-not-allowed border-[#A78BFA] bg-[#EDE9FE] text-[#6D28D9]"
+                                      : getUserBlockedClass(blockingBooking)
                                     : selected
                                     ? "border-[#C97B6C] bg-[#F3E4DF] text-[#C97B6C] ring-2 ring-[#C97B6C]/25"
-                                    : "border-green-500 bg-green-100 text-green-700 hover:bg-green-200"
+                                    : "border-[#4ADE80] bg-[#DCFCE7] text-[#166534] hover:bg-[#CFF7DA]"
                                 }`}
                               >
-                                {blocked ? (
-                                  <BlockedSlotLabel
+                                {pastSlot ? (
+                                  <PastSlotLabel />
+                                ) : maintenanceBlock ? (
+                                  <MaintenanceSlotLabel block={maintenanceBlock} />
+                                ) : blocked ? (
+                                  <PrivateBlockedSlotLabel
                                     booking={blockingBooking}
                                     minutesLeft={minutesLeft}
                                   />
@@ -1148,38 +1332,86 @@ function Legend({ color, label }) {
   );
 }
 
-function BlockedSlotLabel({ booking, minutesLeft }) {
+function PastSlotLabel() {
+  return (
+    <span>
+      Unavailable
+      <br />
+      <span className="text-xs font-bold">Past Time</span>
+    </span>
+  );
+}
+
+function MaintenanceSlotLabel({ block }) {
+  return (
+    <span>
+      Maintenance
+      <br />
+      <span className="text-xs font-bold">Unavailable</span>
+      <br />
+      <span className="text-xs font-bold">
+        {block?.reason || "Facility maintenance"}
+      </span>
+    </span>
+  );
+}
+
+function PrivateBlockedSlotLabel({ booking, minutesLeft }) {
   const status = normalizeStatus(booking?.status);
   const paymentStatus = normalizePaymentStatus(booking?.payment_status);
-  const label = normalizeBookedLabel(status, paymentStatus);
-  const customerName = booking?.profiles?.full_name || "User";
 
   if (
     status === "reserved" &&
-    ["unpaid", "rejected_payment"].includes(paymentStatus) &&
-    minutesLeft !== null &&
-    minutesLeft > 0
+    ["unpaid", "rejected_payment"].includes(paymentStatus)
   ) {
     return (
       <span>
         Reserved
+        {minutesLeft !== null && minutesLeft > 0 && (
+          <>
+            <br />
+            <span className="text-xs font-bold">{minutesLeft} min left</span>
+          </>
+        )}
+      </span>
+    );
+  }
+
+  if (status === "reserved" && paymentStatus === "pending_verification") {
+    return (
+      <span>
+        Payment Review
         <br />
-        <span className="text-xs font-bold">{customerName}</span>
+        <span className="text-xs font-bold">Unavailable</span>
+      </span>
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <span>
+        Payment Review
         <br />
-        <span className="text-xs font-bold">{minutesLeft} min left</span>
+        <span className="text-xs font-bold">Unavailable</span>
+      </span>
+    );
+  }
+
+  if (status === "approved" || paymentStatus === "paid") {
+    return (
+      <span>
+        Booked
+        <br />
+        <span className="text-xs font-bold">Unavailable</span>
       </span>
     );
   }
 
   return (
     <span>
-      {label}
+      Unavailable
       <br />
-      <span className="text-xs font-bold">{customerName}</span>
-      <br />
-      <span className="text-xs font-bold">
-        {formatStatusLabel(paymentStatus)}
-      </span>
+      <span className="text-xs font-bold">Not available</span>
     </span>
   );
 }

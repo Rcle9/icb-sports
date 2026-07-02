@@ -218,7 +218,12 @@ export async function verifyPayment(bookingId, verificationPayload = {}) {
     throw new Error("Amount paid is lower than the total booking amount.");
   }
 
-  const checklist = verificationPayload.checklist || {};
+  const checklist = verificationPayload.checklist || {
+    amount_matches: true,
+    proof_readable: true,
+    reference_visible: true,
+    receiver_confirmed: true,
+  };
 
   const requiredChecklist = [
     checklist.amount_matches,

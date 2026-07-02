@@ -36,7 +36,7 @@ export default function Settings() {
       const mapped = {};
 
       (data || []).forEach((item) => {
-        if (item.setting_key === "allow_coaching_notifications") return;
+        
 
         let value = item.setting_value;
 
@@ -85,6 +85,16 @@ export default function Settings() {
     if (error) throw error;
   }
 
+  async function deleteUnusedCoachingSettings() {
+    await supabase
+      .from("system_settings")
+      .delete()
+      .in("setting_key", [
+        "allow_coaching_notifications",
+        "coaching_enabled",
+      ]);
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
 
@@ -93,6 +103,8 @@ export default function Settings() {
     setMessage("");
 
     try {
+      await deleteUnusedCoachingSettings();
+
       const entries = Object.entries(settings);
 
       for (const [key, value] of entries) {

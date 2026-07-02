@@ -151,11 +151,11 @@ export default function UserDashboard() {
       const today = getTodayDate();
 
       const approvedBookings = userBookings.filter(
-        (b) => normalizeStatus(b.status) === "approved"
+        (booking) => normalizeStatus(booking.status) === "approved"
       );
 
       const upcomingApproved = approvedBookings.filter(
-        (b) => String(b.booking_date || "") >= today
+        (booking) => String(booking.booking_date || "") >= today
       );
 
       const approvedAmount = approvedBookings.reduce((sum, booking) => {
@@ -164,11 +164,11 @@ export default function UserDashboard() {
 
       setStats({
         pendingFacility: userBookings.filter(
-          (b) => normalizeStatus(b.status) === "pending"
+          (booking) => normalizeStatus(booking.status) === "pending"
         ).length,
         approvedFacility: approvedBookings.length,
-        rejectedCancelled: userBookings.filter((b) =>
-          ["rejected", "cancelled"].includes(normalizeStatus(b.status))
+        rejectedCancelled: userBookings.filter((booking) =>
+          ["rejected", "cancelled"].includes(normalizeStatus(booking.status))
         ).length,
         totalFacility: userBookings.length,
         notifications: userNotifications.length,
@@ -329,7 +329,11 @@ export default function UserDashboard() {
             <StatCard
               title="Next Booking"
               value={loading ? "..." : nextBooking ? "Ready" : "None"}
-              sub={nextBooking ? formatDate(nextBooking.booking_date) : "No upcoming approved booking"}
+              sub={
+                nextBooking
+                  ? formatDate(nextBooking.booking_date)
+                  : "No upcoming approved booking"
+              }
               accent={nextBooking ? "#6BAA75" : "#64748B"}
             />
           </section>
@@ -518,7 +522,9 @@ function StatCard({ title, value, sub, accent = "#2B2B2B" }) {
 }
 
 function DashboardListCard({ title, description, emptyText, children }) {
-  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+  const hasChildren = Array.isArray(children)
+    ? children.length > 0
+    : Boolean(children);
 
   return (
     <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">

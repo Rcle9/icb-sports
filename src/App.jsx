@@ -13,6 +13,7 @@ import UserDashboard from "./pages/user/Dashboard";
 import Booking from "./pages/user/Booking";
 import MyBookings from "./pages/user/MyBookings";
 import UserNotifications from "./pages/user/Notifications";
+import BookingTimeline from "./pages/user/BookingTimeline";
 
 // Staff pages
 import StaffDashboard from "./pages/staff/Dashboard";
@@ -20,6 +21,9 @@ import ManageBookings from "./pages/staff/ManageBookings";
 import Inventory from "./pages/staff/Inventory";
 import Maintenance from "./pages/staff/Maintenance";
 import ActivityLogs from "./pages/staff/ActivityLogs";
+import WalkInBooking from "./pages/staff/WalkInBooking";
+import AvailabilityBoard from "./pages/staff/AvailabilityBoard";
+import OperationsBoard from "./pages/staff/OperationsBoard";
 
 // Admin pages
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -28,11 +32,12 @@ import FacilityControl from "./pages/admin/Facility";
 import Reports from "./pages/admin/Reports";
 import Settings from "./pages/admin/Settings";
 import PaymentSettings from "./pages/admin/PaymentSettings";
+import CommandCenter from "./pages/admin/CommandCenter";
 
 function ScreenLoader() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f5f6f8]">
-      <div className="rounded-2xl bg-white px-6 py-4 shadow text-black">
+    <div className="flex min-h-screen items-center justify-center bg-[#f5f6f8]">
+      <div className="rounded-2xl bg-white px-6 py-4 text-black shadow">
         Loading...
       </div>
     </div>
@@ -103,7 +108,7 @@ function RootRedirect() {
 
 function NotFound() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f5f6f8] p-6">
+    <div className="flex min-h-screen items-center justify-center bg-[#f5f6f8] p-6">
       <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
         <p className="text-sm font-medium text-blue-600">404 Error</p>
 
@@ -177,9 +182,18 @@ export default function App() {
       />
 
       <Route
-        path="/notifications"
+        path="/booking-timeline"
         element={
           <ProtectedRoute allowRoles={["user"]}>
+            <BookingTimeline />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/notifications"
+        element={
+          <ProtectedRoute allowRoles={["user", "staff", "admin"]}>
             <UserNotifications />
           </ProtectedRoute>
         }
@@ -211,10 +225,46 @@ export default function App() {
       />
 
       <Route
+        path="/staff/operations-board"
+        element={
+          <ProtectedRoute allowRoles={["staff", "admin"]}>
+            <OperationsBoard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/staff/availability-board"
+        element={
+          <ProtectedRoute allowRoles={["staff", "admin"]}>
+            <AvailabilityBoard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/staff/bookings"
         element={
           <ProtectedRoute allowRoles={["staff"]}>
             <ManageBookings />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/staff/manage-bookings"
+        element={
+          <ProtectedRoute allowRoles={["staff", "admin"]}>
+            <ManageBookings />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/staff/walk-in-booking"
+        element={
+          <ProtectedRoute allowRoles={["staff", "admin"]}>
+            <WalkInBooking />
           </ProtectedRoute>
         }
       />
@@ -249,7 +299,7 @@ export default function App() {
       <Route
         path="/staff/activity-logs"
         element={
-          <ProtectedRoute allowRoles={["staff"]}>
+          <ProtectedRoute allowRoles={["staff", "admin"]}>
             <ActivityLogs />
           </ProtectedRoute>
         }
@@ -257,11 +307,7 @@ export default function App() {
 
       <Route
         path="/staff/notifications"
-        element={
-          <ProtectedRoute allowRoles={["staff"]}>
-            <UserNotifications />
-          </ProtectedRoute>
-        }
+        element={<Navigate to="/notifications" replace />}
       />
 
       <Route
@@ -276,6 +322,15 @@ export default function App() {
         element={
           <ProtectedRoute allowRoles={["admin"]}>
             <AdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/command-center"
+        element={
+          <ProtectedRoute allowRoles={["admin"]}>
+            <CommandCenter />
           </ProtectedRoute>
         }
       />
@@ -345,11 +400,7 @@ export default function App() {
 
       <Route
         path="/admin/notifications"
-        element={
-          <ProtectedRoute allowRoles={["admin"]}>
-            <UserNotifications />
-          </ProtectedRoute>
-        }
+        element={<Navigate to="/notifications" replace />}
       />
 
       <Route path="/help" element={<NotFound />} />

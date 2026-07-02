@@ -1,237 +1,263 @@
 import { supabase } from "./supabaseClient";
 
-function normalizeRole(role) {
-  const cleanRole = String(role || "user").toLowerCase();
+export function getNotificationTarget(profile) {
+  const role = String(profile?.role || "user").toLowerCase();
 
-  if (cleanRole === "coach") return "user";
-  if (cleanRole === "admin") return "admin";
-  if (cleanRole === "staff") return "staff";
-
-  return "user";
-}
-
-function getRoleTargets(role) {
-  const cleanRole = normalizeRole(role);
-
-  if (cleanRole === "admin") {
-    return ["admin", "staff"];
+  if (role === "admin") {
+    return {
+      role: "admin",
+      queryType: "role",
+    };
   }
 
-  if (cleanRole === "staff") {
-    return ["staff"];
+  if (role === "staff") {
+    return {
+      role: "staff",
+      queryType: "role",
+    };
   }
-
-  return [];
-}
-
-function normalizeNotification(item) {
-  const metadata = item?.metadata || {};
-
-  const bookingId =
-    metadata.booking_id ||
-    metadata.reference_id ||
-    item?.reference_id ||
-    item?.booking_id ||
-    null;
 
   return {
-    ...item,
-    metadata,
-    reference_id: bookingId,
-    booking_id: bookingId,
+    role: "user",
+    queryType: "user",
   };
 }
 
-function mergeNotifications(personalNotifications, roleNotifications) {
-  const map = new Map();
+export async function getCurrentProfile() {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
-  [...(personalNotifications || []), ...(roleNotifications || [])].forEach(
-    (item) => {
-      if (!item?.id) return;
-      map.set(item.id, normalizeNotification(item));
-    }
-  );
-
-  return Array.from(map.values()).sort((a, b) => {
-    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-  });
-}
-
-export async function getUserNotifications(userId, role = "user", limit = 50) {
-  if (!userId) return [];
-
-  const roleTargets = getRoleTargets(role);
-
-  const { data: personalData, error: personalError } = await supabase
-    .from("notifications")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (personalError) throw personalError;
-
-  let roleData = [];
-
-  if (roleTargets.length > 0) {
-    const { data, error } = await supabase
-      .from("notifications")
-      .select("*")
-      .in("role", roleTargets)
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (error) throw error;
-
-    roleData = data || [];
-  }
-
-  return mergeNotifications(personalData || [], roleData).slice(0, limit);
-}
-
-export async function getUnreadNotificationCount(userId, role = "user") {
-  const notifications = await getUserNotifications(userId, role, 200);
-
-  return notifications.filter((item) => !item.is_read).length;
-}
-
-export async function markAsRead(notificationId) {
-  if (!notificationId) return null;
+  if (userError) throw userError;
+  if (!user?.id) return null;
 
   const { data, error } = await supabase
-    .from("notifications")
-    .update({
-      is_read: true,
-    })
-    .eq("id", notificationId)
-    .select()
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
     .maybeSingle();
 
   if (error) throw error;
 
+  return data || null;
+}
+
+export async function createNotification({
+  user_id = null,
+  role = null,
+  title = "Notification",
+  message = "You have a new notification.",
+  type = "general",
+  reference_id = null,
+  reference_type = null,
+  action_url = null,
+  metadata = {},
+}) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .insert([
+      {
+        user_id,
+        role,
+        title,
+        message,
+        type,
+        is_read: false,
+        reference_id,
+        reference_type,
+        action_url,
+        metadata,
+      },
+    ])
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    console.error("createNotification error:", error);
+    throw error;
+  }
+
   return data;
 }
 
-export async function markAllAsRead(userId, role = "user") {
-  if (!userId) return;
+export async function getNotifications(profile) {
+  if (!profile?.id) return [];
 
-  const notifications = await getUserNotifications(userId, role, 200);
+  const target = getNotificationTarget(profile);
 
-  const unreadIds = notifications
-    .filter((item) => !item.is_read)
-    .map((item) => item.id);
+  let query = supabase
+    .from("notifications")
+    .select("*")
+    .order("created_at", { ascending: false });
 
-  if (unreadIds.length === 0) return;
+  if (target.queryType === "user") {
+    query = query.eq("user_id", profile.id);
+  } else {
+    query = query.eq("role", target.role);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("getNotifications error:", error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+export async function getUnreadNotificationCount(profile) {
+  if (!profile?.id) return 0;
+
+  const target = getNotificationTarget(profile);
+
+  let query = supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("is_read", false);
+
+  if (target.queryType === "user") {
+    query = query.eq("user_id", profile.id);
+  } else {
+    query = query.eq("role", target.role);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    console.error("getUnreadNotificationCount error:", error);
+    throw error;
+  }
+
+  return count || 0;
+}
+
+export async function markNotificationAsRead(notificationId) {
+  if (!notificationId) return false;
 
   const { error } = await supabase
     .from("notifications")
     .update({
       is_read: true,
     })
-    .in("id", unreadIds);
+    .eq("id", notificationId);
 
-  if (error) throw error;
-}
-
-export async function createNotification({
-  user_id = null,
-  role = null,
-  title,
-  message,
-  type = "general",
-  metadata = {},
-}) {
-  if (!title || !message) {
-    throw new Error("Notification title and message are required.");
+  if (error) {
+    console.error("markNotificationAsRead error:", error);
+    throw error;
   }
 
-  const payload = {
-    user_id,
-    role,
-    title,
-    message,
-    type,
-    metadata,
-    is_read: false,
-  };
+  return true;
+}
 
-  const { data, error } = await supabase
+export async function markNotificationsAsRead(notificationIds = []) {
+  if (!notificationIds.length) return true;
+
+  const { error } = await supabase
     .from("notifications")
-    .insert(payload)
-    .select()
-    .single();
+    .update({
+      is_read: true,
+    })
+    .in("id", notificationIds);
 
-  if (error) throw error;
+  if (error) {
+    console.error("markNotificationsAsRead error:", error);
+    throw error;
+  }
 
-  return data;
+  return true;
 }
 
-export async function createStaffBookingNotification(
-  title,
-  message,
-  bookingId = null,
-  metadata = {}
-) {
-  return createNotification({
-    role: "staff",
-    title: title || "Booking Notification",
-    message: message || "There is a booking update.",
-    type: "booking",
-    metadata: {
-      ...metadata,
-      booking_id: bookingId,
-      reference_id: bookingId,
-    },
-  });
+export async function markAllNotificationsAsRead(profile) {
+  if (!profile?.id) return true;
+
+  const notifications = await getNotifications(profile);
+
+  const unreadIds = notifications
+    .filter((notification) => !notification.is_read)
+    .map((notification) => notification.id);
+
+  if (!unreadIds.length) return true;
+
+  return markNotificationsAsRead(unreadIds);
 }
 
-export async function createStaffBookingNotifications(
-  title,
-  message,
-  bookingId = null,
-  metadata = {}
-) {
-  return createStaffBookingNotification(title, message, bookingId, metadata);
+export async function deleteNotification(notificationId) {
+  if (!notificationId) return false;
+
+  const { error } = await supabase
+    .from("notifications")
+    .delete()
+    .eq("id", notificationId);
+
+  if (error) {
+    console.error("deleteNotification error:", error);
+    throw error;
+  }
+
+  return true;
 }
 
-export async function createUserNotification(
-  userId,
-  title,
-  message,
-  bookingId = null,
-  metadata = {}
-) {
-  if (!userId) return null;
+export async function clearReadNotifications(profile) {
+  if (!profile?.id) return true;
 
-  return createNotification({
-    user_id: userId,
-    title: title || "Notification",
-    message: message || "You have a new update.",
-    type: "booking_update",
-    metadata: {
-      ...metadata,
-      booking_id: bookingId,
-      reference_id: bookingId,
-    },
-  });
+  const target = getNotificationTarget(profile);
+
+  let query = supabase.from("notifications").delete().eq("is_read", true);
+
+  if (target.queryType === "user") {
+    query = query.eq("user_id", profile.id);
+  } else {
+    query = query.eq("role", target.role);
+  }
+
+  const { error } = await query;
+
+  if (error) {
+    console.error("clearReadNotifications error:", error);
+    throw error;
+  }
+
+  return true;
 }
 
-export async function createRoleNotification(
-  role,
-  title,
-  message,
-  bookingId = null,
-  metadata = {}
-) {
-  return createNotification({
-    role: normalizeRole(role),
-    title: title || "Notification",
-    message: message || "There is a new update.",
-    type: "role_notification",
-    metadata: {
-      ...metadata,
-      booking_id: bookingId,
-      reference_id: bookingId,
-    },
-  });
+export function subscribeToNotifications(profile, callback) {
+  if (!profile?.id) return null;
+
+  const target = getNotificationTarget(profile);
+
+  const channel = supabase
+    .channel(`notifications-live-${profile.id}-${target.role}-${Date.now()}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "notifications",
+      },
+      (payload) => {
+        const row = payload.new || payload.old;
+
+        if (!row) {
+          callback?.(payload);
+          return;
+        }
+
+        if (target.queryType === "user") {
+          if (String(row.user_id) === String(profile.id)) {
+            callback?.(payload);
+          }
+
+          return;
+        }
+
+        if (String(row.role) === String(target.role)) {
+          callback?.(payload);
+        }
+      }
+    )
+    .subscribe();
+
+  return channel;
 }

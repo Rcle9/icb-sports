@@ -52,6 +52,28 @@ export default function AdminUsers() {
     }
   }
 
+  function getAllowedRoleValue(role) {
+    const cleanRole = String(role || "user").toLowerCase();
+
+    if (cleanRole === "staff") return "staff";
+    if (cleanRole === "admin") return "admin";
+
+    return "user";
+  }
+
+  function getRoleDisplay(role) {
+    return getAllowedRoleValue(role);
+  }
+
+  function getRoleBadgeClass(role) {
+    const cleanRole = getAllowedRoleValue(role);
+
+    if (cleanRole === "admin") return "bg-purple-100 text-purple-700";
+    if (cleanRole === "staff") return "bg-blue-100 text-blue-700";
+
+    return "bg-green-100 text-green-700";
+  }
+
   async function updateRole(profile, newRole) {
     try {
       const cleanRole = getAllowedRoleValue(newRole);
@@ -106,33 +128,6 @@ export default function AdminUsers() {
     }
   }
 
-  function getAllowedRoleValue(role) {
-    const cleanRole = String(role || "user").toLowerCase();
-
-    if (cleanRole === "staff") return "staff";
-    if (cleanRole === "admin") return "admin";
-
-    return "user";
-  }
-
-  function getRoleDisplay(role) {
-    const cleanRole = getAllowedRoleValue(role);
-
-    if (cleanRole === "admin") return "admin";
-    if (cleanRole === "staff") return "staff";
-
-    return "user";
-  }
-
-  function getRoleBadgeClass(role) {
-    const cleanRole = getAllowedRoleValue(role);
-
-    if (cleanRole === "admin") return "bg-purple-100 text-purple-700";
-    if (cleanRole === "staff") return "bg-blue-100 text-blue-700";
-
-    return "bg-green-100 text-green-700";
-  }
-
   const filteredProfiles = useMemo(() => {
     return profiles.filter((profile) => {
       const fullName = profile.full_name || profile.name || "";
@@ -150,15 +145,15 @@ export default function AdminUsers() {
   }, [profiles, searchTerm, roleFilter]);
 
   const totalUsers = profiles.filter(
-    (p) => getAllowedRoleValue(p.role) === "user"
+    (profile) => getAllowedRoleValue(profile.role) === "user"
   ).length;
 
   const totalStaff = profiles.filter(
-    (p) => getAllowedRoleValue(p.role) === "staff"
+    (profile) => getAllowedRoleValue(profile.role) === "staff"
   ).length;
 
   const totalAdmins = profiles.filter(
-    (p) => getAllowedRoleValue(p.role) === "admin"
+    (profile) => getAllowedRoleValue(profile.role) === "admin"
   ).length;
 
   return (
