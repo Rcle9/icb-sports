@@ -18,12 +18,6 @@ const SPORT_TYPES = [
   { value: "table_tennis", label: "Table Tennis" },
 ];
 
-const SESSION_TYPES = [
-  { value: "training", label: "Training" },
-  { value: "instructional", label: "Instructional" },
-  { value: "recreational", label: "Recreational" },
-];
-
 function money(value) {
   return `₱${Number(value || 0).toLocaleString()}`;
 }
@@ -121,17 +115,6 @@ function normalizeFacilityType(value) {
   return type.replaceAll(" ", "_");
 }
 
-function getFacilityImages(item) {
-  const images = [
-    ...(Array.isArray(item?.image_urls) ? item.image_urls : []),
-    ...(Array.isArray(item?.images) ? item.images : []),
-    item?.image_url,
-    item?.image,
-  ].filter(Boolean);
-
-  return [...new Set(images)].length ? [...new Set(images)] : [FACILITY_FALLBACK];
-}
-
 function getFacilityRate(facility) {
   return Number(
     facility?.rate_per_hour ||
@@ -140,6 +123,86 @@ function getFacilityRate(facility) {
       facility?.price ||
       0
   );
+}
+
+function getDefaultSportImage(type) {
+  const normalizedType = normalizeFacilityType(type);
+
+  if (normalizedType === "pickleball") {
+    return "https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?auto=format&fit=crop&w=900&q=80";
+  }
+
+  if (normalizedType === "basketball") {
+    return "https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=900&q=80";
+  }
+
+  if (normalizedType === "table_tennis") {
+    return "https://images.unsplash.com/photo-1611251135345-18c56206b863?auto=format&fit=crop&w=900&q=80";
+  }
+
+  return FACILITY_FALLBACK;
+}
+
+function getSportImage(sportValue, sportFacilities) {
+  const facilityWithMainImage = sportFacilities.find((facility) => facility.image_url);
+  const facilityWithImages = sportFacilities.find(
+    (facility) => Array.isArray(facility.image_urls) && facility.image_urls.length > 0
+  );
+
+  return (
+    facilityWithMainImage?.image_url ||
+    facilityWithImages?.image_urls?.[0] ||
+    getDefaultSportImage(sportValue)
+  );
+}
+
+function getSportCardInfo(sportValue, facilities) {
+  const sportFacilities = facilities.filter(
+    (facility) => normalizeFacilityType(facility.type) === sportValue
+  );
+
+  if (sportValue === "pickleball") {
+    const count = sportFacilities.length || 6;
+
+    return {
+      title: "Pickleball",
+      description:
+        "Reserve available pickleball courts for recreational games, practice, and matches.",
+      image: getSportImage("pickleball", sportFacilities),
+      countLabel: `${count} court${count > 1 ? "s" : ""} available`,
+    };
+  }
+
+  if (sportValue === "basketball") {
+    const count = sportFacilities.length || 1;
+
+    return {
+      title: "Basketball",
+      description:
+        "Book the basketball court for practice sessions, team games, and recreational play.",
+      image: getSportImage("basketball", sportFacilities),
+      countLabel: `${count} court${count > 1 ? "s" : ""} available`,
+    };
+  }
+
+  if (sportValue === "table_tennis") {
+    const count = sportFacilities.length || 2;
+
+    return {
+      title: "Table Tennis",
+      description:
+        "Reserve table tennis tables for casual games, training, and friendly matches.",
+      image: getSportImage("table_tennis", sportFacilities),
+      countLabel: `${count} table${count > 1 ? "s" : ""} available`,
+    };
+  }
+
+  return {
+    title: "Facility",
+    description: "View available sports facilities and schedules.",
+    image: FACILITY_FALLBACK,
+    countLabel: "Available",
+  };
 }
 
 function generateSlots() {
@@ -304,7 +367,7 @@ export default function Booking() {
 
   const [form, setForm] = useState({
     booking_date: getTodayDate(),
-    session_type: "training",
+    session_type: "recreational",
     notes: "",
   });
 
@@ -568,29 +631,34 @@ export default function Booking() {
 
   function handleSportChange(sport) {
     setSelectedSport(sport);
+
+    setTimeout(() => {
+      const calendar = document.getElementById("booking-calendar-section");
+      calendar?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
   }
 
   function goToPreviousDate() {
-  const previousDate = addDaysToDateString(form.booking_date, -1);
-  const today = getTodayDate();
+    const previousDate = addDaysToDateString(form.booking_date, -1);
+    const today = getTodayDate();
 
-  if (previousDate < today) {
+    if (previousDate < today) {
+      setForm((prev) => ({
+        ...prev,
+        booking_date: today,
+      }));
+
+      setSelectedSlots([]);
+      return;
+    }
+
     setForm((prev) => ({
       ...prev,
-      booking_date: today,
+      booking_date: previousDate,
     }));
 
     setSelectedSlots([]);
-    return;
   }
-
-  setForm((prev) => ({
-    ...prev,
-    booking_date: previousDate,
-  }));
-
-  setSelectedSlots([]);
-}
 
   function goToNextDate() {
     const nextValue = addDaysToDateString(form.booking_date, 1);
@@ -822,7 +890,7 @@ export default function Booking() {
           booking_date: form.booking_date,
           start_time: group.start_time,
           end_time: group.end_time,
-          session_type: form.session_type,
+          session_type: form.session_type || "recreational",
           notes: form.notes || "",
           total_hours: group.total_hours,
           rate_per_hour: group.rate_per_hour,
@@ -912,80 +980,15 @@ export default function Booking() {
             </div>
           )}
 
-          <section className="page-hero mb-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-sm font-semibold">Court Schedule Booking</p>
-
-                <h2 className="mt-2 text-3xl font-black">
-                  Choose a sport, select a court, and reserve your time slot.
-                </h2>
-
-                <p className="mt-2 text-sm text-white/90">
-                  The calendar is filtered by sport type. Each court or table has
-                  its own column to prevent double-booking.
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-white/15 px-5 py-4 text-white">
-                <p className="text-xs font-black uppercase tracking-widest">
-                  Reservation Timer
-                </p>
-                <h3 className="mt-1 text-2xl font-black">
-                  {reservationMinutes} min
-                </h3>
-              </div>
-            </div>
-          </section>
-
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="mb-5">
-              <h3 className="text-2xl font-black text-[#2B2B2B]">
-                Choose Sport
-              </h3>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Select a sport to show its available courts or tables.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              {SPORT_TYPES.map((sport) => (
-                <button
-                  key={sport.value}
-                  type="button"
-                  onClick={() => handleSportChange(sport.value)}
-                  className={`rounded-2xl border px-5 py-4 text-left transition ${
-                    selectedSport === sport.value
-                      ? "border-[#C97B6C] bg-[#F3E4DF] text-[#C97B6C] ring-2 ring-[#C97B6C]/20"
-                      : "border-[#DED8D2] bg-white text-[#2B2B2B] hover:bg-[#F5F3F1]"
-                  }`}
-                >
-                  <p className="text-lg font-black">{sport.label}</p>
-
-                  <p className="mt-1 text-sm font-semibold opacity-80">
-                    {sport.value === "pickleball" &&
-                      "6 pickleball courts available"}
-                    {sport.value === "basketball" &&
-                      "1 basketball court available"}
-                    {sport.value === "table_tennis" &&
-                      "2 table tennis tables available"}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </section>
-
           <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <h3 className="text-2xl font-black text-[#2B2B2B]">
-                  {selectedSportLabel} Facilities
+                  Available Facilities
                 </h3>
 
                 <p className="text-sm text-slate-500">
-                  Facility cards show prices. The calendar below shows only{" "}
-                  {selectedSportLabel.toLowerCase()} schedules.
+                  Select a sport facility to view its court or table schedule.
                 </p>
               </div>
 
@@ -996,100 +999,37 @@ export default function Booking() {
 
             {loadingFacilities ? (
               <p className="text-sm text-slate-500">Loading facilities...</p>
-            ) : filteredFacilities.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
-                No active {selectedSportLabel} facility found. Please add this
-                facility type in admin Facility Management.
-              </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {filteredFacilities.map((facility) => (
-                  <FacilityCard key={facility.id} facility={facility} />
-                ))}
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {SPORT_TYPES.map((sport) => {
+                  const sportInfo = getSportCardInfo(sport.value, facilities);
+                  const isActive = selectedSport === sport.value;
+
+                  return (
+                    <SportFacilityCard
+                      key={sport.value}
+                      sportInfo={sportInfo}
+                      isActive={isActive}
+                      onClick={() => handleSportChange(sport.value)}
+                    />
+                  );
+                })}
               </div>
             )}
           </section>
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_auto_auto]">
-              <div>
-                <label className="mb-2 block text-sm font-semibold">
-                  Booking Date
-                </label>
-
-                <input
-                  type="date"
-                  name="booking_date"
-                  value={form.booking_date}
-                  min={getTodayDate()}
-                  onChange={handleChange}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-semibold">
-                  Session Type
-                </label>
-
-                <select
-                  name="session_type"
-                  value={form.session_type}
-                  onChange={handleChange}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-                >
-                  {SESSION_TYPES.map((type) => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={selectAllOpenSlots}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1]"
-                >
-                  Select All Open
-                </button>
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={resetSelection}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1]"
-                >
-                  Clear Selection
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <label className="mb-2 block text-sm font-semibold">Notes</label>
-
-              <textarea
-                name="notes"
-                value={form.notes}
-                onChange={handleChange}
-                placeholder="Optional notes for your booking"
-                className="min-h-[90px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-              />
-            </div>
-          </section>
-
-          <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <section
+            id="booking-calendar-section"
+            className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm"
+          >
+            <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div>
                 <h3 className="text-2xl font-black text-[#2B2B2B]">
                   {selectedSportLabel} Schedule Calendar
                 </h3>
 
                 <p className="text-sm text-slate-500">
-                  Rows are time slots. Columns are courts or tables. Customer
-                  names are hidden for privacy.
+                  Rows are time slots. Columns are courts or tables. Customer names are hidden for privacy.
                 </p>
 
                 <h4 className="mt-4 text-xl font-black text-[#2B2B2B]">
@@ -1107,7 +1047,23 @@ export default function Booking() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center justify-start gap-3 xl:justify-end">
+                <button
+                  type="button"
+                  onClick={selectAllOpenSlots}
+                  className="rounded-2xl border border-[#DED8D2] px-5 py-3 font-bold hover:bg-[#F5F3F1]"
+                >
+                  Select All Open
+                </button>
+
+                <button
+                  type="button"
+                  onClick={resetSelection}
+                  className="rounded-2xl border border-[#DED8D2] px-5 py-3 font-bold hover:bg-[#F5F3F1]"
+                >
+                  Clear Selection
+                </button>
+
                 <button
                   type="button"
                   onClick={goToPreviousDate}
@@ -1276,7 +1232,6 @@ export default function Booking() {
             <ConfirmBookingModal
               selectedGroups={selectedGroups}
               bookingDate={form.booking_date}
-              sessionType={form.session_type}
               notes={form.notes}
               totalHours={totalHours}
               totalAmount={totalAmount}
@@ -1293,31 +1248,58 @@ export default function Booking() {
   );
 }
 
-function FacilityCard({ facility }) {
-  const images = getFacilityImages(facility);
-  const rate = getFacilityRate(facility);
-
+function SportFacilityCard({ sportInfo, isActive, onClick }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#DED8D2] bg-white">
-      <img
-        src={images[0]}
-        alt={facility.name}
-        className="h-36 w-full object-cover"
-        onError={(event) => {
-          event.currentTarget.src = FACILITY_FALLBACK;
-        }}
-      />
+    <div
+      className={`overflow-hidden rounded-[18px] border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg ${
+        isActive ? "border-[#C97B6C] ring-2 ring-[#C97B6C]/20" : "border-[#DED8D2]"
+      }`}
+    >
+      <div className="h-44 w-full overflow-hidden bg-slate-100">
+        <img
+          src={sportInfo.image}
+          alt={sportInfo.title}
+          className="h-full w-full object-cover"
+          onError={(event) => {
+            event.currentTarget.src = FACILITY_FALLBACK;
+          }}
+        />
+      </div>
 
-      <div className="p-4">
-        <p className="text-lg font-black text-[#2B2B2B]">{facility.name}</p>
+      <div className="p-5">
+        <div className="mb-7 flex flex-wrap gap-2">
+          <span className="rounded-full bg-emerald-400 px-3 py-1 text-xs font-black text-white shadow-sm">
+            🔥 Most Popular
+          </span>
 
-        <p className="mt-1 text-sm font-semibold text-slate-500">
-          {facility.type || "Facility"}
+          <span className="rounded-full bg-sky-400 px-3 py-1 text-xs font-black text-white shadow-sm">
+            📈 Most Booked
+          </span>
+        </div>
+
+        <h4 className="text-2xl font-black uppercase text-[#001B5B]">
+          {sportInfo.title}
+        </h4>
+
+        <p className="mt-3 text-sm font-semibold text-slate-500">
+          {sportInfo.countLabel}
         </p>
 
-        <p className="mt-3 text-sm font-black text-[#C97B6C]">
-          {money(rate)}/hr
+        <p className="mt-5 min-h-[48px] text-sm text-slate-600">
+          {sportInfo.description}
         </p>
+
+        <button
+          type="button"
+          onClick={onClick}
+          className={`mt-8 w-full rounded-xl px-5 py-4 text-sm font-black transition ${
+            isActive
+              ? "bg-[#C97B6C] text-white hover:bg-[#B87463]"
+              : "bg-slate-200 text-[#001B5B] hover:bg-slate-300"
+          }`}
+        >
+          View Schedule
+        </button>
       </div>
     </div>
   );
@@ -1419,7 +1401,6 @@ function PrivateBlockedSlotLabel({ booking, minutesLeft }) {
 function ConfirmBookingModal({
   selectedGroups,
   bookingDate,
-  sessionType,
   notes,
   totalHours,
   totalAmount,
@@ -1460,13 +1441,6 @@ function ConfirmBookingModal({
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <ConfirmItem label="Date" value={formatDate(bookingDate)} />
-          <ConfirmItem
-            label="Session Type"
-            value={
-              SESSION_TYPES.find((item) => item.value === sessionType)?.label ||
-              sessionType
-            }
-          />
           <ConfirmItem
             label="Selected Slots"
             value={`${selectedGroups.reduce(
@@ -1526,12 +1500,12 @@ function ConfirmBookingModal({
           your booking.
         </div>
 
-        <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-          <p className="text-sm font-black text-slate-700">Notes</p>
-          <p className="mt-2 text-sm text-slate-600">
-            {notes?.trim() || "No notes provided."}
-          </p>
-        </div>
+        {notes?.trim() && (
+          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm font-black text-slate-700">Notes</p>
+            <p className="mt-2 text-sm text-slate-600">{notes.trim()}</p>
+          </div>
+        )}
 
         <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
           <button

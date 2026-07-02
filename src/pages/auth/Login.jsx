@@ -139,11 +139,11 @@ export default function Login() {
 
         <div className="mt-4 text-center">
           <Link
-            to="/"
-            className="text-sm font-bold text-slate-500 hover:text-[#C97B6C]"
-          >
-            Back to landing page
-          </Link>
+  to="/"
+  className="mt-5 block text-center text-sm font-black text-slate-600 hover:text-[#C97B6C]"
+>
+  Back to landing page
+</Link>
         </div>
       </div>
     </main>

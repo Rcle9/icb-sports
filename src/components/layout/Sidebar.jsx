@@ -9,7 +9,6 @@ import {
   CalendarPlus,
   ClipboardList,
   FileBarChart,
-  Home,
   LayoutDashboard,
   LogOut,
   Package,
@@ -22,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase } from "../../services/supabaseClient";
+import logo from "../../assets/ICBLOGO.jpg";
 
 const sidebarBase =
   "fixed left-0 top-0 z-50 flex h-screen w-[280px] flex-col border-r border-[#DED8D2] bg-white shadow-sm";
@@ -267,19 +267,27 @@ export default function Sidebar({ role = "user", isOpen = true, onClose }) {
           <button
             type="button"
             onClick={() => navigate(getRoleHome(role))}
-            className="text-left"
+            className="flex min-w-0 items-center gap-3 text-left"
           >
-            <p className="text-xs font-black uppercase tracking-widest text-[#C97B6C]">
-              InCredoBall
-            </p>
+            <img
+              src={logo}
+              alt="InCredoBall Logo"
+              className="h-14 w-14 shrink-0 rounded-full border border-[#DED8D2] object-cover shadow-sm"
+            />
 
-            <h1 className="mt-1 text-xl font-black text-[#2B2B2B]">
-              Sports Center
-            </h1>
+            <div className="min-w-0">
+              <p className="text-xs font-black uppercase tracking-widest text-[#C97B6C]">
+                InCredoBall
+              </p>
 
-            <p className="mt-1 text-xs font-bold text-slate-500">
-              {getRoleLabel(role)} Panel
-            </p>
+              <h1 className="mt-1 truncate text-lg font-black text-[#2B2B2B]">
+                Sports Center
+              </h1>
+
+              <p className="mt-1 truncate text-xs font-bold text-slate-500">
+                {getRoleLabel(role)} Panel
+              </p>
+            </div>
           </button>
 
           {onClose && (
@@ -315,8 +323,6 @@ export default function Sidebar({ role = "user", isOpen = true, onClose }) {
         </nav>
 
         <div className="border-t border-[#DED8D2] p-4">
-            
-
           <button
             type="button"
             onClick={handleLogout}

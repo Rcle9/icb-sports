@@ -185,9 +185,9 @@ function getBlockedClass(booking) {
   const status = normalizeStatus(booking?.status);
   const paymentStatus = normalizePaymentStatus(booking?.payment_status);
 
-  if (status === "approved" && paymentStatus === "paid") {
-    return "border-green-600 bg-green-100 text-green-800";
-  }
+ if (status === "approved" && paymentStatus === "paid") {
+  return "border-slate-400 bg-slate-200 text-slate-700";
+}
 
   if (status === "reserved" && paymentStatus === "pending_verification") {
     return "border-yellow-500 bg-yellow-100 text-yellow-800";

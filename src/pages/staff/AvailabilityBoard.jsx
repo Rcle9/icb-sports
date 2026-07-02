@@ -201,12 +201,12 @@ function getSlotState({ booking, maintenanceBlock, selectedDate, slot }) {
     const paymentStatus = normalizePaymentStatus(booking.payment_status);
 
     if (status === "approved" && paymentStatus === "paid") {
-      return {
-        label: "Booked",
-        description: getCustomerName(booking),
-        className: "border-green-600 bg-green-100 text-green-800",
-      };
-    }
+  return {
+    label: "Booked",
+    description: getCustomerName(booking),
+    className: "border-slate-400 bg-slate-200 text-slate-700",
+  };
+}
 
     if (paymentStatus === "pending_verification") {
       return {
@@ -243,10 +243,10 @@ function getSlotState({ booking, maintenanceBlock, selectedDate, slot }) {
   }
 
   return {
-    label: "Open",
-    description: "Available",
-    className: "border-green-300 bg-white text-slate-600 hover:bg-green-50",
-  };
+  label: "Open",
+  description: "Available",
+  className: "border-green-500 bg-green-100 text-green-800 hover:bg-green-200",
+};
 }
 
 export default function AvailabilityBoard() {
@@ -608,7 +608,7 @@ export default function AvailabilityBoard() {
             </div>
 
             <div className="mt-5 flex flex-wrap gap-4 text-xs font-bold text-slate-600">
-              <Legend color="bg-white border-green-300" label="Open" />
+              <Legend color="bg-green-100 border-green-500" label="Open" />
               <Legend color="bg-yellow-100 border-yellow-500" label="Reserved" />
               <Legend color="bg-blue-100 border-blue-500" label="Payment Review" />
               <Legend color="bg-green-100 border-green-600" label="Booked / Paid" />

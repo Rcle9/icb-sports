@@ -1,5 +1,5 @@
 import { Link, NavLink } from "react-router-dom";
-import logo from "../../assets/logo.jpg";
+import logo from "../../assets/ICBLOGO.jpg";
 
 export default function LandingLayout({ children }) {
   return (

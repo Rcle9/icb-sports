@@ -1,7 +1,14 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 
-// Auth / public pages
+import Landing from "./pages/public/Landing";
+import About from "./pages/public/About";
+import Facilities from "./pages/public/Facilities";
+import PublicShop from "./pages/public/Shop";
+import Contact from "./pages/public/Contact";
+import Help from "./pages/public/Help";
+
+// Auth pages
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 
@@ -88,24 +95,6 @@ function PublicRoute({ children }) {
   return children;
 }
 
-function RootRedirect() {
-  const { user, profile, loading } = useAuth();
-
-  if (loading) return <ScreenLoader />;
-
-  if (!user) return <Navigate to="/login" replace />;
-
-  if (profile?.role === "admin") {
-    return <Navigate to="/admin/dashboard" replace />;
-  }
-
-  if (profile?.role === "staff") {
-    return <Navigate to="/staff/dashboard" replace />;
-  }
-
-  return <Navigate to="/dashboard" replace />;
-}
-
 function NotFound() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#f5f6f8] p-6">
@@ -125,8 +114,15 @@ function NotFound() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<RootRedirect />} />
+      {/* Public landing pages */}
+      <Route path="/" element={<Landing />} />
+      <Route path="/about" element={<About />} />
+      <Route path="/facilities" element={<Facilities />} />
+      <Route path="/shop" element={<PublicShop />} />
+      <Route path="/contact" element={<Contact />} />
+      <Route path="/help" element={<Help />} />
 
+      {/* Auth routes */}
       <Route
         path="/login"
         element={
@@ -145,6 +141,7 @@ export default function App() {
         }
       />
 
+      {/* User routes */}
       <Route
         path="/dashboard"
         element={
@@ -199,10 +196,7 @@ export default function App() {
         }
       />
 
-      <Route
-        path="/profile"
-        element={<Navigate to="/profile-settings" replace />}
-      />
+      <Route path="/profile" element={<Navigate to="/profile-settings" replace />} />
 
       <Route
         path="/profile-settings"
@@ -213,6 +207,7 @@ export default function App() {
         }
       />
 
+      {/* Staff routes */}
       <Route path="/staff" element={<Navigate to="/staff/dashboard" replace />} />
 
       <Route
@@ -305,16 +300,10 @@ export default function App() {
         }
       />
 
-      <Route
-        path="/staff/notifications"
-        element={<Navigate to="/notifications" replace />}
-      />
+      <Route path="/staff/notifications" element={<Navigate to="/notifications" replace />} />
+      <Route path="/staff/profile" element={<Navigate to="/profile-settings" replace />} />
 
-      <Route
-        path="/staff/profile"
-        element={<Navigate to="/profile-settings" replace />}
-      />
-
+      {/* Admin routes */}
       <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
 
       <Route
@@ -398,12 +387,9 @@ export default function App() {
         }
       />
 
-      <Route
-        path="/admin/notifications"
-        element={<Navigate to="/notifications" replace />}
-      />
+      <Route path="/admin/notifications" element={<Navigate to="/notifications" replace />} />
 
-      <Route path="/help" element={<NotFound />} />
+      {/* Fallback */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
