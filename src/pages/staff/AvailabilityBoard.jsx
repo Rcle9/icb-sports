@@ -12,7 +12,12 @@ import { supabase } from "../../services/supabaseClient";
 import { useAuth } from "../../context/AuthContext";
 
 function getTodayDate() {
-  return new Date().toISOString().split("T")[0];
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function cleanTime(time) {
@@ -82,6 +87,23 @@ function getFacilityRate(facility) {
       facility?.price ||
       0
   );
+}
+
+const SPORT_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "pickleball", label: "Pickleball" },
+  { value: "basketball", label: "Basketball" },
+  { value: "table_tennis", label: "Table Tennis" },
+];
+
+function normalizeFacilityType(value) {
+  const type = String(value || "").toLowerCase().trim();
+
+  if (type.includes("pickle")) return "pickleball";
+  if (type.includes("basket")) return "basketball";
+  if (type.includes("table") || type.includes("tennis")) return "table_tennis";
+
+  return type.replaceAll(" ", "_");
 }
 
 function getCustomerName(booking) {
@@ -234,6 +256,7 @@ export default function AvailabilityBoard() {
     String(profile?.role || "").toLowerCase() === "admin" ? "admin" : "staff";
 
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
+  const [selectedSportFilter, setSelectedSportFilter] = useState("all");
   const [facilities, setFacilities] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
@@ -257,6 +280,14 @@ export default function AvailabilityBoard() {
     );
   }, [maintenanceBlocks, selectedDate]);
 
+  const filteredFacilities = useMemo(() => {
+    if (selectedSportFilter === "all") return facilities;
+
+    return facilities.filter(
+      (facility) => normalizeFacilityType(facility.type) === selectedSportFilter
+    );
+  }, [facilities, selectedSportFilter]);
+
   const summary = useMemo(() => {
     let open = 0;
     let reserved = 0;
@@ -265,7 +296,7 @@ export default function AvailabilityBoard() {
     let maintenance = 0;
     let past = 0;
 
-    facilities.forEach((facility) => {
+    filteredFacilities.forEach((facility) => {
       slots.forEach((slot) => {
         const booking = getBookingForSlot(facility.id, slot);
         const block = getMaintenanceForSlot(facility.id, slot);
@@ -294,7 +325,7 @@ export default function AvailabilityBoard() {
       maintenance,
       past,
     };
-  }, [facilities, slots, dayBookings, dayMaintenanceBlocks, selectedDate]);
+  }, [filteredFacilities, slots, dayBookings, dayMaintenanceBlocks, selectedDate]);
 
   useEffect(() => {
     loadBoard();
@@ -439,10 +470,22 @@ export default function AvailabilityBoard() {
 
   function goPreviousDay() {
     setSelectedDate((prev) => addDaysToDateString(prev, -1));
+    setSelectedSlot(null);
   }
 
   function goNextDay() {
     setSelectedDate((prev) => addDaysToDateString(prev, 1));
+    setSelectedSlot(null);
+  }
+
+  function handleDateChange(value) {
+    setSelectedDate(value);
+    setSelectedSlot(null);
+  }
+
+  function handleSportFilterChange(value) {
+    setSelectedSportFilter(value);
+    setSelectedSlot(null);
   }
 
   function openSlotDetails(facility, slot) {
@@ -516,7 +559,7 @@ export default function AvailabilityBoard() {
                 </h3>
 
                 <p className="text-sm text-slate-500">
-                  Select a date to check facility availability.
+                  Select a date and sport type to check facility availability.
                 </p>
               </div>
 
@@ -538,7 +581,7 @@ export default function AvailabilityBoard() {
                   <input
                     type="date"
                     value={selectedDate}
-                    onChange={(event) => setSelectedDate(event.target.value)}
+                    onChange={(event) => handleDateChange(event.target.value)}
                     className="rounded-2xl border border-[#DED8D2] px-11 py-3 font-bold outline-none focus:border-[#C97B6C]"
                   />
                 </div>
@@ -572,14 +615,31 @@ export default function AvailabilityBoard() {
               <Legend color="bg-purple-100 border-purple-500" label="Maintenance" />
               <Legend color="bg-slate-200 border-slate-300" label="Past Time" />
             </div>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              {SPORT_FILTERS.map((sport) => (
+                <button
+                  key={sport.value}
+                  type="button"
+                  onClick={() => handleSportFilterChange(sport.value)}
+                  className={`rounded-2xl px-5 py-3 text-sm font-bold transition ${
+                    selectedSportFilter === sport.value
+                      ? "bg-[#C97B6C] text-white"
+                      : "border border-[#DED8D2] text-slate-600 hover:bg-[#F5F3F1]"
+                  }`}
+                >
+                  {sport.label}
+                </button>
+              ))}
+            </div>
           </section>
 
           <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
             {loading ? (
               <p className="text-sm text-slate-500">Loading availability board...</p>
-            ) : facilities.length === 0 ? (
+            ) : filteredFacilities.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#DED8D2] p-8 text-center text-sm text-slate-500">
-                No facilities found.
+                No facilities found for this sport type.
               </div>
             ) : (
               <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
@@ -590,7 +650,7 @@ export default function AvailabilityBoard() {
                         Time
                       </th>
 
-                      {facilities.map((facility) => (
+                      {filteredFacilities.map((facility) => (
                         <th
                           key={facility.id}
                           className="border border-[#DED8D2] px-4 py-4 text-center text-[#2B2B2B]"
@@ -612,7 +672,7 @@ export default function AvailabilityBoard() {
                           {slot.label}
                         </td>
 
-                        {facilities.map((facility) => {
+                        {filteredFacilities.map((facility) => {
                           const booking = getBookingForSlot(facility.id, slot);
                           const maintenanceBlock = getMaintenanceForSlot(
                             facility.id,
@@ -689,9 +749,7 @@ function SlotDetailsModal({ data, onClose }) {
               {facility.name}
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
-              {slot.label}
-            </p>
+            <p className="mt-1 text-sm text-slate-500">{slot.label}</p>
           </div>
 
           <button
@@ -704,7 +762,9 @@ function SlotDetailsModal({ data, onClose }) {
         </div>
 
         <div className="mt-5">
-          <span className={`rounded-full border px-4 py-2 text-xs font-black uppercase ${state.className}`}>
+          <span
+            className={`rounded-full border px-4 py-2 text-xs font-black uppercase ${state.className}`}
+          >
             {state.label}
           </span>
         </div>
@@ -730,14 +790,8 @@ function SlotDetailsModal({ data, onClose }) {
                 label="Payment Status"
                 value={formatStatusLabel(booking.payment_status)}
               />
-              <DetailItem
-                label="Receipt"
-                value={booking.receipt_number || "-"}
-              />
-              <DetailItem
-                label="Amount Paid"
-                value={money(booking.amount_paid)}
-              />
+              <DetailItem label="Receipt" value={booking.receipt_number || "-"} />
+              <DetailItem label="Amount Paid" value={money(booking.amount_paid)} />
             </>
           )}
 

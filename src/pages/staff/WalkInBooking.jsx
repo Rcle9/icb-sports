@@ -204,6 +204,68 @@ function getBlockedClass(booking) {
   return "border-slate-400 bg-slate-100 text-slate-700";
 }
 
+function getSlotKey(facilityId, slot) {
+  return `${facilityId}-${slot.start_time}-${slot.end_time}`;
+}
+
+function groupSelectedSlots(selectedSlots, facilities) {
+  const facilityMap = new Map(facilities.map((facility) => [String(facility.id), facility]));
+  const grouped = new Map();
+
+  selectedSlots.forEach((item) => {
+    const key = String(item.facility_id);
+
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+
+    grouped.get(key).push(item);
+  });
+
+  const bookingGroups = [];
+
+  grouped.forEach((items, facilityId) => {
+    const facility = facilityMap.get(String(facilityId));
+
+    const sortedItems = [...items].sort((a, b) => {
+      if (a.slot.index !== b.slot.index) return a.slot.index - b.slot.index;
+      return String(a.slot.start_time).localeCompare(String(b.slot.start_time));
+    });
+
+    sortedItems.forEach((item) => {
+      const lastGroup = bookingGroups[bookingGroups.length - 1];
+      const sameFacility = String(lastGroup?.facility_id) === String(item.facility_id);
+      const continuous = lastGroup?.end_time === item.slot.start_time;
+
+      if (lastGroup && sameFacility && continuous) {
+        lastGroup.slots.push(item.slot);
+        lastGroup.end_time = item.slot.end_time;
+        lastGroup.label = `${formatTime(lastGroup.start_time)} - ${formatTime(
+          lastGroup.end_time
+        )}`;
+        lastGroup.total_hours = hoursBetween(lastGroup.start_time, lastGroup.end_time);
+        lastGroup.total_amount = lastGroup.total_hours * lastGroup.rate_per_hour;
+      } else {
+        const rate = getFacilityRate(facility);
+
+        bookingGroups.push({
+          facility_id: item.facility_id,
+          facility,
+          slots: [item.slot],
+          start_time: item.slot.start_time,
+          end_time: item.slot.end_time,
+          label: item.slot.label,
+          total_hours: hoursBetween(item.slot.start_time, item.slot.end_time),
+          rate_per_hour: rate,
+          total_amount: hoursBetween(item.slot.start_time, item.slot.end_time) * rate,
+        });
+      }
+    });
+  });
+
+  return bookingGroups;
+}
+
 export default function WalkInBooking() {
   const { user } = useAuth();
 
@@ -212,7 +274,6 @@ export default function WalkInBooking() {
   const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
 
   const [form, setForm] = useState({
-    facility_id: "",
     booking_date: getTodayDate(),
     customer_name: "",
     contact_number: "",
@@ -223,8 +284,8 @@ export default function WalkInBooking() {
     notes: "",
   });
 
-  const [selectedSportFilter, setSelectedSportFilter] = useState("all");
-  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [selectedSportFilter, setSelectedSportFilter] = useState("pickleball");
+  const [selectedSlots, setSelectedSlots] = useState([]);
   const [confirmModal, setConfirmModal] = useState(false);
 
   const [loading, setLoading] = useState(true);
@@ -236,12 +297,6 @@ export default function WalkInBooking() {
 
   const slots = useMemo(() => generateSlots(), []);
 
-  const selectedFacility = useMemo(() => {
-    return facilities.find(
-      (facility) => String(facility.id) === String(form.facility_id)
-    );
-  }, [facilities, form.facility_id]);
-
   const filteredFacilities = useMemo(() => {
     if (selectedSportFilter === "all") return facilities;
 
@@ -250,24 +305,28 @@ export default function WalkInBooking() {
     );
   }, [facilities, selectedSportFilter]);
 
-  const selectedSummary = useMemo(() => {
-    if (!selectedFacility || !selectedSlot) {
-      return {
-        total_hours: 0,
-        rate_per_hour: 0,
-        total_amount: 0,
-      };
-    }
+  const selectedGroups = useMemo(() => {
+    return groupSelectedSlots(selectedSlots, facilities);
+  }, [selectedSlots, facilities]);
 
-    const totalHours = hoursBetween(selectedSlot.start_time, selectedSlot.end_time);
-    const rate = getFacilityRate(selectedFacility);
+  const selectedSummary = useMemo(() => {
+    const totalHours = selectedGroups.reduce(
+      (sum, group) => sum + Number(group.total_hours || 0),
+      0
+    );
+
+    const totalAmount = selectedGroups.reduce(
+      (sum, group) => sum + Number(group.total_amount || 0),
+      0
+    );
 
     return {
       total_hours: totalHours,
-      rate_per_hour: rate,
-      total_amount: totalHours * rate,
+      total_amount: totalAmount,
+      total_slots: selectedSlots.length,
+      total_groups: selectedGroups.length,
     };
-  }, [selectedFacility, selectedSlot]);
+  }, [selectedGroups, selectedSlots]);
 
   useEffect(() => {
     loadInitialData();
@@ -334,11 +393,6 @@ export default function WalkInBooking() {
 
       setFacilities(activeFacilities);
 
-      setForm((prev) => ({
-        ...prev,
-        facility_id: activeFacilities[0]?.id || "",
-      }));
-
       await loadScheduleForDate(false);
       await loadMaintenanceBlocksForDate(false);
     } catch (err) {
@@ -397,23 +451,11 @@ export default function WalkInBooking() {
     }
   }
 
-  function handleSportFilterChange(event) {
-    const value = event.target.value;
-
+  function handleSportFilterChange(value) {
     setSelectedSportFilter(value);
-    setSelectedSlot(null);
-
-    const nextFacilities =
-      value === "all"
-        ? facilities
-        : facilities.filter(
-            (facility) => normalizeFacilityType(facility.type) === value
-          );
-
-    setForm((prev) => ({
-      ...prev,
-      facility_id: nextFacilities[0]?.id || "",
-    }));
+    setSelectedSlots([]);
+    setError("");
+    setMessage("");
   }
 
   function handleChange(event) {
@@ -424,8 +466,8 @@ export default function WalkInBooking() {
       [name]: value,
     }));
 
-    if (["facility_id", "booking_date"].includes(name)) {
-      setSelectedSlot(null);
+    if (name === "booking_date") {
+      setSelectedSlots([]);
     }
   }
 
@@ -469,6 +511,12 @@ export default function WalkInBooking() {
     });
   }
 
+  function isSlotSelected(facilityId, slot) {
+    const key = getSlotKey(facilityId, slot);
+
+    return selectedSlots.some((item) => item.key === key);
+  }
+
   function isSlotBlocked(facilityId, slot) {
     return (
       isPastSlot(form.booking_date, slot) ||
@@ -477,25 +525,20 @@ export default function WalkInBooking() {
     );
   }
 
-  function handleSlotSelect(slot) {
-    if (!form.facility_id) {
-      setError("Please select a facility first.");
-      return;
-    }
-
+  function handleSlotSelect(facility, slot) {
     if (isPastSlot(form.booking_date, slot)) {
       setError("Past time slots are no longer available.");
       return;
     }
 
-    const maintenanceBlock = getMaintenanceBlock(form.facility_id, slot);
+    const maintenanceBlock = getMaintenanceBlock(facility.id, slot);
 
     if (maintenanceBlock) {
       setError("This facility is under maintenance during this timeslot.");
       return;
     }
 
-    const booking = getBlockingBooking(form.facility_id, slot);
+    const booking = getBlockingBooking(facility.id, slot);
 
     if (booking) {
       setError("This timeslot is already reserved or booked.");
@@ -505,16 +548,25 @@ export default function WalkInBooking() {
     setError("");
     setMessage("");
 
-    if (
-      selectedSlot &&
-      selectedSlot.start_time === slot.start_time &&
-      selectedSlot.end_time === slot.end_time
-    ) {
-      setSelectedSlot(null);
-      return;
-    }
+    const key = getSlotKey(facility.id, slot);
 
-    setSelectedSlot(slot);
+    setSelectedSlots((prev) => {
+      const exists = prev.some((item) => item.key === key);
+
+      if (exists) {
+        return prev.filter((item) => item.key !== key);
+      }
+
+      return [
+        ...prev,
+        {
+          key,
+          facility_id: facility.id,
+          facility_name: facility.name,
+          slot,
+        },
+      ];
+    });
   }
 
   function validateForm() {
@@ -523,11 +575,6 @@ export default function WalkInBooking() {
 
     if (!user?.id) {
       setError("Staff account is required.");
-      return false;
-    }
-
-    if (!form.facility_id) {
-      setError("Please select a facility.");
       return false;
     }
 
@@ -546,13 +593,17 @@ export default function WalkInBooking() {
       return false;
     }
 
-    if (!selectedSlot) {
-      setError("Please select an available time slot.");
+    if (selectedSlots.length === 0) {
+      setError("Please select at least one available time slot.");
       return false;
     }
 
-    if (isSlotBlocked(form.facility_id, selectedSlot)) {
-      setError("Selected time slot is no longer available.");
+    const blockedSelectedSlot = selectedSlots.find((item) =>
+      isSlotBlocked(item.facility_id, item.slot)
+    );
+
+    if (blockedSelectedSlot) {
+      setError("One or more selected slots are no longer available.");
       loadScheduleForDate(false);
       loadMaintenanceBlocksForDate(false);
       return false;
@@ -588,8 +639,12 @@ export default function WalkInBooking() {
       await loadScheduleForDate(false);
       await loadMaintenanceBlocksForDate(false);
 
-      if (isSlotBlocked(form.facility_id, selectedSlot)) {
-        throw new Error("Selected time slot is no longer available.");
+      const blockedSelectedSlot = selectedSlots.find((item) =>
+        isSlotBlocked(item.facility_id, item.slot)
+      );
+
+      if (blockedSelectedSlot) {
+        throw new Error("One or more selected slots are no longer available.");
       }
 
       const amountPaid =
@@ -597,31 +652,46 @@ export default function WalkInBooking() {
           ? selectedSummary.total_amount
           : Number(form.amount_paid || 0);
 
-      const savedBooking = await createWalkInBooking({
-        staff_id: user.id,
-        facility_id: form.facility_id,
-        booking_date: form.booking_date,
-        start_time: selectedSlot.start_time,
-        end_time: selectedSlot.end_time,
-        customer_name: form.customer_name.trim(),
-        contact_number: form.contact_number.trim(),
-        session_type: form.session_type,
-        notes: form.notes,
-        total_hours: selectedSummary.total_hours,
-        rate_per_hour: selectedSummary.rate_per_hour,
-        total_amount: selectedSummary.total_amount,
-        payment_method: form.payment_method,
-        payment_reference: form.payment_reference.trim(),
-        amount_paid: amountPaid,
-      });
+      if (amountPaid < selectedSummary.total_amount) {
+        throw new Error("Amount paid must be equal to or greater than the total amount.");
+      }
+
+      const savedBookings = [];
+
+      for (const group of selectedGroups) {
+        const savedBooking = await createWalkInBooking({
+          staff_id: user.id,
+          facility_id: group.facility_id,
+          booking_date: form.booking_date,
+          start_time: group.start_time,
+          end_time: group.end_time,
+          customer_name: form.customer_name.trim(),
+          contact_number: form.contact_number.trim(),
+          session_type: form.session_type,
+          notes: form.notes,
+          total_hours: group.total_hours,
+          rate_per_hour: group.rate_per_hour,
+          total_amount: group.total_amount,
+          payment_method: form.payment_method,
+          payment_reference: form.payment_reference.trim(),
+          amount_paid: group.total_amount,
+        });
+
+        savedBookings.push(savedBooking);
+      }
+
+      const receipts = savedBookings
+        .map((booking) => booking?.receipt_number)
+        .filter(Boolean)
+        .join(", ");
 
       setMessage(
-        `Walk-in booking created successfully. Receipt: ${
-          savedBooking?.receipt_number || "-"
+        `Walk-in booking created successfully.${
+          receipts ? ` Receipt(s): ${receipts}` : ""
         }`
       );
 
-      setSelectedSlot(null);
+      setSelectedSlots([]);
       setConfirmModal(false);
       setForm((prev) => ({
         ...prev,
@@ -659,7 +729,7 @@ export default function WalkInBooking() {
       booking_date: nextValue,
     }));
 
-    setSelectedSlot(null);
+    setSelectedSlots([]);
   }
 
   function goToNextDate() {
@@ -678,7 +748,7 @@ export default function WalkInBooking() {
       booking_date: nextValue,
     }));
 
-    setSelectedSlot(null);
+    setSelectedSlots([]);
   }
 
   return (
@@ -711,16 +781,18 @@ export default function WalkInBooking() {
                 </h2>
 
                 <p className="mt-2 text-sm text-white/90">
-                  Select an available slot, record customer details, and mark
-                  payment as received.
+                  Select available slots across exact courts or tables, record customer details,
+                  and mark payment as received.
                 </p>
               </div>
 
               <div className="rounded-2xl bg-white/15 px-5 py-4 text-white">
                 <p className="text-xs font-black uppercase tracking-widest">
-                  Booking Mode
+                  Selected Slots
                 </p>
-                <h3 className="mt-1 text-2xl font-black">Walk-in</h3>
+                <h3 className="mt-1 text-2xl font-black">
+                  {selectedSummary.total_slots}
+                </h3>
               </div>
             </div>
           </section>
@@ -762,28 +834,6 @@ export default function WalkInBooking() {
               />
 
               <FilterSelect
-                label="Sport Type"
-                name="sport_filter"
-                value={selectedSportFilter}
-                onChange={handleSportFilterChange}
-                options={SPORT_FILTERS}
-              />
-
-              <FilterSelect
-                label="Facility"
-                name="facility_id"
-                value={form.facility_id}
-                onChange={handleChange}
-                options={[
-                  { value: "", label: "Select facility" },
-                  ...filteredFacilities.map((facility) => ({
-                    value: facility.id,
-                    label: `${facility.name} - ${money(getFacilityRate(facility))}/hr`,
-                  })),
-                ]}
-              />
-
-              <FilterSelect
                 label="Payment Method"
                 name="payment_method"
                 value={form.payment_method}
@@ -811,7 +861,7 @@ export default function WalkInBooking() {
                 placeholder={String(selectedSummary.total_amount || 0)}
               />
 
-              <div className="lg:col-span-2">
+              <div className="lg:col-span-3">
                 <label className="mb-2 block text-sm font-semibold">Notes</label>
 
                 <textarea
@@ -833,7 +883,7 @@ export default function WalkInBooking() {
                 </h3>
 
                 <p className="text-sm text-slate-500">
-                  Reserved, booked, maintenance, and past slots cannot be selected.
+                  Choose one or more available slots. Each court/table is shown as a separate column.
                 </p>
 
                 <h4 className="mt-4 text-xl font-black text-[#2B2B2B]">
@@ -848,18 +898,26 @@ export default function WalkInBooking() {
                     color="bg-yellow-100 border-yellow-500"
                     label="Payment Review"
                   />
-                  <Legend
-                    color="bg-green-100 border-green-600"
-                    label="Booked/Paid"
-                  />
-                  <Legend
-                    color="bg-purple-100 border-purple-500"
-                    label="Maintenance"
-                  />
-                  <Legend
-                    color="bg-slate-200 border-slate-400"
-                    label="Past Time"
-                  />
+                  <Legend color="bg-green-100 border-green-600" label="Booked/Paid" />
+                  <Legend color="bg-purple-100 border-purple-500" label="Maintenance" />
+                  <Legend color="bg-slate-200 border-slate-400" label="Past Time" />
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  {SPORT_FILTERS.map((sport) => (
+                    <button
+                      key={sport.value}
+                      type="button"
+                      onClick={() => handleSportFilterChange(sport.value)}
+                      className={`rounded-2xl px-5 py-3 text-sm font-bold transition ${
+                        selectedSportFilter === sport.value
+                          ? "bg-[#C97B6C] text-white"
+                          : "border border-[#DED8D2] text-slate-600 hover:bg-[#F5F3F1]"
+                      }`}
+                    >
+                      {sport.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -894,108 +952,111 @@ export default function WalkInBooking() {
 
             {loading ? (
               <p className="text-sm text-slate-500">Loading walk-in booking...</p>
-            ) : !selectedFacility ? (
+            ) : filteredFacilities.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
-                Please select a facility.
+                No facilities found for this sport type.
               </div>
             ) : (
               <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
-                <table className="w-full min-w-[720px] border-collapse text-sm">
+                <table className="w-full min-w-[1100px] border-collapse text-sm">
                   <thead>
                     <tr className="bg-slate-100">
                       <th className="w-[160px] border border-[#DED8D2] px-4 py-4 text-left text-[#2B2B2B]">
                         Time
                       </th>
-                      <th className="border border-[#DED8D2] px-4 py-4 text-center text-[#2B2B2B]">
-                        <div className="font-black">{selectedFacility.name}</div>
-                        <div className="mt-1 text-xs font-black text-[#C97B6C]">
-                          {money(getFacilityRate(selectedFacility))}/hr
-                        </div>
-                      </th>
+
+                      {filteredFacilities.map((facility) => (
+                        <th
+                          key={facility.id}
+                          className="border border-[#DED8D2] px-4 py-4 text-center text-[#2B2B2B]"
+                        >
+                          <div className="font-black">{facility.name}</div>
+                          <div className="mt-1 text-xs font-black text-[#C97B6C]">
+                            {money(getFacilityRate(facility))}/hr
+                          </div>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
 
                   <tbody>
-                    {slots.map((slot) => {
-                      const pastSlot = isPastSlot(form.booking_date, slot);
-                      const maintenanceBlock = getMaintenanceBlock(
-                        selectedFacility.id,
-                        slot
-                      );
-                      const blockingBooking = getBlockingBooking(
-                        selectedFacility.id,
-                        slot
-                      );
-                      const blocked =
-                        pastSlot ||
-                        Boolean(maintenanceBlock) ||
-                        Boolean(blockingBooking);
+                    {slots.map((slot) => (
+                      <tr key={slot.label}>
+                        <td className="border border-[#DED8D2] px-4 py-4 font-bold text-[#2B2B2B]">
+                          {slot.label}
+                        </td>
 
-                      const selected =
-                        selectedSlot?.start_time === slot.start_time &&
-                        selectedSlot?.end_time === slot.end_time;
+                        {filteredFacilities.map((facility) => {
+                          const pastSlot = isPastSlot(form.booking_date, slot);
+                          const maintenanceBlock = getMaintenanceBlock(facility.id, slot);
+                          const blockingBooking = getBlockingBooking(facility.id, slot);
+                          const selected = isSlotSelected(facility.id, slot);
 
-                      return (
-                        <tr key={slot.label}>
-                          <td className="border border-[#DED8D2] px-4 py-4 font-bold text-[#2B2B2B]">
-                            {slot.label}
-                          </td>
+                          const blocked =
+                            pastSlot ||
+                            Boolean(maintenanceBlock) ||
+                            Boolean(blockingBooking);
 
-                          <td className="border border-[#DED8D2] p-1">
-                            <button
-                              type="button"
-                              disabled={blocked || loadingSchedule}
-                              onClick={() => handleSlotSelect(slot)}
-                              className={`min-h-[70px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${
-                                blocked
-                                  ? pastSlot
-                                    ? "cursor-not-allowed border-slate-400 bg-slate-200 text-slate-600"
-                                    : maintenanceBlock
-                                    ? "cursor-not-allowed border-purple-500 bg-purple-100 text-purple-800"
-                                    : `cursor-not-allowed ${getBlockedClass(blockingBooking)}`
-                                  : selected
-                                  ? "border-[#C97B6C] bg-[#F3E4DF] text-[#C97B6C] ring-2 ring-[#C97B6C]/25"
-                                  : "border-green-500 bg-green-100 text-green-700 hover:bg-green-200"
-                              }`}
+                          return (
+                            <td
+                              key={`${facility.id}-${slot.index}`}
+                              className="border border-[#DED8D2] p-1"
                             >
-                              {pastSlot ? (
-                                <>
-                                  Unavailable
-                                  <br />
-                                  <span className="text-xs font-bold">Past Time</span>
-                                </>
-                              ) : maintenanceBlock ? (
-                                <>
-                                  Maintenance
-                                  <br />
-                                  <span className="text-xs font-bold">
-                                    {maintenanceBlock.reason || "Unavailable"}
-                                  </span>
-                                </>
-                              ) : blockingBooking ? (
-                                <>
-                                  {normalizeStatus(blockingBooking.status) === "approved"
-                                    ? "Booked"
-                                    : formatStatusLabel(blockingBooking.status)}
-                                  <br />
-                                  <span className="text-xs font-bold">
-                                    {getRequesterName(blockingBooking)}
-                                  </span>
-                                  <br />
-                                  <span className="text-xs font-bold">
-                                    {formatStatusLabel(blockingBooking.payment_status)}
-                                  </span>
-                                </>
-                              ) : selected ? (
-                                "Selected - Click to Deselect"
-                              ) : (
-                                "Open - Click to Select"
-                              )}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                              <button
+                                type="button"
+                                disabled={blocked || loadingSchedule}
+                                onClick={() => handleSlotSelect(facility, slot)}
+                                className={`min-h-[70px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${
+                                  blocked
+                                    ? pastSlot
+                                      ? "cursor-not-allowed border-slate-400 bg-slate-200 text-slate-600"
+                                      : maintenanceBlock
+                                      ? "cursor-not-allowed border-purple-500 bg-purple-100 text-purple-800"
+                                      : `cursor-not-allowed ${getBlockedClass(blockingBooking)}`
+                                    : selected
+                                    ? "border-[#C97B6C] bg-[#F3E4DF] text-[#C97B6C] ring-2 ring-[#C97B6C]/25"
+                                    : "border-green-500 bg-green-100 text-green-700 hover:bg-green-200"
+                                }`}
+                              >
+                                {pastSlot ? (
+                                  <>
+                                    Unavailable
+                                    <br />
+                                    <span className="text-xs font-bold">Past Time</span>
+                                  </>
+                                ) : maintenanceBlock ? (
+                                  <>
+                                    Maintenance
+                                    <br />
+                                    <span className="text-xs font-bold">
+                                      {maintenanceBlock.reason || "Unavailable"}
+                                    </span>
+                                  </>
+                                ) : blockingBooking ? (
+                                  <>
+                                    {normalizeStatus(blockingBooking.status) === "approved"
+                                      ? "Booked"
+                                      : formatStatusLabel(blockingBooking.status)}
+                                    <br />
+                                    <span className="text-xs font-bold">
+                                      {getRequesterName(blockingBooking)}
+                                    </span>
+                                    <br />
+                                    <span className="text-xs font-bold">
+                                      {formatStatusLabel(blockingBooking.payment_status)}
+                                    </span>
+                                  </>
+                                ) : selected ? (
+                                  "Selected - Click to Deselect"
+                                ) : (
+                                  "Open - Click to Select"
+                                )}
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1007,19 +1068,29 @@ export default function WalkInBooking() {
                   Walk-in Booking Summary
                 </p>
 
-                {!selectedSlot ? (
+                {selectedGroups.length === 0 ? (
                   <p className="mt-1 text-sm text-slate-500">
                     No time slot selected yet.
                   </p>
                 ) : (
-                  <div className="mt-2 space-y-1 text-sm text-slate-600">
-                    <p>
-                      {selectedFacility?.name} • {selectedSlot.label} •{" "}
-                      {selectedSummary.total_hours} hour(s)
-                    </p>
-                    <p>
-                      Rate: <b>{money(selectedSummary.rate_per_hour)}/hr</b> • Total:{" "}
-                      <b>{money(selectedSummary.total_amount)}</b>
+                  <div className="mt-2 space-y-2 text-sm text-slate-600">
+                    {selectedGroups.slice(0, 5).map((group, index) => (
+                      <p key={`${group.facility_id}-${group.start_time}-${index}`}>
+                        {group.facility?.name || "Facility"} • {group.label} •{" "}
+                        {group.total_hours} hour(s) •{" "}
+                        <b>{money(group.total_amount)}</b>
+                      </p>
+                    ))}
+
+                    {selectedGroups.length > 5 && (
+                      <p className="text-xs font-bold text-slate-500">
+                        +{selectedGroups.length - 5} more selected booking group(s)
+                      </p>
+                    )}
+
+                    <p className="pt-1 font-black text-[#2B2B2B]">
+                      Total: {selectedSummary.total_hours} hour(s) •{" "}
+                      {money(selectedSummary.total_amount)}
                     </p>
                   </div>
                 )}
@@ -1028,7 +1099,7 @@ export default function WalkInBooking() {
               <button
                 type="button"
                 onClick={openConfirmModal}
-                disabled={!selectedSlot}
+                disabled={selectedSlots.length === 0}
                 className="rounded-2xl bg-[#C97B6C] px-6 py-4 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Review Walk-in Booking
@@ -1039,8 +1110,7 @@ export default function WalkInBooking() {
           {confirmModal && (
             <ConfirmWalkInModal
               form={form}
-              facility={selectedFacility}
-              slot={selectedSlot}
+              groups={selectedGroups}
               summary={selectedSummary}
               submitting={submitting}
               onClose={closeConfirmModal}
@@ -1055,8 +1125,7 @@ export default function WalkInBooking() {
 
 function ConfirmWalkInModal({
   form,
-  facility,
-  slot,
+  groups,
   summary,
   submitting,
   onClose,
@@ -1064,7 +1133,7 @@ function ConfirmWalkInModal({
 }) {
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
@@ -1076,7 +1145,7 @@ function ConfirmWalkInModal({
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              This will create an approved and paid booking immediately.
+              Multiple selected slots may create multiple approved and paid booking records.
             </p>
           </div>
 
@@ -1093,9 +1162,7 @@ function ConfirmWalkInModal({
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <ConfirmItem label="Customer" value={form.customer_name} />
           <ConfirmItem label="Contact" value={form.contact_number || "-"} />
-          <ConfirmItem label="Facility" value={facility?.name || "-"} />
           <ConfirmItem label="Date" value={formatDate(form.booking_date)} />
-          <ConfirmItem label="Time" value={slot?.label || "-"} />
           <ConfirmItem
             label="Session Type"
             value={formatStatusLabel(form.session_type)}
@@ -1103,12 +1170,40 @@ function ConfirmWalkInModal({
           <ConfirmItem label="Payment Method" value={form.payment_method} />
           <ConfirmItem label="Reference" value={form.payment_reference || "-"} />
           <ConfirmItem label="Total Hours" value={`${summary.total_hours} hour(s)`} />
-          <ConfirmItem label="Rate" value={`${money(summary.rate_per_hour)}/hr`} />
           <ConfirmItem label="Total Amount" value={money(summary.total_amount)} />
           <ConfirmItem
             label="Amount Paid"
             value={money(form.amount_paid || summary.total_amount)}
           />
+          <ConfirmItem label="Booking Records" value={groups.length} />
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-[#DED8D2]">
+          <div className="border-b border-[#DED8D2] px-4 py-3">
+            <h3 className="font-black text-[#2B2B2B]">Selected Schedule</h3>
+          </div>
+
+          <div className="max-h-[260px] overflow-y-auto p-4">
+            <div className="space-y-3">
+              {groups.map((group, index) => (
+                <div
+                  key={`${group.facility_id}-${group.start_time}-${index}`}
+                  className="rounded-2xl bg-[#F5F3F1] p-4 text-sm"
+                >
+                  <p className="font-black text-[#2B2B2B]">
+                    {group.facility?.name || "Facility"}
+                  </p>
+                  <p className="mt-1 text-slate-600">
+                    {group.label} • {group.total_hours} hour(s)
+                  </p>
+                  <p className="mt-1 text-slate-600">
+                    Rate: <b>{money(group.rate_per_hour)}/hr</b> • Total:{" "}
+                    <b>{money(group.total_amount)}</b>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="mt-5 rounded-2xl bg-green-50 px-4 py-4 text-sm font-semibold text-green-700">
