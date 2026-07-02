@@ -4,15 +4,16 @@ import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
 
+
 function normalizeStatus(status) {
   return String(status || "pending").toLowerCase();
 }
 
 function getTodayDate() {
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 }
@@ -52,6 +53,10 @@ function getFacilityName(booking) {
 }
 
 function getRequesterName(booking) {
+  if (booking?.is_walk_in) {
+    return booking?.walk_in_customer_name || "Walk-in Customer";
+  }
+
   return booking?.profiles?.full_name || "Unknown User";
 }
 
@@ -68,6 +73,8 @@ function getStatusClass(status) {
 export default function StaffDashboard() {
   const channelRef = useRef(null);
   const intervalRef = useRef(null);
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -278,45 +285,57 @@ export default function StaffDashboard() {
   }, [maintenance]);
 
   return (
-    <div className="page-shell">
-      <Sidebar role="staff" />
+    <div className="min-h-screen bg-[#F5F3F1] lg:pl-[280px]">
+      <Sidebar
+        role="staff"
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-      <main className="page-main">
-        <div className="page-container">
-          <Topbar title="Dashboard" />
+      <main className="min-h-screen px-4 pb-8 pt-20 sm:px-6 lg:px-8 lg:pt-6">
+        <div className="mx-auto w-full max-w-[1500px]">
+          <Topbar
+            title="Dashboard"
+            subtitle="Staff operations and facility monitoring."
+            showMenuButton
+            onMenuClick={() => setSidebarOpen(true)}
+          />
 
           {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
+            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
               {error}
             </div>
           )}
 
-          <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <section className="mb-5 rounded-[24px] bg-[#C97B6C] p-5 text-white sm:mb-6 sm:rounded-[28px] sm:p-8">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <p className="text-sm font-semibold">
                   Operations Control Center
                 </p>
 
-                <h2 className="mt-2 text-3xl font-black">
+                <h2 className="mt-2 text-2xl font-black leading-tight sm:text-3xl">
                   Review facility requests and keep daily operations moving.
                 </h2>
 
-                <p className="mt-2 max-w-3xl text-sm text-blue-50">
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-white/85">
                   Monitor approvals, today’s schedule, maintenance alerts, low
                   stock items, and recent facility requests.
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                <QuickButton to="/staff/bookings" label="Manage Bookings" />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:flex xl:flex-wrap">
+                <QuickButton
+                  to="/staff/manage-bookings"
+                  label="Manage Bookings"
+                />
                 <QuickButton to="/staff/inventory" label="Inventory" />
                 <QuickButton to="/staff/maintenance" label="Maintenance" />
               </div>
             </div>
           </section>
 
-          <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <section className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               title="Today’s Bookings"
               value={loading ? "..." : stats.todayBookings}
@@ -345,7 +364,7 @@ export default function StaffDashboard() {
             />
           </section>
 
-          <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <section className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               title="Inventory Items"
               value={loading ? "..." : stats.inventoryItems}
@@ -375,12 +394,12 @@ export default function StaffDashboard() {
           </section>
 
           {loading ? (
-            <div className="rounded-[28px] bg-white p-8 shadow-sm">
+            <div className="rounded-[24px] bg-white p-6 text-sm font-semibold text-slate-500 shadow-sm sm:p-8">
               Loading dashboard...
             </div>
           ) : (
             <>
-              <section className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <section className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-3">
                 <DashboardListCard
                   title="Today’s Schedule"
                   description="Bookings scheduled for today."
@@ -444,10 +463,10 @@ export default function StaffDashboard() {
               </section>
 
               <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <div className="rounded-[24px] bg-white p-6 shadow-sm">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="rounded-[24px] bg-white p-5 shadow-sm sm:p-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <h3 className="text-lg font-black">
+                      <h3 className="text-lg font-black text-[#2B2B2B]">
                         Recent Facility Booking Requests
                       </h3>
 
@@ -457,15 +476,15 @@ export default function StaffDashboard() {
                     </div>
 
                     <Link
-                      to="/staff/bookings"
-                      className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
+                      to="/staff/manage-bookings"
+                      className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-center text-sm font-bold text-white hover:bg-[#B87463]"
                     >
                       Review All
                     </Link>
                   </div>
 
                   {recentPendingBookings.length === 0 ? (
-                    <p className="mt-4 text-sm text-slate-500">
+                    <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
                       No pending facility bookings.
                     </p>
                   ) : (
@@ -477,10 +496,10 @@ export default function StaffDashboard() {
                   )}
                 </div>
 
-                <div className="rounded-[24px] bg-white p-6 shadow-sm">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="rounded-[24px] bg-white p-5 shadow-sm sm:p-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <h3 className="text-lg font-black">
+                      <h3 className="text-lg font-black text-[#2B2B2B]">
                         Maintenance Alerts
                       </h3>
 
@@ -491,14 +510,14 @@ export default function StaffDashboard() {
 
                     <Link
                       to="/staff/maintenance"
-                      className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
+                      className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-center text-sm font-bold text-white hover:bg-[#B87463]"
                     >
                       View Maintenance
                     </Link>
                   </div>
 
                   {maintenanceAlerts.length === 0 ? (
-                    <p className="mt-4 text-sm text-slate-500">
+                    <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
                       No issues found.
                     </p>
                   ) : (
@@ -508,9 +527,9 @@ export default function StaffDashboard() {
                           key={item.id}
                           className="rounded-2xl border border-slate-200 p-4"
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <h4 className="font-bold text-slate-950">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <h4 className="break-words font-bold text-slate-950">
                                 {item.title ||
                                   item.issue ||
                                   item.item_name ||
@@ -518,14 +537,14 @@ export default function StaffDashboard() {
                                   "Maintenance Request"}
                               </h4>
 
-                              <p className="mt-1 text-sm text-slate-500">
+                              <p className="mt-1 break-words text-sm leading-6 text-slate-500">
                                 {item.description ||
                                   item.details ||
                                   "No description"}
                               </p>
                             </div>
 
-                            <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-black uppercase text-orange-600">
+                            <span className="w-fit rounded-full bg-orange-100 px-3 py-1 text-xs font-black uppercase text-orange-600">
                               {String(item.status || "pending").replaceAll(
                                 "_",
                                 " "
@@ -556,7 +575,7 @@ function QuickButton({ to, label }) {
   return (
     <Link
       to={to}
-      className="rounded-2xl bg-white/15 px-4 py-3 text-sm font-black text-white hover:bg-white/25"
+      className="rounded-2xl bg-white/15 px-4 py-3 text-center text-sm font-black text-white transition hover:bg-white/25"
     >
       {label}
     </Link>
@@ -566,13 +585,13 @@ function QuickButton({ to, label }) {
 function StatCard({ title, value, sub, accent = "#0f172a" }) {
   return (
     <div className="rounded-2xl bg-white p-5 shadow-sm">
-      <p className="text-sm text-slate-500">{title}</p>
+      <p className="text-sm font-semibold text-slate-500">{title}</p>
 
       <h3 className="mt-2 text-2xl font-black" style={{ color: accent }}>
         {value}
       </h3>
 
-      <p className="mt-2 text-xs text-slate-500">{sub}</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500">{sub}</p>
     </div>
   );
 }
@@ -581,10 +600,10 @@ function DashboardListCard({ title, description, emptyText, children }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
 
   return (
-    <section className="rounded-[24px] bg-white p-6 shadow-sm">
-      <h3 className="text-lg font-black">{title}</h3>
+    <section className="rounded-[24px] bg-white p-5 shadow-sm sm:p-6">
+      <h3 className="text-lg font-black text-[#2B2B2B]">{title}</h3>
 
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
 
       <div className="mt-4 space-y-3">
         {hasChildren ? (
@@ -604,19 +623,19 @@ function BookingItem({ booking }) {
 
   return (
     <div className="rounded-2xl border border-slate-200 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="font-bold text-slate-950">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h4 className="break-words font-bold text-slate-950">
             {getFacilityName(booking)}
           </h4>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 break-words text-sm leading-6 text-slate-500">
             Requested by: {getRequesterName(booking)}
           </p>
         </div>
 
         <span
-          className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(
+          className={`w-fit rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(
             status
           )}`}
         >
@@ -624,7 +643,7 @@ function BookingItem({ booking }) {
         </span>
       </div>
 
-      <p className="mt-3 text-sm text-slate-500">
+      <p className="mt-3 text-sm leading-6 text-slate-500">
         {formatDate(booking.booking_date)} • {formatTime(booking.start_time)} -{" "}
         {formatTime(booking.end_time)}
       </p>

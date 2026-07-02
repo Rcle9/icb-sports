@@ -136,36 +136,36 @@ function canViewReceipt(booking) {
 function getStatusClass(status) {
   const value = normalizeStatus(status);
 
-  if (value === "approved") return "bg-green-100 text-green-700";
-  if (value === "reserved") return "bg-blue-100 text-blue-700";
-  if (value === "pending") return "bg-yellow-100 text-yellow-700";
-  if (value === "cancelled") return "bg-slate-200 text-slate-700";
-  if (value === "expired") return "bg-orange-100 text-orange-700";
-  if (value === "rejected") return "bg-red-100 text-red-700";
+  if (value === "approved") return "icb-badge icb-badge-success";
+  if (value === "reserved") return "icb-badge icb-badge-info";
+  if (value === "pending") return "icb-badge icb-badge-warning";
+  if (value === "cancelled") return "icb-badge icb-badge-muted";
+  if (value === "expired") return "icb-badge icb-badge-warning";
+  if (value === "rejected") return "icb-badge icb-badge-danger";
 
-  return "bg-slate-100 text-slate-700";
+  return "icb-badge icb-badge-muted";
 }
 
 function getPaymentStatusClass(status) {
   const value = normalizePaymentStatus(status);
 
-  if (value === "paid") return "bg-green-100 text-green-700";
-  if (value === "pending_verification") return "bg-blue-100 text-blue-700";
-  if (value === "unpaid") return "bg-yellow-100 text-yellow-700";
-  if (value === "rejected_payment") return "bg-red-100 text-red-700";
-  if (value === "expired") return "bg-orange-100 text-orange-700";
+  if (value === "paid") return "icb-badge icb-badge-success";
+  if (value === "pending_verification") return "icb-badge icb-badge-info";
+  if (value === "unpaid") return "icb-badge icb-badge-warning";
+  if (value === "rejected_payment") return "icb-badge icb-badge-danger";
+  if (value === "expired") return "icb-badge icb-badge-warning";
 
-  return "bg-slate-100 text-slate-700";
+  return "icb-badge icb-badge-muted";
 }
 
 function getCompletionStatusClass(status) {
   const value = normalizeCompletionStatus(status);
 
-  if (value === "completed") return "bg-green-100 text-green-700";
-  if (value === "no_show") return "bg-orange-100 text-orange-700";
-  if (value === "cancelled_late") return "bg-red-100 text-red-700";
+  if (value === "completed") return "icb-badge icb-badge-success";
+  if (value === "no_show") return "icb-badge icb-badge-warning";
+  if (value === "cancelled_late") return "icb-badge icb-badge-danger";
 
-  return "bg-slate-100 text-slate-700";
+  return "icb-badge icb-badge-muted";
 }
 
 function formatCompletionStatus(status) {
@@ -546,52 +546,84 @@ export default function MyBookings() {
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="My Bookings" />
+          <Topbar title="My Bookings" subtitle="Customer Portal" />
 
           {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
+            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
               {error}
             </div>
           )}
 
           {message && (
-            <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
+            <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-bold text-green-700">
               {message}
             </div>
           )}
 
-          <section className="page-hero mb-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
-                <p className="text-sm font-semibold">My Booking Center</p>
+          <section className="page-hero icb-fade-up mb-6 overflow-hidden">
+            <div className="relative">
+              <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-[#C97B6C]/25 blur-3xl" />
+              <div className="pointer-events-none absolute -bottom-24 -left-20 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
 
-                <h2 className="mt-2 text-3xl font-black">
-                  Manage your reservations and payments.
-                </h2>
+              <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.9fr] xl:items-end">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.22em] text-[#E8A093]">
+                    My Booking Center
+                  </p>
 
-                <p className="mt-2 text-sm text-white/90">
-                  Upload payment proof, track approval, view receipts, and check completion status.
-                </p>
-              </div>
+                  <h2 className="mt-4 max-w-4xl text-3xl font-black leading-tight text-white sm:text-4xl lg:text-5xl">
+                    Manage your reservations and payments.
+                  </h2>
 
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <HeroStat label="Active" value={summary.active} />
-                <HeroStat label="Payment Review" value={summary.paymentReview} />
-                <HeroStat label="Approved" value={summary.approved} />
-                <HeroStat label="Completed" value={summary.completed} />
+                  <p className="mt-4 max-w-3xl text-sm leading-6 text-white/80 sm:text-base">
+                    Upload payment proof, track approval progress, view receipts,
+                    and monitor your facility booking completion status.
+                  </p>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => navigate("/booking")}
+                      className="icb-btn-accent"
+                    >
+                      <CalendarClock size={18} />
+                      Book New Facility
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => loadBookings()}
+                      className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white transition hover:bg-white/15"
+                    >
+                      <RefreshCw size={18} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <HeroStat label="Active" value={summary.active} />
+                  <HeroStat label="Payment Review" value={summary.paymentReview} />
+                  <HeroStat label="Approved" value={summary.approved} />
+                  <HeroStat label="Completed" value={summary.completed} />
+                </div>
               </div>
             </div>
           </section>
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+          <section className="icb-card mb-6 p-5 sm:p-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
                   Booking Filters
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                  Filter reservations
                 </h3>
 
-                <p className="text-sm text-slate-500">
-                  Filter your reservations by current progress.
+                <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
+                  Organize your reservations by payment, activity, completion, or cancelled status.
                 </p>
               </div>
 
@@ -599,41 +631,38 @@ export default function MyBookings() {
                 <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>
                   All
                 </FilterButton>
+
                 <FilterButton active={filter === "active"} onClick={() => setFilter("active")}>
                   Active
                 </FilterButton>
+
                 <FilterButton active={filter === "payment"} onClick={() => setFilter("payment")}>
                   Payment
                 </FilterButton>
+
                 <FilterButton active={filter === "completed"} onClick={() => setFilter("completed")}>
                   Completed
                 </FilterButton>
+
                 <FilterButton active={filter === "cancelled"} onClick={() => setFilter("cancelled")}>
                   Cancelled / Expired
                 </FilterButton>
-
-                <button
-                  type="button"
-                  onClick={() => loadBookings()}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 text-sm font-bold hover:bg-[#F5F3F1]"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <RefreshCw size={16} />
-                    Refresh
-                  </span>
-                </button>
               </div>
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+          <section className="icb-card p-5 sm:p-6">
             <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
                   Booking List
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                  Your facility reservations
                 </h3>
 
-                <p className="text-sm text-slate-500">
+                <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
                   {filteredBookings.length} booking(s) shown.
                 </p>
               </div>
@@ -641,28 +670,30 @@ export default function MyBookings() {
               <button
                 type="button"
                 onClick={() => navigate("/booking")}
-                className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
+                className="icb-btn-accent"
               >
                 Book New Facility
               </button>
             </div>
 
             {loading ? (
-              <p className="text-sm text-slate-500">Loading your bookings...</p>
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
+                Loading your bookings...
+              </div>
             ) : filteredBookings.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#DED8D2] p-8 text-center">
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-8 text-center">
+                <h3 className="text-2xl font-black text-[#0B1F33]">
                   No bookings found
                 </h3>
 
-                <p className="mt-2 text-sm text-slate-500">
+                <p className="mt-2 text-sm font-semibold text-slate-500">
                   Your bookings will appear here once you reserve a facility.
                 </p>
 
                 <button
                   type="button"
                   onClick={() => navigate("/booking")}
-                  className="mt-5 rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463]"
+                  className="icb-btn-accent mt-5"
                 >
                   Book a Facility
                 </button>
@@ -722,33 +753,35 @@ function BookingCard({
 
   return (
     <div
-      className={`rounded-[28px] border bg-white p-5 shadow-sm ${
-        highlighted ? "border-[#C97B6C] ring-4 ring-[#C97B6C]/10" : "border-[#DED8D2]"
+      className={`rounded-[28px] border bg-white p-5 shadow-[0_10px_28px_rgba(11,31,51,0.05)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(11,31,51,0.09)] ${
+        highlighted
+          ? "border-[#C97B6C] ring-4 ring-[#C97B6C]/10"
+          : "border-[#DED8D2]"
       }`}
     >
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1">
           <div className="mb-3 flex flex-wrap gap-2">
-            <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(status)}`}>
+            <span className={getStatusClass(status)}>
               {formatStatusLabel(status)}
             </span>
 
-            <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getPaymentStatusClass(paymentStatus)}`}>
+            <span className={getPaymentStatusClass(paymentStatus)}>
               {formatStatusLabel(paymentStatus)}
             </span>
 
-            <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getCompletionStatusClass(completionStatus)}`}>
+            <span className={getCompletionStatusClass(completionStatus)}>
               {formatCompletionStatus(completionStatus)}
             </span>
 
             {booking.is_walk_in && (
-              <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black uppercase text-purple-700">
+              <span className="icb-badge icb-badge-purple">
                 Walk-in
               </span>
             )}
           </div>
 
-          <h3 className="text-2xl font-black text-[#2B2B2B]">
+          <h3 className="text-2xl font-black text-[#0B1F33]">
             {getFacilityName(booking)}
           </h3>
 
@@ -757,7 +790,7 @@ function BookingCard({
             {formatTime(booking.end_time)}
           </p>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MiniDetail label="Progress" value={getOverallStep(booking)} />
             <MiniDetail label="Hours" value={`${booking.total_hours || 0} hour(s)`} />
             <MiniDetail label="Total" value={money(getBookingTotal(booking))} />
@@ -776,13 +809,13 @@ function BookingCard({
           </div>
 
           {booking.payment_rejection_reason && paymentStatus === "rejected_payment" && (
-            <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
               <b>Payment Rejection Reason:</b> {booking.payment_rejection_reason}
             </div>
           )}
 
           {booking.completion_notes && completionStatus !== "not_completed" && (
-            <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <div className="mt-4 rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] px-4 py-3 text-sm font-semibold text-slate-700">
               <b>Completion Notes:</b> {booking.completion_notes}
             </div>
           )}
@@ -792,24 +825,20 @@ function BookingCard({
           <button
             type="button"
             onClick={onTimeline}
-            className="rounded-2xl border border-[#DED8D2] px-4 py-3 text-sm font-bold hover:bg-[#F5F3F1]"
+            className="icb-btn-light"
           >
-            <span className="inline-flex items-center gap-2">
-              <CalendarClock size={16} />
-              Timeline
-            </span>
+            <CalendarClock size={16} />
+            Timeline
           </button>
 
           {canPayBooking(booking) && (
             <button
               type="button"
               onClick={onPay}
-              className="rounded-2xl bg-[#C97B6C] px-4 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
+              className="icb-btn-accent"
             >
-              <span className="inline-flex items-center gap-2">
-                <Upload size={16} />
-                Upload Payment
-              </span>
+              <Upload size={16} />
+              Upload Payment
             </button>
           )}
 
@@ -817,12 +846,10 @@ function BookingCard({
             <button
               type="button"
               onClick={onReceipt}
-              className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-bold text-green-700 hover:bg-green-100"
+              className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-green-200 bg-green-50 px-5 py-3 text-sm font-black text-green-700 transition hover:bg-green-100"
             >
-              <span className="inline-flex items-center gap-2">
-                <Receipt size={16} />
-                Receipt
-              </span>
+              <Receipt size={16} />
+              Receipt
             </button>
           )}
 
@@ -831,12 +858,10 @@ function BookingCard({
               type="button"
               onClick={onCancel}
               disabled={processing}
-              className="rounded-2xl bg-red-600 px-4 py-3 text-sm font-bold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-red-600 px-5 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <span className="inline-flex items-center gap-2">
-                <XCircle size={16} />
-                {processing ? "Cancelling..." : "Cancel"}
-              </span>
+              <XCircle size={16} />
+              {processing ? "Cancelling..." : "Cancel"}
             </button>
           )}
         </div>
@@ -855,7 +880,7 @@ function PaymentModal({
   onSubmit,
 }) {
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#0B1F33]/60 px-4 py-6 backdrop-blur-sm">
       <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -863,11 +888,11 @@ function PaymentModal({
               Payment Upload
             </p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
+            <h2 className="mt-1 text-2xl font-black text-[#0B1F33]">
               Upload payment proof
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
               Submit your payment proof for staff verification.
             </p>
           </div>
@@ -886,9 +911,21 @@ function PaymentModal({
           <PaymentInstructionsBox settings={paymentSettings} />
 
           <div className="rounded-2xl border border-[#DED8D2] bg-white p-5">
-            <h3 className="text-lg font-black text-[#2B2B2B]">
-              Payment Form
-            </h3>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658]">
+                <CreditCard size={20} />
+              </div>
+
+              <div>
+                <h3 className="text-lg font-black text-[#0B1F33]">
+                  Payment Form
+                </h3>
+
+                <p className="text-sm font-semibold text-slate-500">
+                  Fill in your payment details below.
+                </p>
+              </div>
+            </div>
 
             <div className="mt-4 space-y-4">
               <MiniDetail label="Facility" value={getFacilityName(booking)} />
@@ -900,29 +937,21 @@ function PaymentModal({
               />
               <MiniDetail label="Total Amount" value={money(getBookingTotal(booking))} />
 
-              <div>
-                <label className="mb-2 block text-sm font-semibold">
-                  Payment Method
-                </label>
-
+              <FormField label="Payment Method">
                 <select
                   name="payment_method"
                   value={form.payment_method}
                   onChange={onChange}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
                 >
                   <option value="GCash">GCash</option>
                   <option value="Bank Transfer">Bank Transfer</option>
                   <option value="Cash">Cash</option>
                   <option value="Other">Other</option>
                 </select>
-              </div>
+              </FormField>
 
-              <div>
-                <label className="mb-2 block text-sm font-semibold">
-                  Reference Number
-                </label>
-
+              <FormField label="Reference Number">
                 <input
                   name="payment_reference"
                   value={form.payment_reference}
@@ -930,13 +959,9 @@ function PaymentModal({
                   placeholder="Enter payment reference number"
                   className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
                 />
-              </div>
+              </FormField>
 
-              <div>
-                <label className="mb-2 block text-sm font-semibold">
-                  Amount Paid
-                </label>
-
+              <FormField label="Amount Paid">
                 <input
                   type="number"
                   name="amount_paid"
@@ -945,13 +970,9 @@ function PaymentModal({
                   placeholder="Enter amount paid"
                   className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
                 />
-              </div>
+              </FormField>
 
-              <div>
-                <label className="mb-2 block text-sm font-semibold">
-                  Payment Proof Screenshot
-                </label>
-
+              <FormField label="Payment Proof Screenshot">
                 <input
                   type="file"
                   name="payment_proof_file"
@@ -959,12 +980,12 @@ function PaymentModal({
                   onChange={onChange}
                   className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none file:mr-4 file:rounded-xl file:border-0 file:bg-[#C97B6C] file:px-4 file:py-2 file:font-bold file:text-white"
                 />
-              </div>
+              </FormField>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl bg-yellow-50 px-4 py-4 text-sm text-yellow-800">
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold leading-6 text-amber-800">
           Please make sure your uploaded proof clearly shows the reference number,
           payment amount, and payment date.
         </div>
@@ -983,8 +1004,9 @@ function PaymentModal({
             type="button"
             onClick={onSubmit}
             disabled={uploading}
-            className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
+            className="icb-btn-accent"
           >
+            <Upload size={18} />
             {uploading ? "Uploading..." : "Submit Payment Proof"}
           </button>
         </div>
@@ -1006,14 +1028,22 @@ function PaymentInstructionsBox({ settings }) {
     "";
 
   return (
-    <div className="rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] p-5">
-      <h3 className="text-lg font-black text-[#2B2B2B]">
-        Payment Instructions
-      </h3>
+    <div className="rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-5">
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#0B1F33] text-white">
+          <FileImage size={20} />
+        </div>
 
-      <p className="mt-1 text-sm text-slate-600">
-        Pay using the available account details below, then upload your proof.
-      </p>
+        <div>
+          <h3 className="text-lg font-black text-[#0B1F33]">
+            Payment Instructions
+          </h3>
+
+          <p className="text-sm font-semibold text-slate-500">
+            Pay using the available account details below.
+          </p>
+        </div>
+      </div>
 
       <div className="mt-5 space-y-4">
         <PaymentInfo
@@ -1040,18 +1070,13 @@ function PaymentInstructionsBox({ settings }) {
 
       {(gcashQr || bankQr) && (
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-          {gcashQr && (
-            <QrBox label="GCash QR" url={gcashQr} />
-          )}
-
-          {bankQr && (
-            <QrBox label="Bank QR" url={bankQr} />
-          )}
+          {gcashQr && <QrBox label="GCash QR" url={gcashQr} />}
+          {bankQr && <QrBox label="Bank QR" url={bankQr} />}
         </div>
       )}
 
       {settings?.payment_instructions && (
-        <div className="mt-5 rounded-2xl bg-white p-4 text-sm text-slate-600">
+        <div className="mt-5 rounded-2xl bg-white p-4 text-sm font-semibold leading-6 text-slate-600">
           {settings.payment_instructions}
         </div>
       )}
@@ -1061,8 +1086,8 @@ function PaymentInstructionsBox({ settings }) {
 
 function QrBox({ label, url }) {
   return (
-    <div className="rounded-2xl bg-white p-4">
-      <p className="mb-3 text-sm font-black text-[#2B2B2B]">{label}</p>
+    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
+      <p className="mb-3 text-sm font-black text-[#0B1F33]">{label}</p>
 
       <img
         src={url}
@@ -1139,7 +1164,7 @@ function ReceiptModal({ booking, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#0B1F33]/60 px-4 py-6 backdrop-blur-sm">
       <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -1147,7 +1172,7 @@ function ReceiptModal({ booking, onClose }) {
               Official Receipt
             </p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
+            <h2 className="mt-1 text-2xl font-black text-[#0B1F33]">
               Booking Receipt
             </h2>
           </div>
@@ -1164,11 +1189,11 @@ function ReceiptModal({ booking, onClose }) {
         <div ref={printRef} className="mt-6">
           <div className="receipt rounded-[24px] border border-[#DED8D2] bg-white p-6">
             <div className="header text-center">
-              <h1 className="text-2xl font-black text-[#2B2B2B]">
+              <h1 className="text-2xl font-black text-[#0B1F33]">
                 InCredoBall Sports Center
               </h1>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm font-semibold text-slate-500">
                 Booking Payment Receipt
               </p>
             </div>
@@ -1197,12 +1222,10 @@ function ReceiptModal({ booking, onClose }) {
           <button
             type="button"
             onClick={handlePrint}
-            className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463]"
+            className="icb-btn-accent"
           >
-            <span className="inline-flex items-center gap-2">
-              <Printer size={18} />
-              Print Receipt
-            </span>
+            <Printer size={18} />
+            Print Receipt
           </button>
         </div>
       </div>
@@ -1216,7 +1239,7 @@ function ReceiptRow({ label, value, total = false }) {
       <span className="label text-sm font-bold text-slate-500">{label}</span>
       <span
         className={`value text-right font-black ${
-          total ? "total text-xl text-[#C97B6C]" : "text-[#2B2B2B]"
+          total ? "total text-xl text-[#C97B6C]" : "text-[#0B1F33]"
         }`}
       >
         {value || "-"}
@@ -1227,12 +1250,12 @@ function ReceiptRow({ label, value, total = false }) {
 
 function PaymentInfo({ label, value }) {
   return (
-    <div className="rounded-2xl bg-white p-4">
+    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
       <p className="text-xs font-black uppercase tracking-widest text-slate-400">
         {label}
       </p>
 
-      <p className="mt-2 break-words text-sm font-black text-[#2B2B2B]">
+      <p className="mt-2 break-words text-sm font-black text-[#0B1F33]">
         {value || "-"}
       </p>
     </div>
@@ -1241,12 +1264,12 @@ function PaymentInfo({ label, value }) {
 
 function MiniDetail({ label, value }) {
   return (
-    <div className="rounded-2xl bg-[#F5F3F1] p-4">
+    <div className="rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-4">
       <p className="text-xs font-black uppercase tracking-widest text-slate-400">
         {label}
       </p>
 
-      <p className="mt-2 break-words text-sm font-black text-[#2B2B2B]">
+      <p className="mt-2 break-words text-sm font-black text-[#0B1F33]">
         {value || "-"}
       </p>
     </div>
@@ -1258,10 +1281,10 @@ function FilterButton({ active, onClick, children }) {
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-2xl px-4 py-3 text-sm font-bold transition ${
+      className={`rounded-2xl px-4 py-3 text-sm font-black transition ${
         active
-          ? "bg-[#C97B6C] text-white"
-          : "border border-[#DED8D2] text-slate-600 hover:bg-[#F5F3F1]"
+          ? "bg-[#C97B6C] text-white shadow-[0_10px_24px_rgba(201,123,108,0.22)]"
+          : "border border-[#DED8D2] bg-white text-slate-600 hover:bg-[#F3E4DF] hover:text-[#B86658]"
       }`}
     >
       {children}
@@ -1271,9 +1294,23 @@ function FilterButton({ active, onClick, children }) {
 
 function HeroStat({ label, value }) {
   return (
-    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white">
-      <p className="text-xs font-black uppercase tracking-widest">{label}</p>
+    <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white backdrop-blur">
+      <p className="text-xs font-black uppercase tracking-widest text-[#E8A093]">
+        {label}
+      </p>
       <h3 className="mt-1 text-2xl font-black">{value}</h3>
+    </div>
+  );
+}
+
+function FormField({ label, children }) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-black text-[#0B1F33]">
+        {label}
+      </label>
+
+      {children}
     </div>
   );
 }

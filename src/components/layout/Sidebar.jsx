@@ -1,338 +1,228 @@
-import { createElement, isValidElement } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   Activity,
+  BarChart3,
   Bell,
-  Calendar,
+  Box,
   CalendarCheck,
   CalendarClock,
-  CalendarPlus,
+  CalendarDays,
   ClipboardList,
-  FileBarChart,
+  Home,
   LayoutDashboard,
   LogOut,
   Package,
   Settings,
   ShieldCheck,
-  Store,
   User,
   Users,
   Wrench,
   X,
 } from "lucide-react";
 import { supabase } from "../../services/supabaseClient";
+import { useSidebar } from "../../context/SidebarContext";
 import logo from "../../assets/ICBLOGO.jpg";
 
-const sidebarBase =
-  "fixed left-0 top-0 z-50 flex h-screen w-[280px] flex-col border-r border-[#DED8D2] bg-white shadow-sm";
+const roleLabels = {
+  user: "Customer Portal",
+  staff: "Staff Workspace",
+  admin: "Admin Control",
+};
 
-const linkBase =
-  "flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-bold transition";
+const menus = {
+  user: [
+    { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
+    { label: "Facility Booking", path: "/booking", icon: CalendarDays },
+    { label: "My Bookings", path: "/my-bookings", icon: CalendarCheck },
+    { label: "Booking Timeline", path: "/booking-timeline", icon: CalendarClock },
+    { label: "Notifications", path: "/user/notifications", icon: Bell },
+    { label: "Profile Settings", path: "/user/profile", icon: User },
+  ],
 
-const activeLink = "bg-[#C97B6C] text-white shadow-sm";
-const inactiveLink = "text-slate-600 hover:bg-[#F5F3F1] hover:text-[#2B2B2B]";
+  staff: [
+    { label: "Dashboard", path: "/staff/dashboard", icon: LayoutDashboard },
+    { label: "Operations Board", path: "/staff/operations", icon: CalendarCheck },
+    {
+      label: "Availability Board",
+      path: "/staff/availability-board",
+      icon: CalendarClock,
+    },
+    {
+      label: "Manage Bookings",
+      path: "/staff/manage-bookings",
+      icon: ClipboardList,
+    },
+    { label: "Walk-in Booking", path: "/staff/walk-in-booking", icon: CalendarDays },
+    { label: "Inventory", path: "/staff/inventory", icon: Box },
+    { label: "Maintenance", path: "/staff/maintenance", icon: Wrench },
+    { label: "Activity Logs", path: "/staff/activity-logs", icon: Activity },
+    { label: "Notifications", path: "/staff/notifications", icon: Bell },
+    { label: "Profile Settings", path: "/staff/profile", icon: User },
+  ],
 
-function renderIcon(icon) {
-  if (!icon) {
-    return <span className="h-[18px] w-[18px]" />;
-  }
+  admin: [
+    { label: "Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
+    { label: "Command Center", path: "/admin/command-center", icon: ShieldCheck },
+    { label: "Operations Board", path: "/admin/operations", icon: CalendarCheck },
+    {
+      label: "Availability Board",
+      path: "/admin/availability-board",
+      icon: CalendarClock,
+    },
+    { label: "Facility Management", path: "/admin/facilities", icon: Home },
+    { label: "User Management", path: "/admin/users", icon: Users },
+    { label: "Reports", path: "/admin/reports", icon: BarChart3 },
+    { label: "Activity Logs", path: "/admin/activity-logs", icon: Activity },
+    { label: "Notifications", path: "/admin/notifications", icon: Bell },
+    { label: "Payment Settings", path: "/admin/payment-settings", icon: Package },
+    { label: "Settings", path: "/admin/settings", icon: Settings },
+    { label: "Profile Settings", path: "/admin/profile", icon: User },
+  ],
+};
 
-  if (isValidElement(icon)) {
-    return icon;
-  }
-
-  if (typeof icon === "function") {
-    return createElement(icon, {
-      size: 18,
-      strokeWidth: 2,
-    });
-  }
-
-  if (
-    typeof icon === "object" &&
-    icon !== null &&
-    icon.$$typeof &&
-    icon.render
-  ) {
-    return createElement(icon, {
-      size: 18,
-      strokeWidth: 2,
-    });
-  }
-
-  return <span className="h-[18px] w-[18px]" />;
-}
-
-const userMenu = [
-  {
-    label: "Dashboard",
-    path: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "Facility Booking",
-    path: "/booking",
-    icon: Calendar,
-  },
-  {
-    label: "My Bookings",
-    path: "/my-bookings",
-    icon: CalendarCheck,
-  },
-  {
-    label: "Booking Timeline",
-    path: "/booking-timeline",
-    icon: CalendarClock,
-  },
-  {
-    label: "Notifications",
-    path: "/notifications",
-    icon: Bell,
-  },
-  {
-    label: "Profile Settings",
-    path: "/profile-settings",
-    icon: User,
-  },
-];
-
-const staffMenu = [
-  {
-    label: "Dashboard",
-    path: "/staff/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "Operations Board",
-    path: "/staff/operations-board",
-    icon: CalendarCheck,
-  },
-  {
-    label: "Availability Board",
-    path: "/staff/availability-board",
-    icon: CalendarClock,
-  },
-  {
-    label: "Manage Bookings",
-    path: "/staff/manage-bookings",
-    icon: ClipboardList,
-  },
-  {
-    label: "Walk-in Booking",
-    path: "/staff/walk-in-booking",
-    icon: CalendarPlus,
-  },
-  {
-    label: "Inventory",
-    path: "/staff/inventory",
-    icon: Package,
-  },
-  {
-    label: "Maintenance",
-    path: "/staff/maintenance",
-    icon: Wrench,
-  },
-  {
-    label: "Activity Logs",
-    path: "/staff/activity-logs",
-    icon: Activity,
-  },
-  {
-    label: "Notifications",
-    path: "/notifications",
-    icon: Bell,
-  },
-  {
-    label: "Profile Settings",
-    path: "/profile-settings",
-    icon: User,
-  },
-];
-
-const adminMenu = [
-  {
-    label: "Dashboard",
-    path: "/admin/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "Command Center",
-    path: "/admin/command-center",
-    icon: ShieldCheck,
-  },
-  {
-    label: "Operations Board",
-    path: "/staff/operations-board",
-    icon: CalendarCheck,
-  },
-  {
-    label: "Availability Board",
-    path: "/staff/availability-board",
-    icon: CalendarClock,
-  },
-  {
-    label: "Facility Management",
-    path: "/admin/facilities",
-    icon: Store,
-  },
-  {
-    label: "User Management",
-    path: "/admin/users",
-    icon: Users,
-  },
-  {
-    label: "Reports",
-    path: "/admin/reports",
-    icon: FileBarChart,
-  },
-  {
-    label: "Activity Logs",
-    path: "/staff/activity-logs",
-    icon: Activity,
-  },
-  {
-    label: "Notifications",
-    path: "/notifications",
-    icon: Bell,
-  },
-  {
-    label: "Settings",
-    path: "/admin/settings",
-    icon: Settings,
-  },
-  {
-    label: "Profile Settings",
-    path: "/profile-settings",
-    icon: User,
-  },
-];
-
-function getMenuByRole(role) {
-  const currentRole = String(role || "user").toLowerCase();
-
-  if (currentRole === "admin") return adminMenu;
-  if (currentRole === "staff") return staffMenu;
-
-  return userMenu;
-}
-
-function getRoleLabel(role) {
-  const currentRole = String(role || "user").toLowerCase();
-
-  if (currentRole === "admin") return "Administrator";
-  if (currentRole === "staff") return "Staff";
-
-  return "User";
-}
-
-function getRoleHome(role) {
-  const currentRole = String(role || "user").toLowerCase();
-
-  if (currentRole === "admin") return "/admin/dashboard";
-  if (currentRole === "staff") return "/staff/dashboard";
-
+function getHomePath(role) {
+  if (role === "admin") return "/admin/dashboard";
+  if (role === "staff") return "/staff/dashboard";
   return "/dashboard";
 }
 
-export default function Sidebar({ role = "user", isOpen = true, onClose }) {
+export default function Sidebar({ role = "user" }) {
   const navigate = useNavigate();
-  const menuItems = getMenuByRole(role);
+  const { mobileSidebarOpen, closeSidebar } = useSidebar();
+
+  const normalizedRole = ["user", "staff", "admin"].includes(role)
+    ? role
+    : "user";
+
+  const menuItems = menus[normalizedRole] || menus.user;
 
   async function handleLogout() {
-    try {
-      await supabase.auth.signOut();
-      navigate("/login", { replace: true });
-    } catch (err) {
-      console.error("Logout failed:", err);
-    }
+    await supabase.auth.signOut();
+    closeSidebar();
+    navigate("/login", { replace: true });
+  }
+
+  function handleLogoClick() {
+    navigate(getHomePath(normalizedRole));
+    closeSidebar();
   }
 
   return (
     <>
-      {isOpen && (
+      {mobileSidebarOpen && (
         <button
           type="button"
+          onClick={closeSidebar}
+          className="fixed inset-0 z-[80] bg-[#0B1F33]/50 backdrop-blur-[2px] lg:hidden"
           aria-label="Close sidebar overlay"
-          onClick={onClose}
-          className="fixed inset-0 z-40 bg-black/30 lg:hidden"
         />
       )}
 
       <aside
-        className={`${sidebarBase} ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        } transition-transform duration-300 lg:translate-x-0`}
+        className={`fixed left-0 top-0 z-[90] flex h-screen w-[280px] max-w-[86vw] flex-col border-r border-white/10 bg-[#0B1F33] text-white shadow-2xl transition-transform duration-300 lg:z-40 lg:translate-x-0 lg:shadow-none ${
+          mobileSidebarOpen
+            ? "translate-x-0"
+            : "-translate-x-full lg:translate-x-0"
+        }`}
       >
-        <div className="flex items-center justify-between border-b border-[#DED8D2] px-5 py-5">
-          <button
-            type="button"
-            onClick={() => navigate(getRoleHome(role))}
-            className="flex min-w-0 items-center gap-3 text-left"
-          >
-            <img
-              src={logo}
-              alt="InCredoBall Logo"
-              className="h-14 w-14 shrink-0 rounded-full border border-[#DED8D2] object-cover shadow-sm"
-            />
+        <div className="relative shrink-0 overflow-hidden border-b border-white/10 px-5 py-5">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full bg-[#C97B6C]/20 blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-20 -left-16 h-36 w-36 rounded-full bg-white/10 blur-2xl" />
 
-            <div className="min-w-0">
-              <p className="text-xs font-black uppercase tracking-widest text-[#C97B6C]">
-                InCredoBall
-              </p>
-
-              <h1 className="mt-1 truncate text-lg font-black text-[#2B2B2B]">
-                Sports Center
-              </h1>
-
-              <p className="mt-1 truncate text-xs font-bold text-slate-500">
-                {getRoleLabel(role)} Panel
-              </p>
-            </div>
-          </button>
-
-          {onClose && (
+          <div className="relative flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-2xl border border-[#DED8D2] p-2 text-[#2B2B2B] hover:bg-[#F5F3F1] lg:hidden"
+              onClick={handleLogoClick}
+              className="flex min-w-0 items-center gap-3 text-left"
             >
-              <X size={18} />
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white p-1 shadow-sm">
+                <img
+                  src={logo}
+                  alt="InCredoBall Logo"
+                  className="h-full w-full rounded-xl object-cover"
+                />
+              </div>
+
+              <div className="min-w-0">
+                <p className="truncate text-xs font-black uppercase tracking-[0.22em] text-[#E8A093]">
+                  InCredoBall
+                </p>
+
+                <h1 className="truncate text-lg font-black leading-tight text-white">
+                  Sports Center
+                </h1>
+
+                <p className="mt-0.5 truncate text-xs font-bold text-white/55">
+                  {roleLabels[normalizedRole] || "User Panel"}
+                </p>
+              </div>
             </button>
-          )}
+
+            <button
+              type="button"
+              onClick={closeSidebar}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white transition hover:bg-white/10 lg:hidden"
+              aria-label="Close sidebar"
+            >
+              <X size={19} />
+            </button>
+          </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-4 py-5">
-          <div className="space-y-2">
-            {menuItems.map((item) => (
+        <nav className="flex-1 space-y-1.5 overflow-y-auto px-4 py-5">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+
+            return (
               <NavLink
-                key={`${item.label}-${item.path}`}
+                key={item.path}
                 to={item.path}
-                onClick={onClose}
+                onClick={closeSidebar}
                 className={({ isActive }) =>
-                  `${linkBase} ${isActive ? activeLink : inactiveLink}`
+                  `group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-black transition ${
+                    isActive
+                      ? "bg-[#C97B6C] text-white shadow-[0_10px_24px_rgba(201,123,108,0.28)]"
+                      : "text-white/65 hover:bg-white/8 hover:text-white"
+                  }`
                 }
               >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                  {renderIcon(item.icon)}
-                </span>
+                {({ isActive }) => (
+                  <>
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition ${
+                        isActive
+                          ? "bg-white/18 text-white"
+                          : "bg-white/5 text-white/65 group-hover:bg-white/10 group-hover:text-white"
+                      }`}
+                    >
+                      <Icon size={18} />
+                    </span>
 
-                <span className="truncate">{item.label}</span>
+                    <span className="truncate">{item.label}</span>
+                  </>
+                )}
               </NavLink>
-            ))}
-          </div>
+            );
+          })}
         </nav>
 
-        <div className="border-t border-[#DED8D2] p-4">
+        <div className="shrink-0 border-t border-white/10 p-4">
+          <div className="mb-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#E8A093]">
+              Session
+            </p>
+            <p className="mt-1 text-sm font-bold text-white/70">
+              {roleLabels[normalizedRole] || "User Panel"}
+            </p>
+          </div>
+
           <button
             type="button"
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-2xl bg-[#2B2B2B] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#C97B6C]"
+            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-white px-4 py-4 text-sm font-black text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658]"
           >
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-              <LogOut size={18} />
-            </span>
-
-            <span>Logout</span>
+            <LogOut size={18} />
+            Logout
           </button>
         </div>
       </aside>

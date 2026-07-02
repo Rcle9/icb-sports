@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
+import {
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Eraser,
+  Layers,
+  ReceiptText,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
@@ -16,6 +28,12 @@ const SPORT_TYPES = [
   { value: "pickleball", label: "Pickleball" },
   { value: "basketball", label: "Basketball" },
   { value: "table_tennis", label: "Table Tennis" },
+];
+
+const SESSION_TYPES = [
+  { value: "training", label: "Training" },
+  { value: "instructional", label: "Instructional" },
+  { value: "recreational", label: "Recreational" },
 ];
 
 function money(value) {
@@ -115,6 +133,17 @@ function normalizeFacilityType(value) {
   return type.replaceAll(" ", "_");
 }
 
+function getFacilityImages(item) {
+  const images = [
+    ...(Array.isArray(item?.image_urls) ? item.image_urls : []),
+    ...(Array.isArray(item?.images) ? item.images : []),
+    item?.image_url,
+    item?.image,
+  ].filter(Boolean);
+
+  return [...new Set(images)].length ? [...new Set(images)] : [FACILITY_FALLBACK];
+}
+
 function getFacilityRate(facility) {
   return Number(
     facility?.rate_per_hour ||
@@ -123,86 +152,6 @@ function getFacilityRate(facility) {
       facility?.price ||
       0
   );
-}
-
-function getDefaultSportImage(type) {
-  const normalizedType = normalizeFacilityType(type);
-
-  if (normalizedType === "pickleball") {
-    return "https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?auto=format&fit=crop&w=900&q=80";
-  }
-
-  if (normalizedType === "basketball") {
-    return "https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=900&q=80";
-  }
-
-  if (normalizedType === "table_tennis") {
-    return "https://images.unsplash.com/photo-1611251135345-18c56206b863?auto=format&fit=crop&w=900&q=80";
-  }
-
-  return FACILITY_FALLBACK;
-}
-
-function getSportImage(sportValue, sportFacilities) {
-  const facilityWithMainImage = sportFacilities.find((facility) => facility.image_url);
-  const facilityWithImages = sportFacilities.find(
-    (facility) => Array.isArray(facility.image_urls) && facility.image_urls.length > 0
-  );
-
-  return (
-    facilityWithMainImage?.image_url ||
-    facilityWithImages?.image_urls?.[0] ||
-    getDefaultSportImage(sportValue)
-  );
-}
-
-function getSportCardInfo(sportValue, facilities) {
-  const sportFacilities = facilities.filter(
-    (facility) => normalizeFacilityType(facility.type) === sportValue
-  );
-
-  if (sportValue === "pickleball") {
-    const count = sportFacilities.length || 6;
-
-    return {
-      title: "Pickleball",
-      description:
-        "Reserve available pickleball courts for recreational games, practice, and matches.",
-      image: getSportImage("pickleball", sportFacilities),
-      countLabel: `${count} court${count > 1 ? "s" : ""} available`,
-    };
-  }
-
-  if (sportValue === "basketball") {
-    const count = sportFacilities.length || 1;
-
-    return {
-      title: "Basketball",
-      description:
-        "Book the basketball court for practice sessions, team games, and recreational play.",
-      image: getSportImage("basketball", sportFacilities),
-      countLabel: `${count} court${count > 1 ? "s" : ""} available`,
-    };
-  }
-
-  if (sportValue === "table_tennis") {
-    const count = sportFacilities.length || 2;
-
-    return {
-      title: "Table Tennis",
-      description:
-        "Reserve table tennis tables for casual games, training, and friendly matches.",
-      image: getSportImage("table_tennis", sportFacilities),
-      countLabel: `${count} table${count > 1 ? "s" : ""} available`,
-    };
-  }
-
-  return {
-    title: "Facility",
-    description: "View available sports facilities and schedules.",
-    image: FACILITY_FALLBACK,
-    countLabel: "Available",
-  };
 }
 
 function generateSlots() {
@@ -335,22 +284,22 @@ function getUserBlockedClass(booking) {
   const paymentStatus = normalizePaymentStatus(booking?.payment_status);
 
   if (status === "approved" || paymentStatus === "paid") {
-    return "cursor-not-allowed border-[#9CA3AF] bg-[#E5E7EB] text-[#374151]";
+    return "cursor-not-allowed border-slate-300 bg-slate-200 text-slate-600";
   }
 
   if (status === "reserved" && paymentStatus === "pending_verification") {
-    return "cursor-not-allowed border-[#60A5FA] bg-[#DBEAFE] text-[#1D4ED8]";
+    return "cursor-not-allowed border-blue-300 bg-blue-50 text-blue-700";
   }
 
   if (status === "pending") {
-    return "cursor-not-allowed border-[#60A5FA] bg-[#DBEAFE] text-[#1D4ED8]";
+    return "cursor-not-allowed border-blue-300 bg-blue-50 text-blue-700";
   }
 
   if (status === "reserved") {
-    return "cursor-not-allowed border-[#F59E0B] bg-[#FEF3C7] text-[#92400E]";
+    return "cursor-not-allowed border-amber-300 bg-amber-50 text-amber-700";
   }
 
-  return "cursor-not-allowed border-[#9CA3AF] bg-[#E5E7EB] text-[#374151]";
+  return "cursor-not-allowed border-slate-300 bg-slate-200 text-slate-600";
 }
 
 export default function Booking() {
@@ -367,7 +316,7 @@ export default function Booking() {
 
   const [form, setForm] = useState({
     booking_date: getTodayDate(),
-    session_type: "recreational",
+    session_type: "training",
     notes: "",
   });
 
@@ -631,11 +580,6 @@ export default function Booking() {
 
   function handleSportChange(sport) {
     setSelectedSport(sport);
-
-    setTimeout(() => {
-      const calendar = document.getElementById("booking-calendar-section");
-      calendar?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 100);
   }
 
   function goToPreviousDate() {
@@ -890,7 +834,7 @@ export default function Booking() {
           booking_date: form.booking_date,
           start_time: group.start_time,
           end_time: group.end_time,
-          session_type: form.session_type || "recreational",
+          session_type: form.session_type,
           notes: form.notes || "",
           total_hours: group.total_hours,
           rate_per_hour: group.rate_per_hour,
@@ -944,8 +888,8 @@ export default function Booking() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#F5F3F1] flex items-center justify-center">
-        <div className="rounded-2xl bg-white px-6 py-4 shadow text-[#2B2B2B]">
+      <div className="flex min-h-screen items-center justify-center bg-[#F5F3F1]">
+        <div className="rounded-2xl bg-white px-6 py-4 text-[#0B1F33] shadow">
           Loading...
         </div>
       </div>
@@ -966,111 +910,251 @@ export default function Booking() {
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Facility Booking" />
+          <Topbar title="Facility Booking" subtitle="Customer Portal" />
 
           {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
+            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
               {error}
             </div>
           )}
 
           {message && (
-            <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
+            <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-bold text-green-700">
               {message}
             </div>
           )}
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+          <section className="page-hero icb-fade-up mb-6 overflow-hidden">
+            <div className="relative">
+              <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-[#C97B6C]/25 blur-3xl" />
+              <div className="pointer-events-none absolute -bottom-24 -left-20 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
+
+              <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.4fr_0.75fr] xl:items-end">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.22em] text-[#E8A093]">
+                    Facility Reservation
+                  </p>
+
+                  <h2 className="mt-4 max-w-4xl text-3xl font-black leading-tight text-white sm:text-4xl lg:text-5xl">
+                    Choose a sport, select a court, and reserve your time.
+                  </h2>
+
+                  <p className="mt-4 max-w-3xl text-sm leading-6 text-white/80 sm:text-base">
+                    Each court or table has its own schedule to prevent double-booking.
+                    Pick your available time slot and upload your payment proof after reserving.
+                  </p>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <a href="#schedule-calendar" className="icb-btn-accent">
+                      <CalendarDays size={18} />
+                      View Schedule
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => loadBookingsForDate()}
+                      className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white transition hover:bg-white/15"
+                    >
+                      <RefreshCw size={18} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-white/10 bg-white/10 p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-[#E8A093]">
+                    Reservation Timer
+                  </p>
+
+                  <h3 className="mt-3 text-4xl font-black text-white">
+                    {reservationMinutes} min
+                  </h3>
+
+                  <p className="mt-2 text-sm leading-6 text-white/70">
+                    After submitting, your selected slot is temporarily reserved while
+                    you upload payment proof.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="icb-card p-5 sm:p-6">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+                    Choose Sport
+                  </p>
+
+                  <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                    Select facility category
+                  </h3>
+
+                  <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
+                    The calendar will show the exact court or table based on your selected sport.
+                  </p>
+                </div>
+
+                <div className="hidden h-12 w-12 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658] sm:flex">
+                  <Layers size={22} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {SPORT_TYPES.map((sport) => (
+                  <SportButton
+                    key={sport.value}
+                    sport={sport}
+                    active={selectedSport === sport.value}
+                    onClick={() => handleSportChange(sport.value)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="icb-card p-5 sm:p-6">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+                    Booking Setup
+                  </p>
+
+                  <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                    Date and session
+                  </h3>
+
+                  <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
+                    Select your booking date and session type before choosing time slots.
+                  </p>
+                </div>
+
+                <div className="hidden h-12 w-12 items-center justify-center rounded-2xl bg-[#0B1F33] text-white sm:flex">
+                  <Clock size={22} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Booking Date">
+                  <input
+                    type="date"
+                    name="booking_date"
+                    value={form.booking_date}
+                    min={getTodayDate()}
+                    onChange={handleChange}
+                    className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
+                  />
+                </Field>
+
+                <Field label="Session Type">
+                  <select
+                    name="session_type"
+                    value={form.session_type}
+                    onChange={handleChange}
+                    className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
+                  >
+                    {SESSION_TYPES.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <div className="mt-4">
+                <Field label="Notes">
+                  <textarea
+                    name="notes"
+                    value={form.notes}
+                    onChange={handleChange}
+                    placeholder="Optional notes for your booking"
+                    className="min-h-[90px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                  />
+                </Field>
+              </div>
+            </div>
+          </section>
+
+          <section className="icb-card mb-6 p-5 sm:p-6">
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
                   Available Facilities
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                  {selectedSportLabel} Facilities
                 </h3>
 
-                <p className="text-sm text-slate-500">
-                  Select a sport facility to view its court or table schedule.
+                <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
+                  Facility cards show current rates and available exact courts or tables.
                 </p>
               </div>
 
-              <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-bold text-[#C97B6C]">
+              <span className="inline-flex w-fit items-center gap-2 rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-black text-[#B86658]">
+                <CheckCircle2 size={16} />
                 {selectedSlots.length} selected slot(s)
               </span>
             </div>
 
             {loadingFacilities ? (
-              <p className="text-sm text-slate-500">Loading facilities...</p>
+              <p className="text-sm font-semibold text-slate-500">Loading facilities...</p>
+            ) : filteredFacilities.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
+                No active {selectedSportLabel} facility found. Please add this facility type
+                in admin Facility Management.
+              </div>
             ) : (
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-                {SPORT_TYPES.map((sport) => {
-                  const sportInfo = getSportCardInfo(sport.value, facilities);
-                  const isActive = selectedSport === sport.value;
-
-                  return (
-                    <SportFacilityCard
-                      key={sport.value}
-                      sportInfo={sportInfo}
-                      isActive={isActive}
-                      onClick={() => handleSportChange(sport.value)}
-                    />
-                  );
-                })}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {filteredFacilities.map((facility) => (
+                  <FacilityCard key={facility.id} facility={facility} />
+                ))}
               </div>
             )}
           </section>
 
           <section
-            id="booking-calendar-section"
-            className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm"
+            id="schedule-calendar"
+            className="icb-card overflow-hidden p-5 sm:p-6"
           >
-            <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+                  Schedule Calendar
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
                   {selectedSportLabel} Schedule Calendar
                 </h3>
 
-                <p className="text-sm text-slate-500">
+                <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
                   Rows are time slots. Columns are courts or tables. Customer names are hidden for privacy.
                 </p>
 
-                <h4 className="mt-4 text-xl font-black text-[#2B2B2B]">
+                <h4 className="mt-4 text-lg font-black text-[#0B1F33] sm:text-xl">
                   {formatDate(form.booking_date)}
                 </h4>
 
-                <div className="mt-3 flex flex-wrap gap-4 text-xs font-semibold text-slate-600">
-                  <Legend color="bg-[#DCFCE7] border-[#4ADE80]" label="Open" />
+                <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-slate-600">
+                  <Legend color="bg-green-100 border-green-400" label="Open" />
                   <Legend color="bg-[#F3E4DF] border-[#C97B6C]" label="Selected" />
-                  <Legend color="bg-[#FEF3C7] border-[#F59E0B]" label="Reserved" />
-                  <Legend color="bg-[#DBEAFE] border-[#60A5FA]" label="Payment Review" />
-                  <Legend color="bg-[#E5E7EB] border-[#9CA3AF]" label="Booked / Paid" />
-                  <Legend color="bg-[#EDE9FE] border-[#A78BFA]" label="Maintenance" />
-                  <Legend color="bg-slate-200 border-slate-400" label="Past Time" />
+                  <Legend color="bg-amber-50 border-amber-300" label="Reserved" />
+                  <Legend color="bg-blue-50 border-blue-300" label="Payment Review" />
+                  <Legend color="bg-slate-200 border-slate-300" label="Booked / Paid" />
+                  <Legend color="bg-purple-50 border-purple-300" label="Maintenance" />
+                  <Legend color="bg-slate-100 border-slate-400" label="Past Time" />
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-start gap-3 xl:justify-end">
-                <button
-                  type="button"
-                  onClick={selectAllOpenSlots}
-                  className="rounded-2xl border border-[#DED8D2] px-5 py-3 font-bold hover:bg-[#F5F3F1]"
-                >
-                  Select All Open
-                </button>
-
-                <button
-                  type="button"
-                  onClick={resetSelection}
-                  className="rounded-2xl border border-[#DED8D2] px-5 py-3 font-bold hover:bg-[#F5F3F1]"
-                >
-                  Clear Selection
-                </button>
-
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={goToPreviousDate}
                   disabled={form.booking_date <= getTodayDate()}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-black hover:bg-[#F5F3F1] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white font-black text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  ‹
+                  <ChevronLeft size={20} />
                 </button>
 
                 <input
@@ -1085,129 +1169,149 @@ export default function Booking() {
                 <button
                   type="button"
                   onClick={goToNextDate}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-black hover:bg-[#F5F3F1]"
+                  className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white font-black text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658]"
                 >
-                  ›
+                  <ChevronRight size={20} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={selectAllOpenSlots}
+                  className="icb-btn-light"
+                >
+                  <Sparkles size={17} />
+                  Select All Open
+                </button>
+
+                <button
+                  type="button"
+                  onClick={resetSelection}
+                  className="icb-btn-light"
+                >
+                  <Eraser size={17} />
+                  Clear
                 </button>
               </div>
             </div>
 
             {filteredFacilities.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
                 No {selectedSportLabel.toLowerCase()} facilities found.
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
-                <table className="w-full min-w-[980px] border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-slate-100">
-                      <th className="w-[140px] border border-[#DED8D2] px-4 py-4 text-left text-[#2B2B2B]">
-                        Time
-                      </th>
-
-                      {filteredFacilities.map((facility) => (
-                        <th
-                          key={facility.id}
-                          className="border border-[#DED8D2] px-4 py-4 text-center text-[#2B2B2B]"
-                        >
-                          <div className="font-black">{facility.name}</div>
-
-                          <div className="mt-1 text-xs font-semibold text-slate-500">
-                            {facility.type || "Facility"}
-                          </div>
-
-                          <div className="mt-1 text-xs font-black text-[#C97B6C]">
-                            {money(getFacilityRate(facility))}/hr
-                          </div>
+              <div className="w-full max-w-full overflow-hidden rounded-2xl border border-[#DED8D2] bg-white">
+                <div className="calendar-scroll">
+                  <table className="min-w-[980px] border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-slate-100">
+                        <th className="w-[140px] border border-[#DED8D2] px-4 py-4 text-left text-[#0B1F33]">
+                          Time
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
 
-                  <tbody>
-                    {slots.map((slot) => (
-                      <tr key={slot.label}>
-                        <td className="border border-[#DED8D2] px-4 py-4 font-bold text-[#2B2B2B]">
-                          {slot.label}
-                        </td>
+                        {filteredFacilities.map((facility) => (
+                          <th
+                            key={facility.id}
+                            className="min-w-[180px] border border-[#DED8D2] px-4 py-4 text-center text-[#0B1F33]"
+                          >
+                            <div className="font-black">{facility.name}</div>
 
-                        {filteredFacilities.map((facility) => {
-                          const pastSlot = isPastSlot(form.booking_date, slot);
-                          const maintenanceBlock = getMaintenanceBlock(facility.id, slot);
-                          const blockingBooking = getBlockingBooking(facility.id, slot);
+                            <div className="mt-1 text-xs font-semibold text-slate-500">
+                              {facility.type || "Facility"}
+                            </div>
 
-                          const blocked =
-                            pastSlot ||
-                            Boolean(blockingBooking) ||
-                            Boolean(maintenanceBlock);
-
-                          const selected = isSlotSelected(facility.id, slot.index);
-
-                          const minutesLeft = blockingBooking
-                            ? getReservationMinutesLeft(blockingBooking)
-                            : null;
-
-                          return (
-                            <td
-                              key={getSelectionKey(facility.id, slot.index)}
-                              className="border border-[#DED8D2] p-1"
-                            >
-                              <button
-                                type="button"
-                                disabled={blocked || loadingSchedule}
-                                onClick={() => handleSlotClick(facility, slot)}
-                                className={`min-h-[64px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${
-                                  blocked
-                                    ? pastSlot
-                                      ? "cursor-not-allowed border-slate-400 bg-slate-200 text-slate-600"
-                                      : maintenanceBlock
-                                      ? "cursor-not-allowed border-[#A78BFA] bg-[#EDE9FE] text-[#6D28D9]"
-                                      : getUserBlockedClass(blockingBooking)
-                                    : selected
-                                    ? "border-[#C97B6C] bg-[#F3E4DF] text-[#C97B6C] ring-2 ring-[#C97B6C]/25"
-                                    : "border-[#4ADE80] bg-[#DCFCE7] text-[#166534] hover:bg-[#CFF7DA]"
-                                }`}
-                              >
-                                {pastSlot ? (
-                                  <PastSlotLabel />
-                                ) : maintenanceBlock ? (
-                                  <MaintenanceSlotLabel block={maintenanceBlock} />
-                                ) : blocked ? (
-                                  <PrivateBlockedSlotLabel
-                                    booking={blockingBooking}
-                                    minutesLeft={minutesLeft}
-                                  />
-                                ) : selected ? (
-                                  "Selected - Click to Deselect"
-                                ) : (
-                                  "Open - Click to Select"
-                                )}
-                              </button>
-                            </td>
-                          );
-                        })}
+                            <div className="mt-1 text-xs font-black text-[#C97B6C]">
+                              {money(getFacilityRate(facility))}/hr
+                            </div>
+                          </th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+
+                    <tbody>
+                      {slots.map((slot) => (
+                        <tr key={slot.label}>
+                          <td className="border border-[#DED8D2] px-4 py-4 font-bold text-[#0B1F33]">
+                            {slot.label}
+                          </td>
+
+                          {filteredFacilities.map((facility) => {
+                            const pastSlot = isPastSlot(form.booking_date, slot);
+                            const maintenanceBlock = getMaintenanceBlock(facility.id, slot);
+                            const blockingBooking = getBlockingBooking(facility.id, slot);
+
+                            const blocked =
+                              pastSlot ||
+                              Boolean(blockingBooking) ||
+                              Boolean(maintenanceBlock);
+
+                            const selected = isSlotSelected(facility.id, slot.index);
+
+                            const minutesLeft = blockingBooking
+                              ? getReservationMinutesLeft(blockingBooking)
+                              : null;
+
+                            return (
+                              <td
+                                key={getSelectionKey(facility.id, slot.index)}
+                                className="border border-[#DED8D2] p-1"
+                              >
+                                <button
+                                  type="button"
+                                  disabled={blocked || loadingSchedule}
+                                  onClick={() => handleSlotClick(facility, slot)}
+                                  className={`min-h-[68px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${
+                                    blocked
+                                      ? pastSlot
+                                        ? "cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500"
+                                        : maintenanceBlock
+                                        ? "cursor-not-allowed border-purple-300 bg-purple-50 text-purple-700"
+                                        : getUserBlockedClass(blockingBooking)
+                                      : selected
+                                      ? "border-[#C97B6C] bg-[#F3E4DF] text-[#B86658] ring-2 ring-[#C97B6C]/25"
+                                      : "border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
+                                  }`}
+                                >
+                                  {pastSlot ? (
+                                    <PastSlotLabel />
+                                  ) : maintenanceBlock ? (
+                                    <MaintenanceSlotLabel block={maintenanceBlock} />
+                                  ) : blocked ? (
+                                    <PrivateBlockedSlotLabel
+                                      booking={blockingBooking}
+                                      minutesLeft={minutesLeft}
+                                    />
+                                  ) : selected ? (
+                                    "Selected"
+                                  ) : (
+                                    "Open"
+                                  )}
+                                </button>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
-            <div className="mt-6 flex flex-col gap-4 rounded-2xl bg-[#F5F3F1] p-5 md:flex-row md:items-center md:justify-between">
+            <div className="mt-6 flex flex-col gap-4 rounded-[24px] border border-[#DED8D2] bg-[#FBFAF9] p-5 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-black text-[#2B2B2B]">
+                <p className="text-sm font-black text-[#0B1F33]">
                   Selected Booking Summary
                 </p>
 
                 {selectedGroups.length === 0 ? (
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
                     No time slot selected yet.
                   </p>
                 ) : (
-                  <div className="mt-2 space-y-1 text-sm text-slate-600">
+                  <div className="mt-2 space-y-1 text-sm font-semibold text-slate-600">
                     <p>
                       {selectedSlots.length} slot(s) selected • {totalHours} total hour(s) •{" "}
-                      <b>{money(totalAmount)}</b>
+                      <b className="text-[#C97B6C]">{money(totalAmount)}</b>
                     </p>
 
                     <p className="text-xs text-slate-500">
@@ -1221,8 +1325,9 @@ export default function Booking() {
                 type="button"
                 onClick={openConfirmModal}
                 disabled={selectedGroups.length === 0}
-                className="rounded-2xl bg-[#C97B6C] px-6 py-4 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
+                className="icb-btn-accent"
               >
+                <ReceiptText size={18} />
                 Review Reservation
               </button>
             </div>
@@ -1232,6 +1337,7 @@ export default function Booking() {
             <ConfirmBookingModal
               selectedGroups={selectedGroups}
               bookingDate={form.booking_date}
+              sessionType={form.session_type}
               notes={form.notes}
               totalHours={totalHours}
               totalAmount={totalAmount}
@@ -1248,58 +1354,79 @@ export default function Booking() {
   );
 }
 
-function SportFacilityCard({ sportInfo, isActive, onClick }) {
+function SportButton({ sport, active, onClick }) {
+  const descriptions = {
+    pickleball: "6 pickleball courts",
+    basketball: "1 basketball court",
+    table_tennis: "2 table tennis tables",
+  };
+
   return (
-    <div
-      className={`overflow-hidden rounded-[18px] border bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg ${
-        isActive ? "border-[#C97B6C] ring-2 ring-[#C97B6C]/20" : "border-[#DED8D2]"
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-2xl border p-4 text-left transition ${
+        active
+          ? "border-[#C97B6C] bg-[#F3E4DF] text-[#B86658] ring-2 ring-[#C97B6C]/20"
+          : "border-[#DED8D2] bg-white text-[#0B1F33] hover:border-[#C97B6C]/40 hover:bg-[#FBFAF9]"
       }`}
     >
-      <div className="h-44 w-full overflow-hidden bg-slate-100">
+      <p className="text-lg font-black">{sport.label}</p>
+
+      <p className="mt-1 text-sm font-semibold opacity-80">
+        {descriptions[sport.value]}
+      </p>
+    </button>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-black text-[#0B1F33]">
+        {label}
+      </label>
+
+      {children}
+    </div>
+  );
+}
+
+function FacilityCard({ facility }) {
+  const images = getFacilityImages(facility);
+  const rate = getFacilityRate(facility);
+
+  return (
+    <div className="group overflow-hidden rounded-2xl border border-[#DED8D2] bg-white transition hover:-translate-y-0.5 hover:border-[#C97B6C]/50 hover:shadow-[0_14px_34px_rgba(11,31,51,0.09)]">
+      <div className="relative h-40 overflow-hidden bg-slate-100">
         <img
-          src={sportInfo.image}
-          alt={sportInfo.title}
-          className="h-full w-full object-cover"
+          src={images[0]}
+          alt={facility.name}
+          className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
           onError={(event) => {
             event.currentTarget.src = FACILITY_FALLBACK;
           }}
         />
+
+        <span className="absolute left-3 top-3 rounded-full bg-[#0B1F33]/90 px-3 py-1 text-xs font-black text-white">
+          {facility.type || "Facility"}
+        </span>
       </div>
 
-      <div className="p-5">
-        <div className="mb-7 flex flex-wrap gap-2">
-          <span className="rounded-full bg-emerald-400 px-3 py-1 text-xs font-black text-white shadow-sm">
-            🔥 Most Popular
-          </span>
+      <div className="p-4">
+        <p className="line-clamp-1 text-lg font-black text-[#0B1F33]">
+          {facility.name}
+        </p>
 
-          <span className="rounded-full bg-sky-400 px-3 py-1 text-xs font-black text-white shadow-sm">
-            📈 Most Booked
-          </span>
+        <p className="mt-1 text-sm font-semibold text-slate-500">
+          Exact facility unit for booking.
+        </p>
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className="text-sm font-black text-[#C97B6C]">{money(rate)}/hr</p>
+
+          <span className="icb-badge icb-badge-success">Active</span>
         </div>
-
-        <h4 className="text-2xl font-black uppercase text-[#001B5B]">
-          {sportInfo.title}
-        </h4>
-
-        <p className="mt-3 text-sm font-semibold text-slate-500">
-          {sportInfo.countLabel}
-        </p>
-
-        <p className="mt-5 min-h-[48px] text-sm text-slate-600">
-          {sportInfo.description}
-        </p>
-
-        <button
-          type="button"
-          onClick={onClick}
-          className={`mt-8 w-full rounded-xl px-5 py-4 text-sm font-black transition ${
-            isActive
-              ? "bg-[#C97B6C] text-white hover:bg-[#B87463]"
-              : "bg-slate-200 text-[#001B5B] hover:bg-slate-300"
-          }`}
-        >
-          View Schedule
-        </button>
       </div>
     </div>
   );
@@ -1401,6 +1528,7 @@ function PrivateBlockedSlotLabel({ booking, minutesLeft }) {
 function ConfirmBookingModal({
   selectedGroups,
   bookingDate,
+  sessionType,
   notes,
   totalHours,
   totalAmount,
@@ -1411,7 +1539,7 @@ function ConfirmBookingModal({
   onConfirm,
 }) {
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#0B1F33]/60 px-4 py-6 backdrop-blur-sm">
       <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -1419,13 +1547,13 @@ function ConfirmBookingModal({
               Confirm Booking
             </p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
+            <h2 className="mt-1 text-2xl font-black text-[#0B1F33]">
               Review your reservation
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
-              After confirming, your selected slot(s) will be reserved and you will be
-              redirected to upload payment proof.
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
+              After confirming, your selected slot(s) will be reserved and you will
+              be redirected to upload payment proof.
             </p>
           </div>
 
@@ -1442,6 +1570,13 @@ function ConfirmBookingModal({
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <ConfirmItem label="Date" value={formatDate(bookingDate)} />
           <ConfirmItem
+            label="Session Type"
+            value={
+              SESSION_TYPES.find((item) => item.value === sessionType)?.label ||
+              sessionType
+            }
+          />
+          <ConfirmItem
             label="Selected Slots"
             value={`${selectedGroups.reduce(
               (sum, group) => sum + group.slots.length,
@@ -1456,8 +1591,8 @@ function ConfirmBookingModal({
           <ConfirmItem label="Total Amount" value={money(totalAmount)} />
         </div>
 
-        <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-          <p className="text-sm font-black text-[#2B2B2B]">
+        <div className="mt-5 rounded-2xl bg-[#FBFAF9] p-4">
+          <p className="text-sm font-black text-[#0B1F33]">
             Booking Reservation(s)
           </p>
 
@@ -1465,14 +1600,14 @@ function ConfirmBookingModal({
             {selectedGroups.map((group, index) => (
               <div
                 key={`${group.facility_id}-${group.start_time}-${group.end_time}-${index}`}
-                className="flex items-center justify-between gap-4 rounded-2xl bg-white px-4 py-3"
+                className="flex flex-col gap-3 rounded-2xl border border-[#DED8D2] bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
-                  <p className="font-black text-[#2B2B2B]">
+                  <p className="font-black text-[#0B1F33]">
                     Request {index + 1}: {group.facility?.name}
                   </p>
 
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
                     {formatTime(group.start_time)} - {formatTime(group.end_time)} •{" "}
                     {group.total_hours} hour(s) • {money(group.rate_per_hour)}/hr
                   </p>
@@ -1486,26 +1621,26 @@ function ConfirmBookingModal({
           </div>
         </div>
 
-        <div className="mt-5 flex items-center justify-between rounded-2xl bg-[#F5F3F1] px-4 py-4">
-          <p className="font-black text-[#2B2B2B]">Final Total</p>
+        <div className="mt-5 flex items-center justify-between rounded-2xl bg-[#0B1F33] px-4 py-4 text-white">
+          <p className="font-black">Final Total</p>
 
-          <p className="text-2xl font-black text-[#C97B6C]">
+          <p className="text-2xl font-black text-[#E8A093]">
             {money(totalAmount)}
           </p>
         </div>
 
-        <div className="mt-5 rounded-2xl bg-yellow-50 px-4 py-4 text-sm text-yellow-800">
+        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold leading-6 text-amber-800">
           Your selected slot(s) will be reserved for {reservationMinutes} minute(s).
           Upload your payment proof immediately so staff can verify and approve
           your booking.
         </div>
 
-        {notes?.trim() && (
-          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-            <p className="text-sm font-black text-slate-700">Notes</p>
-            <p className="mt-2 text-sm text-slate-600">{notes.trim()}</p>
-          </div>
-        )}
+        <div className="mt-5 rounded-2xl bg-[#FBFAF9] p-4">
+          <p className="text-sm font-black text-slate-700">Notes</p>
+          <p className="mt-2 text-sm font-semibold text-slate-600">
+            {notes?.trim() || "No notes provided."}
+          </p>
+        </div>
 
         <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
           <button
@@ -1521,7 +1656,7 @@ function ConfirmBookingModal({
             type="button"
             onClick={onConfirm}
             disabled={submitting}
-            className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
+            className="icb-btn-accent"
           >
             {submitting ? "Submitting..." : "Confirm and Proceed to Payment"}
           </button>
@@ -1538,7 +1673,7 @@ function ConfirmItem({ label, value }) {
         {label}
       </p>
 
-      <p className="mt-2 break-words text-sm font-black text-[#2B2B2B]">
+      <p className="mt-2 break-words text-sm font-black text-[#0B1F33]">
         {value || "-"}
       </p>
     </div>

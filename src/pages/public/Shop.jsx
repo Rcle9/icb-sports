@@ -13,10 +13,6 @@ const FALLBACK =
     </svg>
   `);
 
-function money(value) {
-  return `₱${Number(value || 0).toLocaleString()}.00`;
-}
-
 function getImages(product) {
   const images = [
     ...(Array.isArray(product?.image_urls) ? product.image_urls : []),
@@ -25,35 +21,6 @@ function getImages(product) {
 
   const uniqueImages = [...new Set(images)];
   return uniqueImages.length ? uniqueImages : [FALLBACK];
-}
-
-function stockLabel(product) {
-  const qty = Number(product.quantity || 0);
-
-  if (qty <= 0) {
-    return {
-      label: "Out of stock",
-      dot: "bg-slate-600",
-      badge: "Out of stock",
-      badgeClass: "border-slate-300 text-slate-700",
-    };
-  }
-
-  if (qty <= 5) {
-    return {
-      label: "Low stock",
-      dot: "bg-[#B8324B]",
-      badge: "Low stock",
-      badgeClass: "border-[#B8324B] text-[#B8324B]",
-    };
-  }
-
-  return {
-    label: "Available",
-    dot: "bg-[#168A7A]",
-    badge: "",
-    badgeClass: "",
-  };
 }
 
 export default function PublicShop() {
@@ -94,13 +61,21 @@ export default function PublicShop() {
       const { data, error: inventoryError } = await supabase
         .from("inventory")
         .select(
-          "id, name, category, description, image_url, image_urls, price, quantity, status, created_at"
+          "id, name, category, description, image_url, image_urls, status, created_at"
         )
         .order("created_at", { ascending: false });
 
       if (inventoryError) throw inventoryError;
 
-      setProducts(data || []);
+      const visibleProducts = (data || []).filter((product) => {
+        const status = String(product.status || "").toLowerCase();
+
+        if (!status) return true;
+
+        return !["hidden", "archived", "deleted"].includes(status);
+      });
+
+      setProducts(visibleProducts);
     } catch (err) {
       console.error(err);
       setError(
@@ -128,14 +103,17 @@ export default function PublicShop() {
         <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="font-black uppercase tracking-[0.25em] text-[#C97B6C]">
-              Products Offered
+              Products
             </p>
 
-            <h1 className="mt-3 text-5xl font-black">ICB Sports Products</h1>
+            <h1 className="mt-3 text-4xl font-black text-[#2B2B2B] md:text-5xl">
+              InCredoBall Sports Products
+            </h1>
 
-            <p className="mt-3 max-w-2xl text-slate-600">
-              View the sports merchandise and equipment offered by InCredoBall.
-              Products are displayed for information only.
+            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
+              Browse available sports products and equipment offered by
+              InCredoBall Sports. This page is for product viewing and
+              information only.
             </p>
           </div>
 
@@ -161,7 +139,6 @@ export default function PublicShop() {
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {products.map((product) => {
-              const stock = stockLabel(product);
               const images = getImages(product);
 
               return (
@@ -169,16 +146,8 @@ export default function PublicShop() {
                   type="button"
                   key={product.id}
                   onClick={() => openProduct(product)}
-                  className="group relative rounded-[24px] border border-[#DED8D2] bg-white p-5 text-left shadow-sm transition hover:shadow-xl"
+                  className="group rounded-[24px] border border-[#DED8D2] bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
                 >
-                  {stock.badge && (
-                    <span
-                      className={`absolute left-5 top-5 z-10 rounded-xl border bg-white px-3 py-2 text-xs font-black ${stock.badgeClass}`}
-                    >
-                      {stock.badge}
-                    </span>
-                  )}
-
                   <div className="flex h-[280px] items-center justify-center overflow-hidden rounded-2xl bg-slate-50">
                     <img
                       src={images[0]}
@@ -191,21 +160,21 @@ export default function PublicShop() {
                   </div>
 
                   <div className="mt-5">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                      {product.category || "Merchandise"}
+                    <p className="text-xs font-bold uppercase tracking-wide text-[#C97B6C]">
+                      {product.category || "Sports Product"}
                     </p>
 
                     <h3 className="mt-2 min-h-[48px] text-lg font-black leading-6 text-[#2B2B2B]">
                       {product.name || "Unnamed Product"}
                     </h3>
 
-                    <p className="mt-2 text-2xl font-black text-[#2B2B2B]">
-                      {money(product.price)}
+                    <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">
+                      {product.description ||
+                        "View product details and preview images."}
                     </p>
 
-                    <div className="mt-5 flex items-center gap-2 text-sm font-semibold text-slate-600">
-                      <span className={`h-3 w-3 rounded-full ${stock.dot}`} />
-                      <span>{stock.label}</span>
+                    <div className="mt-5 rounded-2xl bg-[#F3E4DF] px-4 py-3 text-center text-sm font-black text-[#C97B6C]">
+                      View Product
                     </div>
                   </div>
                 </button>
@@ -229,26 +198,25 @@ export default function PublicShop() {
 
 function ProductModal({ product, activeImage, setActiveImage, onClose }) {
   const images = getImages(product);
-  const stock = stockLabel(product);
 
   return (
     <div className="fixed inset-0 z-[9999] bg-black/60">
       <button
         type="button"
         onClick={onClose}
-        className="absolute right-7 top-7 z-[10000] flex h-12 w-12 items-center justify-center rounded-full bg-[#6E8A95] text-white"
+        className="absolute right-7 top-7 z-[10000] flex h-12 w-12 items-center justify-center rounded-full bg-[#2B2B2B] text-white transition hover:bg-[#C97B6C]"
       >
         <X size={26} />
       </button>
 
-      <div className="ml-auto h-full w-full max-w-[960px] overflow-y-auto bg-[#F5F7F8] p-4 md:p-8">
+      <div className="ml-auto h-full w-full max-w-[980px] overflow-y-auto bg-[#F5F3F1] p-4 md:p-8">
         <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-4">
-            <div className="rounded-2xl bg-white p-4">
+            <div className="rounded-[28px] border border-[#DED8D2] bg-white p-4 shadow-sm">
               <img
                 src={activeImage || images[0]}
                 alt={product.name || "Product"}
-                className="h-[420px] w-full object-contain"
+                className="h-[440px] w-full object-contain"
                 onError={(e) => {
                   e.currentTarget.src = FALLBACK;
                 }}
@@ -262,8 +230,10 @@ function ProductModal({ product, activeImage, setActiveImage, onClose }) {
                     key={`${image}-${index}`}
                     type="button"
                     onClick={() => setActiveImage(image)}
-                    className={`rounded-2xl bg-white p-3 ${
-                      activeImage === image ? "ring-2 ring-[#C97B6C]" : ""
+                    className={`rounded-2xl border bg-white p-3 transition ${
+                      activeImage === image
+                        ? "border-[#C97B6C] ring-2 ring-[#C97B6C]/25"
+                        : "border-[#DED8D2] hover:border-[#C97B6C]"
                     }`}
                   >
                     <img
@@ -280,54 +250,34 @@ function ProductModal({ product, activeImage, setActiveImage, onClose }) {
             )}
           </div>
 
-          <div className="pt-8">
-            <p className="text-sm text-slate-400">
-              {product.category || "InCredoBall"}
+          <div className="pt-4 lg:pt-8">
+            <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
+              {product.category || "InCredoBall Product"}
             </p>
 
-            <h2 className="mt-3 text-4xl font-black leading-tight text-black">
+            <h2 className="mt-3 text-4xl font-black leading-tight text-[#2B2B2B]">
               {product.name || "Unnamed Product"}
             </h2>
 
-            <p className="mt-4 text-4xl font-black text-black">
-              {money(product.price)}
-            </p>
+            <div className="mt-8 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+              <h3 className="text-xl font-black text-[#2B2B2B]">
+                Product Details
+              </h3>
 
-            <div className="mt-6 flex items-center gap-2 text-sm text-slate-600">
-              <span className={`h-4 w-4 rounded-full ${stock.dot}`} />
-              <span>{stock.label}</span>
+              <p className="mt-4 text-[15px] leading-8 text-slate-700">
+                {product.description || "No product details provided."}
+              </p>
             </div>
 
-            <div className="mt-8 text-[15px] leading-7 text-slate-700">
-              {product.description ? (
-                <p>{product.description}</p>
-              ) : (
-                <p>No product details provided.</p>
-              )}
-            </div>
+            
 
-            <div className="mt-10 rounded-2xl border border-slate-200 bg-white p-5">
-              <h3 className="font-black text-black">Product Details</h3>
-
-              <div className="mt-4 space-y-2 text-sm text-slate-700">
-                <p>
-                  <b>Category:</b> {product.category || "Merchandise"}
-                </p>
-
-                <p>
-                  <b>Stock:</b> {Number(product.quantity || 0)}
-                </p>
-
-                <p>
-                  <b>Status:</b> {stock.label}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-8 rounded-2xl bg-[#F3E4DF] p-5 text-sm font-semibold text-[#C97B6C]">
-              This page is for product viewing only. No add to cart or checkout
-              function is available.
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-6 w-full rounded-2xl bg-[#2B2B2B] px-6 py-4 font-black text-white transition hover:bg-[#C97B6C]"
+            >
+              Close Preview
+            </button>
           </div>
         </div>
       </div>

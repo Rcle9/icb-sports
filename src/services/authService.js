@@ -1,84 +1,80 @@
 import { supabase } from "./supabaseClient";
 
+function getSiteUrl() {
+  return window.location.origin;
+}
+
+function getDashboardRedirectUrl() {
+  return `${getSiteUrl()}/dashboard`;
+}
+
+export async function signInUser({ email, password }) {
+  const cleanEmail = String(email || "").trim();
+
+  if (!cleanEmail || !password) {
+    throw new Error("Email and password are required.");
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: cleanEmail,
+    password,
+  });
+
+  if (error) throw error;
+
+  return data;
+}
+
 export async function signUpUser({ fullName, email, password }) {
+  const cleanEmail = String(email || "").trim();
+  const cleanName = String(fullName || "").trim();
+
+  if (!cleanName) {
+    throw new Error("Full name is required.");
+  }
+
+  if (!cleanEmail || !password) {
+    throw new Error("Email and password are required.");
+  }
+
   const { data, error } = await supabase.auth.signUp({
-    email,
+    email: cleanEmail,
     password,
     options: {
       data: {
-        full_name: fullName,
+        full_name: cleanName,
+        role: "user",
       },
+      emailRedirectTo: `${getSiteUrl()}/login`,
     },
   });
 
   if (error) throw error;
-  return data;
-}
 
-export async function signInUser({ email, password }) {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  if (error) throw error;
   return data;
 }
 
 export async function signInWithGoogle() {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
+    options: {
+      redirectTo: getDashboardRedirectUrl(),
+      queryParams: {
+        access_type: "offline",
+        prompt: "select_account",
+      },
+    },
   });
 
   if (error) throw error;
+
   return data;
 }
 
 export async function signOutUser() {
   const { error } = await supabase.auth.signOut();
-  if (error) throw error;
-}
-
-export async function resetPassword(email) {
-  const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: "http://localhost:5173/reset-password",
-  });
 
   if (error) throw error;
-  return data;
-}
 
-export async function getCurrentSession() {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  return data.session;
-}
-
-export async function getCurrentUser() {
-  const { data, error } = await supabase.auth.getUser();
-  if (error) throw error;
-  return data.user;
-}
-
-export async function getUserProfile(userId) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data;
-}
-
-export async function updateUserProfile(userId, payload) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .update(payload)
-    .eq("id", userId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  return true;
 }
