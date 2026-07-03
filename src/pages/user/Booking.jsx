@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import {
+<<<<<<< HEAD
   ChevronLeft,
   ChevronRight,
+=======
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
   Eraser,
   Layers,
   ReceiptText,
@@ -19,6 +27,7 @@ import {
 import { getReservationExpirationMinutes } from "../../services/paymentSettingsService";
 import { useAuth } from "../../context/AuthContext";
 
+<<<<<<< HEAD
 const FACILITY_FALLBACK =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(`
@@ -49,6 +58,20 @@ const SPORT_TYPES = [
     label: "Table Tennis",
     description: "2 table tennis tables",
   },
+=======
+const FACILITY_FALLBACK = "https://via.placeholder.com/800x500?text=Facility";
+
+const SPORT_TYPES = [
+  { value: "pickleball", label: "Pickleball" },
+  { value: "basketball", label: "Basketball" },
+  { value: "table_tennis", label: "Table Tennis" },
+];
+
+const SESSION_TYPES = [
+  { value: "training", label: "Training" },
+  { value: "instructional", label: "Instructional" },
+  { value: "recreational", label: "Recreational" },
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
 ];
 
 function money(value) {
@@ -331,6 +354,10 @@ export default function Booking() {
 
   const [form, setForm] = useState({
     booking_date: getTodayDate(),
+<<<<<<< HEAD
+=======
+    session_type: "training",
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
     notes: "",
   });
 
@@ -351,16 +378,20 @@ export default function Booking() {
     );
   }, [selectedSport]);
 
+<<<<<<< HEAD
   const selectedSportInfo = useMemo(() => {
     return SPORT_TYPES.find((sport) => sport.value === selectedSport) || SPORT_TYPES[0];
   }, [selectedSport]);
 
+=======
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
   const filteredFacilities = useMemo(() => {
     return facilities.filter(
       (facility) => normalizeFacilityType(facility.type) === selectedSport
     );
   }, [facilities, selectedSport]);
 
+<<<<<<< HEAD
   function getSportImage(sportValue) {
     const facility = facilities.find(
       (item) => normalizeFacilityType(item.type) === sportValue
@@ -369,6 +400,8 @@ export default function Booking() {
     return getFacilityImages(facility)[0];
   }
 
+=======
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
   const selectedGroups = useMemo(() => {
     return buildSelectedGroups(selectedSlots, slots, filteredFacilities);
   }, [selectedSlots, slots, filteredFacilities]);
@@ -860,7 +893,11 @@ export default function Booking() {
           booking_date: form.booking_date,
           start_time: group.start_time,
           end_time: group.end_time,
+<<<<<<< HEAD
           session_type: "recreational",
+=======
+          session_type: form.session_type,
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
           notes: form.notes || "",
           total_hours: group.total_hours,
           rate_per_hour: group.rate_per_hour,
@@ -950,6 +987,7 @@ export default function Booking() {
             </div>
           )}
 
+<<<<<<< HEAD
           <section className="icb-card mb-6 p-5 sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
@@ -983,6 +1021,196 @@ export default function Booking() {
                 />
               ))}
             </div>
+=======
+          <section className="page-hero icb-fade-up mb-6 overflow-hidden">
+            <div className="relative">
+              <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-[#C97B6C]/25 blur-3xl" />
+              <div className="pointer-events-none absolute -bottom-24 -left-20 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
+
+              <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.4fr_0.75fr] xl:items-end">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-[0.22em] text-[#E8A093]">
+                    Facility Reservation
+                  </p>
+
+                  <h2 className="mt-4 max-w-4xl text-3xl font-black leading-tight text-white sm:text-4xl lg:text-5xl">
+                    Choose a sport, select a court, and reserve your time.
+                  </h2>
+
+                  <p className="mt-4 max-w-3xl text-sm leading-6 text-white/80 sm:text-base">
+                    Each court or table has its own schedule to prevent double-booking.
+                    Pick your available time slot and upload your payment proof after reserving.
+                  </p>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <a href="#schedule-calendar" className="icb-btn-accent">
+                      <CalendarDays size={18} />
+                      View Schedule
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => loadBookingsForDate()}
+                      className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white transition hover:bg-white/15"
+                    >
+                      <RefreshCw size={18} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-white/10 bg-white/10 p-5 backdrop-blur">
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-[#E8A093]">
+                    Reservation Timer
+                  </p>
+
+                  <h3 className="mt-3 text-4xl font-black text-white">
+                    {reservationMinutes} min
+                  </h3>
+
+                  <p className="mt-2 text-sm leading-6 text-white/70">
+                    After submitting, your selected slot is temporarily reserved while
+                    you upload payment proof.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="icb-card p-5 sm:p-6">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+                    Choose Sport
+                  </p>
+
+                  <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                    Select facility category
+                  </h3>
+
+                  <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
+                    The calendar will show the exact court or table based on your selected sport.
+                  </p>
+                </div>
+
+                <div className="hidden h-12 w-12 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658] sm:flex">
+                  <Layers size={22} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {SPORT_TYPES.map((sport) => (
+                  <SportButton
+                    key={sport.value}
+                    sport={sport}
+                    active={selectedSport === sport.value}
+                    onClick={() => handleSportChange(sport.value)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="icb-card p-5 sm:p-6">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+                    Booking Setup
+                  </p>
+
+                  <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                    Date and session
+                  </h3>
+
+                  <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
+                    Select your booking date and session type before choosing time slots.
+                  </p>
+                </div>
+
+                <div className="hidden h-12 w-12 items-center justify-center rounded-2xl bg-[#0B1F33] text-white sm:flex">
+                  <Clock size={22} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Booking Date">
+                  <input
+                    type="date"
+                    name="booking_date"
+                    value={form.booking_date}
+                    min={getTodayDate()}
+                    onChange={handleChange}
+                    className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
+                  />
+                </Field>
+
+                <Field label="Session Type">
+                  <select
+                    name="session_type"
+                    value={form.session_type}
+                    onChange={handleChange}
+                    className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
+                  >
+                    {SESSION_TYPES.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <div className="mt-4">
+                <Field label="Notes">
+                  <textarea
+                    name="notes"
+                    value={form.notes}
+                    onChange={handleChange}
+                    placeholder="Optional notes for your booking"
+                    className="min-h-[90px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                  />
+                </Field>
+              </div>
+            </div>
+          </section>
+
+          <section className="icb-card mb-6 p-5 sm:p-6">
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+                  Available Facilities
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                  {selectedSportLabel} Facilities
+                </h3>
+
+                <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
+                  Facility cards show current rates and available exact courts or tables.
+                </p>
+              </div>
+
+              <span className="inline-flex w-fit items-center gap-2 rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-black text-[#B86658]">
+                <CheckCircle2 size={16} />
+                {selectedSlots.length} selected slot(s)
+              </span>
+            </div>
+
+            {loadingFacilities ? (
+              <p className="text-sm font-semibold text-slate-500">Loading facilities...</p>
+            ) : filteredFacilities.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
+                No active {selectedSportLabel} facility found. Please add this facility type
+                in admin Facility Management.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {filteredFacilities.map((facility) => (
+                  <FacilityCard key={facility.id} facility={facility} />
+                ))}
+              </div>
+            )}
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
           </section>
 
           <section
@@ -996,12 +1224,20 @@ export default function Booking() {
                 </p>
 
                 <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+<<<<<<< HEAD
                   {selectedSportInfo.label} Schedule
                 </h3>
 
                 <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
                   {selectedSportInfo.description}. Select an available time slot from
                   the exact court or table columns.
+=======
+                  {selectedSportLabel} Schedule Calendar
+                </h3>
+
+                <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
+                  Rows are time slots. Columns are courts or tables. Customer names are hidden for privacy.
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
                 </p>
 
                 <h4 className="mt-4 text-lg font-black text-[#0B1F33] sm:text-xl">
@@ -1066,6 +1302,7 @@ export default function Booking() {
               </div>
             </div>
 
+<<<<<<< HEAD
             {loadingFacilities ? (
               <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
                 Loading facilities...
@@ -1073,6 +1310,11 @@ export default function Booking() {
             ) : filteredFacilities.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
                 No active {selectedSportLabel.toLowerCase()} facilities found.
+=======
+            {filteredFacilities.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
+                No {selectedSportLabel.toLowerCase()} facilities found.
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
               </div>
             ) : (
               <div className="w-full max-w-full overflow-hidden rounded-2xl border border-[#DED8D2] bg-white">
@@ -1213,6 +1455,10 @@ export default function Booking() {
             <ConfirmBookingModal
               selectedGroups={selectedGroups}
               bookingDate={form.booking_date}
+<<<<<<< HEAD
+=======
+              sessionType={form.session_type}
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
               notes={form.notes}
               totalHours={totalHours}
               totalAmount={totalAmount}
@@ -1229,27 +1475,76 @@ export default function Booking() {
   );
 }
 
+<<<<<<< HEAD
 function SportButton({ sport, imageUrl, active, onClick }) {
+=======
+function SportButton({ sport, active, onClick }) {
+  const descriptions = {
+    pickleball: "6 pickleball courts",
+    basketball: "1 basketball court",
+    table_tennis: "2 table tennis tables",
+  };
+
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
   return (
     <button
       type="button"
       onClick={onClick}
+<<<<<<< HEAD
       className={`group overflow-hidden rounded-[24px] border text-left transition ${
+=======
+      className={`rounded-2xl border p-4 text-left transition ${
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
         active
           ? "border-[#C97B6C] bg-[#F3E4DF] text-[#B86658] ring-2 ring-[#C97B6C]/20"
           : "border-[#DED8D2] bg-white text-[#0B1F33] hover:border-[#C97B6C]/40 hover:bg-[#FBFAF9]"
       }`}
     >
+<<<<<<< HEAD
       <div className="relative h-44 overflow-hidden bg-slate-100">
         <img
           src={imageUrl || FACILITY_FALLBACK}
           alt={sport.label}
+=======
+      <p className="text-lg font-black">{sport.label}</p>
+
+      <p className="mt-1 text-sm font-semibold opacity-80">
+        {descriptions[sport.value]}
+      </p>
+    </button>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-black text-[#0B1F33]">
+        {label}
+      </label>
+
+      {children}
+    </div>
+  );
+}
+
+function FacilityCard({ facility }) {
+  const images = getFacilityImages(facility);
+  const rate = getFacilityRate(facility);
+
+  return (
+    <div className="group overflow-hidden rounded-2xl border border-[#DED8D2] bg-white transition hover:-translate-y-0.5 hover:border-[#C97B6C]/50 hover:shadow-[0_14px_34px_rgba(11,31,51,0.09)]">
+      <div className="relative h-40 overflow-hidden bg-slate-100">
+        <img
+          src={images[0]}
+          alt={facility.name}
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
           className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
           onError={(event) => {
             event.currentTarget.src = FACILITY_FALLBACK;
           }}
         />
 
+<<<<<<< HEAD
         <div className="absolute inset-0 bg-[#0B1F33]/25" />
 
         <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs font-black uppercase tracking-wide text-[#0B1F33]">
@@ -1271,6 +1566,29 @@ function SportButton({ sport, imageUrl, active, onClick }) {
         </p>
       </div>
     </button>
+=======
+        <span className="absolute left-3 top-3 rounded-full bg-[#0B1F33]/90 px-3 py-1 text-xs font-black text-white">
+          {facility.type || "Facility"}
+        </span>
+      </div>
+
+      <div className="p-4">
+        <p className="line-clamp-1 text-lg font-black text-[#0B1F33]">
+          {facility.name}
+        </p>
+
+        <p className="mt-1 text-sm font-semibold text-slate-500">
+          Exact facility unit for booking.
+        </p>
+
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className="text-sm font-black text-[#C97B6C]">{money(rate)}/hr</p>
+
+          <span className="icb-badge icb-badge-success">Active</span>
+        </div>
+      </div>
+    </div>
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
   );
 }
 
@@ -1370,6 +1688,10 @@ function PrivateBlockedSlotLabel({ booking, minutesLeft }) {
 function ConfirmBookingModal({
   selectedGroups,
   bookingDate,
+<<<<<<< HEAD
+=======
+  sessionType,
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
   notes,
   totalHours,
   totalAmount,
@@ -1411,6 +1733,16 @@ function ConfirmBookingModal({
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <ConfirmItem label="Date" value={formatDate(bookingDate)} />
           <ConfirmItem
+<<<<<<< HEAD
+=======
+            label="Session Type"
+            value={
+              SESSION_TYPES.find((item) => item.value === sessionType)?.label ||
+              sessionType
+            }
+          />
+          <ConfirmItem
+>>>>>>> 1ad15af6e7b8eb072009596dd40ec2ea3e5a8d8b
             label="Selected Slots"
             value={`${selectedGroups.reduce(
               (sum, group) => sum + group.slots.length,
