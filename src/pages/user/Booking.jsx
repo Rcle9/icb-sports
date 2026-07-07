@@ -37,11 +37,7 @@ const SPORT_TYPES = [
   {
     value: "pickleball",
     label: "Pickleball",
-<<<<<<< HEAD
     description: "6 pickleball courts",
-=======
-    description: "8 pickleball courts",
->>>>>>> eb1492faf9a90076586e5abbd74fd9fdf0890521
   },
   {
     value: "basketball",
