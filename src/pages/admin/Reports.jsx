@@ -1,3 +1,5 @@
+// src/pages/admin/Reports.jsx
+
 import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
@@ -15,8 +17,10 @@ import {
   YAxis,
 } from "recharts";
 import {
+  CalendarDays,
   Download,
   FileBarChart,
+  Printer,
   RefreshCw,
   TrendingUp,
 } from "lucide-react";
@@ -72,6 +76,22 @@ function formatDate(value) {
   }
 }
 
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleString(undefined, {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
+}
+
 function money(value) {
   return `₱${Number(value || 0).toLocaleString()}`;
 }
@@ -93,7 +113,7 @@ function formatStatusLabel(status) {
 }
 
 function getFacilityName(booking) {
-  return booking?.facilities?.name || "Facility";
+  return booking?.facilities?.name || booking?.facility_name || "Facility";
 }
 
 function getCustomerName(booking) {
@@ -101,7 +121,7 @@ function getCustomerName(booking) {
     return booking.walk_in_customer_name || "Walk-in Customer";
   }
 
-  return booking?.profiles?.full_name || "User";
+  return booking?.profiles?.full_name || booking?.customer_name || "User";
 }
 
 function getBookingTotal(booking) {
@@ -113,14 +133,21 @@ function getBookingTotal(booking) {
 }
 
 function getPaidAmount(booking) {
-  const status = normalizeStatus(booking.status);
-  const paymentStatus = normalizePaymentStatus(booking.payment_status);
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
 
-  if (paymentStatus === "paid" || status === "approved") {
-    return Number(booking.amount_paid || getBookingTotal(booking) || 0);
+  if (paymentStatus === "paid") {
+    return Number(booking?.amount_paid || getBookingTotal(booking) || 0);
   }
 
-  return 0;
+  return Number(booking?.amount_paid || 0);
+}
+
+function getBalanceAmount(booking) {
+  if (booking?.balance_amount !== null && booking?.balance_amount !== undefined) {
+    return Number(booking.balance_amount || 0);
+  }
+
+  return Math.max(getBookingTotal(booking) - getPaidAmount(booking), 0);
 }
 
 function getMonthKey(value) {
@@ -199,6 +226,7 @@ function statusClass(status) {
   if (value === "cancelled") return "bg-slate-200 text-slate-700";
   if (value === "expired") return "bg-orange-100 text-orange-700";
   if (value === "rejected") return "bg-red-100 text-red-700";
+  if (value === "completed") return "bg-purple-100 text-purple-700";
 
   return "bg-slate-100 text-slate-700";
 }
@@ -233,6 +261,7 @@ export default function Reports() {
   const [dateTo, setDateTo] = useState(getTodayDate());
   const [facilityFilter, setFacilityFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [paymentFilter, setPaymentFilter] = useState("all");
   const [completionFilter, setCompletionFilter] = useState("all");
 
   const [loading, setLoading] = useState(true);
@@ -242,6 +271,7 @@ export default function Reports() {
     return bookings.filter((booking) => {
       const bookingDate = booking.booking_date;
       const source = booking.is_walk_in ? "walk_in" : "online";
+      const paymentStatus = normalizePaymentStatus(booking.payment_status);
       const completionStatus = normalizeCompletionStatus(booking.completion_status);
 
       const matchesDate =
@@ -253,28 +283,69 @@ export default function Reports() {
 
       const matchesSource = sourceFilter === "all" || source === sourceFilter;
 
+      const matchesPayment =
+        paymentFilter === "all" || paymentStatus === paymentFilter;
+
       const matchesCompletion =
         completionFilter === "all" || completionStatus === completionFilter;
 
-      return matchesDate && matchesFacility && matchesSource && matchesCompletion;
+      return (
+        matchesDate &&
+        matchesFacility &&
+        matchesSource &&
+        matchesPayment &&
+        matchesCompletion
+      );
     });
-  }, [bookings, dateFrom, dateTo, facilityFilter, sourceFilter, completionFilter]);
+  }, [
+    bookings,
+    dateFrom,
+    dateTo,
+    facilityFilter,
+    sourceFilter,
+    paymentFilter,
+    completionFilter,
+  ]);
 
   const paidBookings = useMemo(() => {
     return filteredBookings.filter(
-      (booking) =>
-        normalizePaymentStatus(booking.payment_status) === "paid" ||
-        normalizeStatus(booking.status) === "approved"
+      (booking) => normalizePaymentStatus(booking.payment_status) === "paid"
     );
   }, [filteredBookings]);
 
   const summary = useMemo(() => {
-    const totalRevenue = filteredBookings.reduce(
+    const expectedRevenue = filteredBookings.reduce(
+      (sum, booking) => sum + getBookingTotal(booking),
+      0
+    );
+
+    const paidRevenue = filteredBookings.reduce(
       (sum, booking) => sum + getPaidAmount(booking),
       0
     );
 
+    const unpaidBalance = filteredBookings.reduce(
+      (sum, booking) => sum + getBalanceAmount(booking),
+      0
+    );
+
     const totalBookings = filteredBookings.length;
+
+    const approved = filteredBookings.filter(
+      (booking) => normalizeStatus(booking.status) === "approved"
+    ).length;
+
+    const reserved = filteredBookings.filter(
+      (booking) => normalizeStatus(booking.status) === "reserved"
+    ).length;
+
+    const cancelled = filteredBookings.filter(
+      (booking) => normalizeStatus(booking.status) === "cancelled"
+    ).length;
+
+    const expired = filteredBookings.filter(
+      (booking) => normalizeStatus(booking.status) === "expired"
+    ).length;
 
     const onlineBookings = filteredBookings.filter(
       (booking) => !booking.is_walk_in
@@ -285,11 +356,13 @@ export default function Reports() {
     ).length;
 
     const completed = filteredBookings.filter(
-      (booking) => normalizeCompletionStatus(booking.completion_status) === "completed"
+      (booking) =>
+        normalizeCompletionStatus(booking.completion_status) === "completed"
     ).length;
 
     const noShow = filteredBookings.filter(
-      (booking) => normalizeCompletionStatus(booking.completion_status) === "no_show"
+      (booking) =>
+        normalizeCompletionStatus(booking.completion_status) === "no_show"
     ).length;
 
     const cancelledLate = filteredBookings.filter(
@@ -299,13 +372,22 @@ export default function Reports() {
 
     const finishedCount = completed + noShow + cancelledLate;
 
+    const paidCount = filteredBookings.filter(
+      (booking) => normalizePaymentStatus(booking.payment_status) === "paid"
+    ).length;
+
+    const unpaidCount = filteredBookings.filter(
+      (booking) => normalizePaymentStatus(booking.payment_status) === "unpaid"
+    ).length;
+
     const pendingPayments = filteredBookings.filter(
       (booking) =>
         normalizePaymentStatus(booking.payment_status) === "pending_verification"
     ).length;
 
-    const paidCount = filteredBookings.filter(
-      (booking) => normalizePaymentStatus(booking.payment_status) === "paid"
+    const rejectedPayments = filteredBookings.filter(
+      (booking) =>
+        normalizePaymentStatus(booking.payment_status) === "rejected_payment"
     ).length;
 
     const totalHours = filteredBookings.reduce(
@@ -314,34 +396,43 @@ export default function Reports() {
     );
 
     return {
-      totalRevenue,
+      expectedRevenue,
+      paidRevenue,
+      unpaidBalance,
       totalBookings,
+      approved,
+      reserved,
+      cancelled,
+      expired,
       onlineBookings,
       walkInBookings,
       completed,
       noShow,
       cancelledLate,
       finishedCount,
-      pendingPayments,
       paidCount,
+      unpaidCount,
+      pendingPayments,
+      rejectedPayments,
       totalHours,
       completionRate: percentage(completed, finishedCount),
       noShowRate: percentage(noShow, finishedCount),
+      paidRate: percentage(paidCount, totalBookings),
     };
   }, [filteredBookings]);
-
-  const revenueByMonth = useMemo(() => {
-    return groupSum(
-      paidBookings,
-      (booking) => getMonthKey(booking.booking_date),
-      (booking) => getPaidAmount(booking)
-    );
-  }, [paidBookings]);
 
   const revenueByDay = useMemo(() => {
     return groupSum(
       paidBookings,
       (booking) => getDayKey(booking.booking_date),
+      (booking) => getPaidAmount(booking)
+    );
+  }, [paidBookings]);
+
+  const revenueByMonth = useMemo(() => {
+    return groupSum(
+      paidBookings,
+      (booking) => getMonthKey(booking.booking_date),
       (booking) => getPaidAmount(booking)
     );
   }, [paidBookings]);
@@ -361,6 +452,26 @@ export default function Reports() {
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
   }, [paidBookings]);
+
+  const facilityHours = useMemo(() => {
+    return groupSum(
+      filteredBookings,
+      (booking) => getFacilityName(booking),
+      (booking) => Number(booking.total_hours || 0)
+    )
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+  }, [filteredBookings]);
+
+  const mostBookedFacility = useMemo(() => {
+    return bookingsByFacility[0] || { name: "-", value: 0 };
+  }, [bookingsByFacility]);
+
+  const leastBookedFacility = useMemo(() => {
+    if (bookingsByFacility.length === 0) return { name: "-", value: 0 };
+
+    return bookingsByFacility[bookingsByFacility.length - 1];
+  }, [bookingsByFacility]);
 
   const completionSummary = useMemo(() => {
     return [
@@ -396,29 +507,10 @@ export default function Reports() {
     );
   }, [filteredBookings]);
 
-  const facilityUtilization = useMemo(() => {
-    const map = new Map();
-
-    filteredBookings.forEach((booking) => {
-      const facilityName = getFacilityName(booking);
-      const hours = Number(booking.total_hours || 0);
-
-      map.set(facilityName, Number(map.get(facilityName) || 0) + hours);
-    });
-
-    return Array.from(map.entries())
-      .map(([name, value]) => ({
-        name,
-        value,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
-  }, [filteredBookings]);
-
   const recentBookings = useMemo(() => {
     return [...filteredBookings]
       .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-      .slice(0, 10);
+      .slice(0, 12);
   }, [filteredBookings]);
 
   useEffect(() => {
@@ -454,6 +546,7 @@ export default function Reports() {
           profiles:user_id (
             id,
             full_name,
+            email,
             role
           )
         `)
@@ -483,6 +576,7 @@ export default function Reports() {
     setDateTo(getTodayDate());
     setFacilityFilter("all");
     setSourceFilter("all");
+    setPaymentFilter("all");
     setCompletionFilter("all");
   }
 
@@ -499,6 +593,7 @@ export default function Reports() {
       "Rate Per Hour",
       "Total Amount",
       "Amount Paid",
+      "Balance",
       "Booking Status",
       "Payment Status",
       "Completion Status",
@@ -521,7 +616,8 @@ export default function Reports() {
       booking.total_hours || 0,
       booking.rate_per_hour || 0,
       getBookingTotal(booking),
-      booking.amount_paid || 0,
+      getPaidAmount(booking),
+      getBalanceAmount(booking),
       formatStatusLabel(booking.status),
       formatStatusLabel(booking.payment_status),
       formatStatusLabel(booking.completion_status || "not_completed"),
@@ -545,7 +641,7 @@ export default function Reports() {
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = `incredoball-reports-${dateFrom || "start"}-to-${
+    link.download = `incredoball-report-${dateFrom || "start"}-to-${
       dateTo || "end"
     }.csv`;
 
@@ -556,52 +652,59 @@ export default function Reports() {
     URL.revokeObjectURL(url);
   }
 
+  function printReport() {
+    window.print();
+  }
+
   return (
     <div className="page-shell">
       <Sidebar role="admin" />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Reports" />
+          <Topbar title="Reports" subtitle="Revenue, bookings, and facility analytics" />
 
-          {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          {error && <div className="icb-alert-error mb-5">{error}</div>}
 
           <section className="page-hero mb-6">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <p className="text-sm font-semibold">Premium Analytics</p>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                  Admin Analytics
+                </p>
 
-                <h2 className="mt-2 text-3xl font-black">
-                  Reports and Facility Performance
+                <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
+                  Reports and facility performance.
                 </h2>
 
-                <p className="mt-2 text-sm text-white/90">
-                  Track revenue, booking completion, no-show rate, walk-in bookings, and facility usage.
+                <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85">
+                  Track bookings, revenue, payment status, facility usage,
+                  online bookings, walk-in bookings, completion, and no-show
+                  records.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <HeroStat label="Revenue" value={money(summary.totalRevenue)} />
+                <HeroStat label="Paid Revenue" value={money(summary.paidRevenue)} />
+                <HeroStat label="Expected" value={money(summary.expectedRevenue)} />
                 <HeroStat label="Bookings" value={summary.totalBookings} />
-                <HeroStat label="Completed" value={summary.completed} />
-                <HeroStat label="No-show" value={summary.noShow} />
+                <HeroStat label="Paid Rate" value={summary.paidRate} />
               </div>
             </div>
           </section>
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+          <section className="icb-card mb-6 p-5 sm:p-6">
             <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
-                  Report Filters
+                <p className="icb-eyebrow">Report Filters</p>
+
+                <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                  Generate report
                 </h3>
 
-                <p className="text-sm text-slate-500">
-                  Filter by date, facility, booking source, and completion status.
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Filter report results by date, facility, source, payment, and
+                  completion status.
                 </p>
               </div>
 
@@ -609,51 +712,44 @@ export default function Reports() {
                 <button
                   type="button"
                   onClick={() => loadReports()}
-                  className="rounded-2xl border border-[#DED8D2] px-5 py-3 text-sm font-bold hover:bg-[#F5F3F1]"
+                  className="icb-btn-light"
                 >
-                  <span className="inline-flex items-center gap-2">
-                    <RefreshCw size={16} />
-                    Refresh
-                  </span>
+                  <RefreshCw size={16} />
+                  Refresh
                 </button>
 
-                <button
-                  type="button"
-                  onClick={exportCSV}
-                  className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Download size={16} />
-                    Export CSV
-                  </span>
+                <button type="button" onClick={printReport} className="icb-btn-light">
+                  <Printer size={16} />
+                  Print
+                </button>
+
+                <button type="button" onClick={exportCSV} className="icb-btn-accent">
+                  <Download size={16} />
+                  Export CSV
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr_1fr_1fr_1fr_auto]">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr_1fr_1fr_1fr_1fr_auto]">
               <div>
-                <label className="mb-2 block text-sm font-semibold">
-                  Date From
-                </label>
+                <label className="icb-label">Date From</label>
 
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(event) => setDateFrom(event.target.value)}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                  className="icb-input"
                 />
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold">
-                  Date To
-                </label>
+                <label className="icb-label">Date To</label>
 
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(event) => setDateTo(event.target.value)}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                  className="icb-input"
                 />
               </div>
 
@@ -682,6 +778,20 @@ export default function Reports() {
               />
 
               <FilterSelect
+                label="Payment"
+                value={paymentFilter}
+                onChange={setPaymentFilter}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "unpaid", label: "Unpaid" },
+                  { value: "pending_verification", label: "Pending Verification" },
+                  { value: "paid", label: "Paid" },
+                  { value: "rejected_payment", label: "Rejected Payment" },
+                  { value: "expired", label: "Expired" },
+                ]}
+              />
+
+              <FilterSelect
                 label="Completion"
                 value={completionFilter}
                 onChange={setCompletionFilter}
@@ -695,11 +805,7 @@ export default function Reports() {
               />
 
               <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-5 py-3 font-bold hover:bg-[#F5F3F1]"
-                >
+                <button type="button" onClick={resetFilters} className="icb-btn-light w-full">
                   Reset
                 </button>
               </div>
@@ -707,73 +813,155 @@ export default function Reports() {
           </section>
 
           {loading ? (
-            <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-              <p className="text-sm text-slate-500">Loading reports...</p>
+            <section className="icb-card p-6">
+              <p className="text-sm font-semibold text-slate-500">
+                Loading reports...
+              </p>
             </section>
           ) : (
             <>
               <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
-                  title="Total Revenue"
-                  value={money(summary.totalRevenue)}
-                  description="Paid and approved bookings"
+                  title="Paid Revenue"
+                  value={money(summary.paidRevenue)}
+                  description="Total verified paid amount"
                   tone="green"
+                  icon={<TrendingUp size={20} />}
+                />
+
+                <MetricCard
+                  title="Expected Revenue"
+                  value={money(summary.expectedRevenue)}
+                  description="Total booking amount before balance"
+                  tone="blue"
+                  icon={<FileBarChart size={20} />}
+                />
+
+                <MetricCard
+                  title="Unpaid Balance"
+                  value={money(summary.unpaidBalance)}
+                  description="Remaining balance from bookings"
+                  tone="orange"
+                  icon={<FileBarChart size={20} />}
                 />
 
                 <MetricCard
                   title="Total Bookings"
                   value={summary.totalBookings}
                   description="All bookings in selected period"
-                  tone="blue"
+                  tone="slate"
+                  icon={<CalendarDays size={20} />}
                 />
 
                 <MetricCard
-                  title="Completion Rate"
-                  value={summary.completionRate}
-                  description={`${summary.completed} completed of ${summary.finishedCount} finished bookings`}
+                  title="Approved"
+                  value={summary.approved}
+                  description="Approved booking records"
                   tone="green"
                 />
 
                 <MetricCard
-                  title="No-show Rate"
-                  value={summary.noShowRate}
-                  description={`${summary.noShow} no-show bookings`}
+                  title="Reserved"
+                  value={summary.reserved}
+                  description="Reserved slots awaiting payment or review"
+                  tone="blue"
+                />
+
+                <MetricCard
+                  title="Cancelled"
+                  value={summary.cancelled}
+                  description="Cancelled booking records"
+                  tone="red"
+                />
+
+                <MetricCard
+                  title="Expired"
+                  value={summary.expired}
+                  description="Expired unpaid reservations"
                   tone="orange"
                 />
 
                 <MetricCard
-                  title="Walk-in Bookings"
+                  title="Paid"
+                  value={summary.paidCount}
+                  description="Paid and verified bookings"
+                  tone="green"
+                />
+
+                <MetricCard
+                  title="Pending Payment"
+                  value={summary.pendingPayments}
+                  description="Payment proofs waiting for review"
+                  tone="yellow"
+                />
+
+                <MetricCard
+                  title="Rejected Payment"
+                  value={summary.rejectedPayments}
+                  description="Rejected payment proof uploads"
+                  tone="red"
+                />
+
+                <MetricCard
+                  title="Unpaid"
+                  value={summary.unpaidCount}
+                  description="Bookings without verified payment"
+                  tone="orange"
+                />
+
+                <MetricCard
+                  title="Completed"
+                  value={summary.completed}
+                  description={`Completion rate: ${summary.completionRate}`}
+                  tone="green"
+                />
+
+                <MetricCard
+                  title="No-show"
+                  value={summary.noShow}
+                  description={`No-show rate: ${summary.noShowRate}`}
+                  tone="orange"
+                />
+
+                <MetricCard
+                  title="Walk-in"
                   value={summary.walkInBookings}
                   description="Bookings created by staff"
                   tone="purple"
                 />
 
                 <MetricCard
-                  title="Online Bookings"
+                  title="Online"
                   value={summary.onlineBookings}
                   description="Bookings created by users"
                   tone="blue"
                 />
+              </section>
 
-                <MetricCard
-                  title="Total Hours"
-                  value={`${summary.totalHours} hr(s)`}
-                  description="Total reserved facility hours"
-                  tone="slate"
+              <section className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <HighlightCard
+                  title="Most Booked Facility"
+                  value={mostBookedFacility.name}
+                  description={`${mostBookedFacility.value} booking(s)`}
                 />
 
-                <MetricCard
-                  title="Pending Payments"
-                  value={summary.pendingPayments}
-                  description="Payment proofs waiting for review"
-                  tone="yellow"
+                <HighlightCard
+                  title="Least Booked Facility"
+                  value={leastBookedFacility.name}
+                  description={`${leastBookedFacility.value} booking(s)`}
+                />
+
+                <HighlightCard
+                  title="Total Reserved Hours"
+                  value={`${summary.totalHours} hr(s)`}
+                  description="Total hours booked in selected period"
                 />
               </section>
 
               <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <ChartCard
                   title="Daily Revenue"
-                  description="Revenue trend based on selected date range"
+                  description="Paid revenue by booking date"
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={revenueByDay}>
@@ -795,7 +983,7 @@ export default function Reports() {
 
                 <ChartCard
                   title="Monthly Revenue"
-                  description="Revenue grouped by month"
+                  description="Paid revenue grouped by month"
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={revenueByMonth}>
@@ -811,7 +999,7 @@ export default function Reports() {
 
                 <ChartCard
                   title="Revenue by Facility"
-                  description="Top facilities based on revenue"
+                  description="Top facilities based on paid revenue"
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={revenueByFacility}>
@@ -826,24 +1014,24 @@ export default function Reports() {
                 </ChartCard>
 
                 <ChartCard
-                  title="Facility Utilization"
-                  description="Total booked hours per facility"
+                  title="Facility Hours"
+                  description="Total reserved hours per facility"
                 >
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={facilityUtilization}>
+                    <BarChart data={facilityHours}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" />
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Bar dataKey="value" name="Hours" fill="#2B2B2B" />
+                      <Bar dataKey="value" name="Hours" fill="#0B1F33" />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartCard>
 
                 <ChartCard
                   title="Bookings by Facility"
-                  description="Most booked facilities"
+                  description="Most used facilities based on booking count"
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={bookingsByFacility}>
@@ -858,8 +1046,24 @@ export default function Reports() {
                 </ChartCard>
 
                 <ChartCard
-                  title="Completion Summary"
-                  description="Completed, no-show, cancelled late, and pending completion"
+                  title="Payment Status"
+                  description="Paid, unpaid, pending, and rejected payments"
+                >
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={paymentSummary}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="value" name="Bookings" fill="#F59E0B" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+
+                <ChartCard
+                  title="Booking Completion"
+                  description="Completed, no-show, cancelled late, and not completed"
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
@@ -912,32 +1116,19 @@ export default function Reports() {
                     </PieChart>
                   </ResponsiveContainer>
                 </ChartCard>
-
-                <ChartCard
-                  title="Payment Status Summary"
-                  description="Payment distribution of bookings"
-                >
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={paymentSummary}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="value" name="Bookings" fill="#F59E0B" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartCard>
               </section>
 
-              <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+              <section className="icb-card mb-6 p-5 sm:p-6">
                 <div className="mb-5">
-                  <h3 className="text-2xl font-black text-[#2B2B2B]">
-                    Booking Status Summary
+                  <p className="icb-eyebrow">Booking Status</p>
+
+                  <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                    Booking status summary
                   </h3>
 
-                  <p className="text-sm text-slate-500">
-                    Overview of booking statuses within the selected report range.
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
+                    Overview of booking statuses within the selected report
+                    range.
                   </p>
                 </div>
 
@@ -953,30 +1144,32 @@ export default function Reports() {
                 </ResponsiveContainer>
               </section>
 
-              <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+              <section className="icb-card p-5 sm:p-6">
                 <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h3 className="text-2xl font-black text-[#2B2B2B]">
-                      Recent Report Records
+                    <p className="icb-eyebrow">Report Records</p>
+
+                    <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                      Recent records
                     </h3>
 
-                    <p className="text-sm text-slate-500">
+                    <p className="mt-1 text-sm font-semibold text-slate-500">
                       Latest bookings included in the current report filters.
                     </p>
                   </div>
 
-                  <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-bold text-[#C97B6C]">
+                  <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-black text-[#C97B6C]">
                     {filteredBookings.length} record(s)
                   </span>
                 </div>
 
                 {recentBookings.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-[#DED8D2] p-8 text-center text-sm text-slate-500">
+                  <div className="rounded-2xl border border-dashed border-[#DED8D2] p-8 text-center text-sm font-semibold text-slate-500">
                     No report records found.
                   </div>
                 ) : (
                   <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
-                    <table className="w-full min-w-[1100px] border-collapse text-sm">
+                    <table className="w-full min-w-[1180px] border-collapse text-sm">
                       <thead>
                         <tr className="bg-slate-100">
                           <th className="border border-[#DED8D2] px-4 py-3 text-left">
@@ -992,7 +1185,13 @@ export default function Reports() {
                             Source
                           </th>
                           <th className="border border-[#DED8D2] px-4 py-3 text-left">
-                            Amount
+                            Total
+                          </th>
+                          <th className="border border-[#DED8D2] px-4 py-3 text-left">
+                            Paid
+                          </th>
+                          <th className="border border-[#DED8D2] px-4 py-3 text-left">
+                            Balance
                           </th>
                           <th className="border border-[#DED8D2] px-4 py-3 text-left">
                             Status
@@ -1009,7 +1208,7 @@ export default function Reports() {
                       <tbody>
                         {recentBookings.map((booking) => (
                           <tr key={booking.id}>
-                            <td className="border border-[#DED8D2] px-4 py-3 font-bold text-[#2B2B2B]">
+                            <td className="border border-[#DED8D2] px-4 py-3 font-bold text-[#0B1F33]">
                               {getCustomerName(booking)}
                             </td>
 
@@ -1036,36 +1235,40 @@ export default function Reports() {
                               {money(getBookingTotal(booking))}
                             </td>
 
-                            <td className="border border-[#DED8D2] px-4 py-3">
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-black uppercase ${statusClass(
-                                  booking.status
-                                )}`}
-                              >
-                                {formatStatusLabel(booking.status)}
-                              </span>
+                            <td className="border border-[#DED8D2] px-4 py-3 font-black text-green-700">
+                              {money(getPaidAmount(booking))}
+                            </td>
+
+                            <td className="border border-[#DED8D2] px-4 py-3 font-black text-orange-700">
+                              {money(getBalanceAmount(booking))}
                             </td>
 
                             <td className="border border-[#DED8D2] px-4 py-3">
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-black uppercase ${paymentStatusClass(
+                              <Badge className={statusClass(booking.status)}>
+                                {formatStatusLabel(booking.status)}
+                              </Badge>
+                            </td>
+
+                            <td className="border border-[#DED8D2] px-4 py-3">
+                              <Badge
+                                className={paymentStatusClass(
                                   booking.payment_status
-                                )}`}
+                                )}
                               >
                                 {formatStatusLabel(booking.payment_status)}
-                              </span>
+                              </Badge>
                             </td>
 
                             <td className="border border-[#DED8D2] px-4 py-3">
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-black uppercase ${completionStatusClass(
+                              <Badge
+                                className={completionStatusClass(
                                   booking.completion_status
-                                )}`}
+                                )}
                               >
                                 {formatStatusLabel(
                                   booking.completion_status || "not_completed"
                                 )}
-                              </span>
+                              </Badge>
                             </td>
                           </tr>
                         ))}
@@ -1082,39 +1285,66 @@ export default function Reports() {
   );
 }
 
-function MetricCard({ title, value, description, tone }) {
+function MetricCard({ title, value, description, tone = "slate", icon }) {
   const toneClass = {
     green: "bg-green-50 text-green-700",
     blue: "bg-blue-50 text-blue-700",
     yellow: "bg-yellow-50 text-yellow-700",
     orange: "bg-orange-50 text-orange-700",
     purple: "bg-purple-50 text-purple-700",
+    red: "bg-red-50 text-red-700",
     slate: "bg-slate-100 text-slate-700",
   }[tone];
 
   return (
-    <div className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-      <div
-        className={`inline-flex rounded-2xl px-3 py-1 text-xs font-black uppercase ${toneClass}`}
-      >
-        {title}
+    <div className="icb-card icb-card-hover p-5 sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <span
+          className={`inline-flex rounded-2xl px-3 py-1 text-xs font-black uppercase ${toneClass}`}
+        >
+          {title}
+        </span>
+
+        {icon && (
+          <div className={`flex h-10 w-10 items-center justify-center rounded-2xl ${toneClass}`}>
+            {icon}
+          </div>
+        )}
       </div>
 
-      <h3 className="mt-4 break-words text-3xl font-black text-[#2B2B2B]">
+      <h3 className="mt-4 break-words text-3xl font-black text-[#0B1F33]">
         {value}
       </h3>
 
-      <p className="mt-2 text-sm text-slate-500">{description}</p>
+      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function HighlightCard({ title, value, description }) {
+  return (
+    <div className="rounded-[28px] border border-[#DED8D2] bg-[#0B1F33] p-6 text-white shadow-sm">
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-[#E8A093]">
+        {title}
+      </p>
+
+      <h3 className="mt-3 break-words text-2xl font-black">{value}</h3>
+
+      <p className="mt-2 text-sm font-semibold text-white/75">{description}</p>
     </div>
   );
 }
 
 function ChartCard({ title, description, children }) {
   return (
-    <div className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
+    <div className="icb-card p-5 sm:p-6">
       <div className="mb-5">
-        <h3 className="text-2xl font-black text-[#2B2B2B]">{title}</h3>
-        <p className="text-sm text-slate-500">{description}</p>
+        <h3 className="text-2xl font-black text-[#0B1F33]">{title}</h3>
+        <p className="mt-1 text-sm font-semibold text-slate-500">
+          {description}
+        </p>
       </div>
 
       {children}
@@ -1125,12 +1355,12 @@ function ChartCard({ title, description, children }) {
 function FilterSelect({ label, value, onChange, options }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-semibold">{label}</label>
+      <label className="icb-label">{label}</label>
 
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+        className="icb-select"
       >
         {options.map((option) => (
           <option key={String(option.value)} value={option.value}>
@@ -1144,9 +1374,17 @@ function FilterSelect({ label, value, onChange, options }) {
 
 function HeroStat({ label, value }) {
   return (
-    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white">
-      <p className="text-xs font-black uppercase tracking-widest">{label}</p>
-      <h3 className="mt-1 text-xl font-black">{value}</h3>
+    <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white">
+      <p className="text-xs font-bold text-white/70">{label}</p>
+      <h3 className="mt-1 text-lg font-black sm:text-xl">{value}</h3>
     </div>
+  );
+}
+
+function Badge({ children, className }) {
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${className}`}>
+      {children}
+    </span>
   );
 }

@@ -1,15 +1,18 @@
+// src/pages/staff/ManageBookings.jsx
+
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  Calendar,
   CheckCircle,
   Clock,
   Eye,
   FileImage,
+  Printer,
   RefreshCw,
   Search,
   ShieldCheck,
   Wrench,
+  X,
   XCircle,
 } from "lucide-react";
 import Sidebar from "../../components/layout/Sidebar";
@@ -61,25 +64,17 @@ function formatDate(value) {
   }
 }
 
-function formatShortDate(value) {
-  if (!value) return "-";
-
-  try {
-    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return value;
-  }
-}
-
 function formatDateTime(value) {
   if (!value) return "-";
 
   try {
-    return new Date(value).toLocaleString();
+    return new Date(value).toLocaleString(undefined, {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
     return value;
   }
@@ -141,12 +136,34 @@ function getCustomerName(booking) {
   return booking?.profiles?.full_name || booking?.user?.full_name || "User";
 }
 
+function getCustomerContact(booking) {
+  return (
+    booking?.walk_in_contact_number ||
+    booking?.contact_number ||
+    booking?.profiles?.phone ||
+    booking?.profiles?.contact_number ||
+    "-"
+  );
+}
+
+function getCustomerEmail(booking) {
+  return booking?.profiles?.email || booking?.user?.email || "-";
+}
+
 function getBookingTotal(booking) {
   const totalHours = Number(booking?.total_hours || 0);
   const ratePerHour = Number(booking?.rate_per_hour || 0);
   const computed = totalHours * ratePerHour;
 
   return Number(booking?.total_amount || 0) || computed;
+}
+
+function getBalance(booking) {
+  if (booking?.balance_amount !== null && booking?.balance_amount !== undefined) {
+    return Number(booking.balance_amount || 0);
+  }
+
+  return Math.max(getBookingTotal(booking) - Number(booking?.amount_paid || 0), 0);
 }
 
 function getFacilityRate(facility) {
@@ -158,13 +175,6 @@ function getFacilityRate(facility) {
       0
   );
 }
-
-const SPORT_FILTERS = [
-  { value: "all", label: "All" },
-  { value: "pickleball", label: "Pickleball" },
-  { value: "basketball", label: "Basketball" },
-  { value: "table_tennis", label: "Table Tennis" },
-];
 
 function normalizeFacilityType(value) {
   const type = String(value || "").toLowerCase().trim();
@@ -243,6 +253,7 @@ function getStatusClass(status) {
   if (value === "cancelled") return "bg-slate-200 text-slate-700";
   if (value === "expired") return "bg-orange-100 text-orange-700";
   if (value === "rejected") return "bg-red-100 text-red-700";
+  if (value === "completed") return "bg-purple-100 text-purple-700";
 
   return "bg-slate-100 text-slate-700";
 }
@@ -255,6 +266,7 @@ function getPaymentStatusClass(status) {
   if (value === "unpaid") return "bg-yellow-100 text-yellow-700";
   if (value === "rejected_payment") return "bg-red-100 text-red-700";
   if (value === "expired") return "bg-orange-100 text-orange-700";
+  if (value === "refunded") return "bg-purple-100 text-purple-700";
 
   return "bg-slate-100 text-slate-700";
 }
@@ -301,8 +313,30 @@ function canMarkExpired(booking) {
   );
 }
 
+function getPaymentProofType(url = "") {
+  const value = String(url || "").toLowerCase();
+
+  if (value.includes(".pdf")) return "pdf";
+
+  return "image";
+}
+
+const SPORT_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "pickleball", label: "Pickleball" },
+  { value: "basketball", label: "Basketball" },
+  { value: "table_tennis", label: "Table Tennis" },
+];
+
+const DEFAULT_VERIFY_CHECKLIST = {
+  amount_matches: false,
+  proof_readable: false,
+  reference_visible: false,
+  receiver_confirmed: false,
+};
+
 export default function ManageBookings() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [searchParams] = useSearchParams();
   const highlightId = searchParams.get("highlight");
 
@@ -325,6 +359,8 @@ export default function ManageBookings() {
 
   const [verifyModal, setVerifyModal] = useState(false);
   const [verifyBooking, setVerifyBooking] = useState(null);
+  const [verifyChecklist, setVerifyChecklist] = useState(DEFAULT_VERIFY_CHECKLIST);
+  const [verifyNotes, setVerifyNotes] = useState("");
 
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectBooking, setRejectBooking] = useState(null);
@@ -366,12 +402,15 @@ export default function ManageBookings() {
         search.trim() === "" ||
         [
           getCustomerName(booking),
+          getCustomerEmail(booking),
+          getCustomerContact(booking),
           getFacilityName(booking),
           booking.walk_in_customer_name,
           booking.walk_in_contact_number,
           booking.payment_reference,
           booking.receipt_number,
           booking.booking_date,
+          booking.id,
         ]
           .join(" ")
           .toLowerCase()
@@ -504,6 +543,9 @@ export default function ManageBookings() {
             profiles:user_id (
               id,
               full_name,
+              email,
+              phone,
+              contact_number,
               role
             )
           `)
@@ -580,26 +622,49 @@ export default function ManageBookings() {
 
   function openVerifyModal(booking) {
     setVerifyBooking(booking);
+    setVerifyChecklist(DEFAULT_VERIFY_CHECKLIST);
+    setVerifyNotes("");
     setVerifyModal(true);
   }
 
   function closeVerifyModal() {
     if (processingId) return;
+
     setVerifyBooking(null);
+    setVerifyChecklist(DEFAULT_VERIFY_CHECKLIST);
+    setVerifyNotes("");
     setVerifyModal(false);
+  }
+
+  function toggleVerifyChecklist(name) {
+    setVerifyChecklist((prev) => ({
+      ...prev,
+      [name]: !prev[name],
+    }));
   }
 
   async function handleVerifyPayment() {
     try {
       if (!verifyBooking?.id) return;
 
+      const checklistValues = Object.values(verifyChecklist);
+      const isChecklistComplete = checklistValues.every(Boolean);
+
+      if (!isChecklistComplete) {
+        setError("Please complete all verification checklist items first.");
+        return;
+      }
+
       setProcessingId(verifyBooking.id);
       setError("");
       setMessage("");
 
-      await verifyPayment(verifyBooking.id, user?.id);
+      await verifyPayment(verifyBooking.id, {
+        checklist: verifyChecklist,
+        notes: verifyNotes,
+      });
 
-      setMessage("Payment verified successfully.");
+      setMessage("Payment verified successfully. Booking is now approved and receipt was issued.");
       closeVerifyModal();
       closeDetailsModal();
       await loadBookings(false);
@@ -619,6 +684,7 @@ export default function ManageBookings() {
 
   function closeRejectModal() {
     if (processingId) return;
+
     setRejectBooking(null);
     setRejectReason("");
     setRejectModal(false);
@@ -637,9 +703,17 @@ export default function ManageBookings() {
       setError("");
       setMessage("");
 
-      await rejectPayment(rejectBooking.id, rejectReason.trim(), user?.id);
+      await rejectPayment(rejectBooking.id, rejectReason.trim(), {
+        notes: rejectReason.trim(),
+        checklist: {
+          amount_matches: false,
+          proof_readable: false,
+          reference_visible: false,
+          receiver_confirmed: false,
+        },
+      });
 
-      setMessage("Payment rejected successfully.");
+      setMessage("Payment rejected successfully. The user can upload payment proof again.");
       closeRejectModal();
       closeDetailsModal();
       await loadBookings(false);
@@ -873,23 +947,21 @@ export default function ManageBookings() {
 
   return (
     <div className="page-shell">
-      <Sidebar role="staff" />
+      <Sidebar role={profile?.role === "admin" ? "admin" : "staff"} />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Manage Bookings" />
+          <Topbar
+  title="Manage Bookings"
+  subtitle={
+    profile?.role === "admin"
+      ? "Admin booking and payment management"
+      : "Staff booking and payment management"
+  }
+/>
 
-          {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
-              {error}
-            </div>
-          )}
-
-          {message && (
-            <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
-              {message}
-            </div>
-          )}
+          {error && <div className="icb-alert-error mb-4">{error}</div>}
+          {message && <div className="icb-alert-success mb-4">{message}</div>}
 
           <section className="page-hero mb-6">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -901,7 +973,8 @@ export default function ManageBookings() {
                 </h2>
 
                 <p className="mt-2 text-sm text-white/90">
-                  Review payments, monitor calendar slots, and mark finished bookings.
+                  Review payment proof, approve paid bookings, issue receipts, and
+                  monitor facility availability.
                 </p>
               </div>
 
@@ -981,9 +1054,7 @@ export default function ManageBookings() {
             <>
               <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
                 <div className="mb-5">
-                  <h3 className="text-2xl font-black text-[#2B2B2B]">
-                    Filters
-                  </h3>
+                  <h3 className="text-2xl font-black text-[#2B2B2B]">Filters</h3>
 
                   <p className="text-sm text-slate-500">
                     Search and filter all bookings.
@@ -1023,6 +1094,7 @@ export default function ManageBookings() {
                       { value: "cancelled", label: "Cancelled" },
                       { value: "expired", label: "Expired" },
                       { value: "rejected", label: "Rejected" },
+                      { value: "completed", label: "Completed" },
                     ]}
                   />
 
@@ -1146,7 +1218,11 @@ export default function ManageBookings() {
           {verifyModal && verifyBooking && (
             <PaymentVerificationModal
               booking={verifyBooking}
+              checklist={verifyChecklist}
+              notes={verifyNotes}
               processing={processingId === verifyBooking.id}
+              onChecklistChange={toggleVerifyChecklist}
+              onNotesChange={setVerifyNotes}
               onClose={closeVerifyModal}
               onConfirm={handleVerifyPayment}
             />
@@ -1208,28 +1284,34 @@ function BookingCard({
   return (
     <div
       className={`rounded-[28px] border bg-white p-5 shadow-sm ${
-        highlighted ? "border-[#C97B6C] ring-4 ring-[#C97B6C]/10" : "border-[#DED8D2]"
+        highlighted
+          ? "border-[#C97B6C] ring-4 ring-[#C97B6C]/10"
+          : "border-[#DED8D2]"
       }`}
     >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-3 flex flex-wrap gap-2">
-            <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(status)}`}>
+            <Badge className={getStatusClass(status)}>
               {formatStatusLabel(status)}
-            </span>
+            </Badge>
 
-            <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getPaymentStatusClass(paymentStatus)}`}>
+            <Badge className={getPaymentStatusClass(paymentStatus)}>
               {formatStatusLabel(paymentStatus)}
-            </span>
+            </Badge>
 
-            <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getCompletionStatusClass(completionStatus)}`}>
+            <Badge className={getCompletionStatusClass(completionStatus)}>
               {formatCompletionStatus(completionStatus)}
-            </span>
+            </Badge>
 
             {booking.is_walk_in && (
-              <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black uppercase text-purple-700">
-                Walk-in
-              </span>
+              <Badge className="bg-purple-100 text-purple-700">Walk-in</Badge>
+            )}
+
+            {paymentStatus === "pending_verification" && (
+              <Badge className="bg-blue-100 text-blue-700">
+                Needs Staff Review
+              </Badge>
             )}
           </div>
 
@@ -1249,17 +1331,25 @@ function BookingCard({
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
             <MiniDetail label="Total" value={money(getBookingTotal(booking))} />
             <MiniDetail label="Paid" value={money(booking.amount_paid || 0)} />
+            <MiniDetail label="Balance" value={money(getBalance(booking))} />
             <MiniDetail label="Payment Method" value={booking.payment_method || "-"} />
             <MiniDetail label="Receipt" value={booking.receipt_number || "-"} />
-            <MiniDetail
-              label="Timer"
-              value={
-                minutesLeft !== null && status === "reserved" && paymentStatus === "unpaid"
-                  ? `${minutesLeft} min left`
-                  : "-"
-              }
-            />
           </div>
+
+          {booking.payment_reference && (
+            <p className="mt-3 text-sm font-semibold text-slate-500">
+              Reference: <b>{booking.payment_reference}</b>
+            </p>
+          )}
+
+          {minutesLeft !== null &&
+            status === "reserved" &&
+            ["unpaid", "rejected_payment"].includes(paymentStatus) && (
+              <p className="mt-3 inline-flex items-center gap-2 rounded-2xl bg-orange-50 px-4 py-2 text-sm font-black text-orange-700">
+                <Clock size={16} />
+                {minutesLeft} minute(s) left before expiration
+              </p>
+            )}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2 xl:w-[240px] xl:flex-col">
@@ -1281,7 +1371,10 @@ function BookingCard({
               disabled={processing}
               className="rounded-2xl bg-green-600 px-4 py-3 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-60"
             >
-              Verify Payment
+              <span className="inline-flex items-center gap-2">
+                <ShieldCheck size={16} />
+                Verify Payment
+              </span>
             </button>
           )}
 
@@ -1522,243 +1615,358 @@ function BookingDetailsModal({
   onCompletion,
 }) {
   const completionStatus = normalizeCompletionStatus(booking.completion_status);
+  const paymentStatus = normalizePaymentStatus(booking.payment_status);
+  const proofType = getPaymentProofType(booking.payment_proof_url);
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
-              Booking Details
-            </p>
+    <ModalShell title="Booking Details" onClose={onClose} maxWidth="max-w-6xl">
+      <div className="flex flex-wrap gap-2">
+        <Badge className={getStatusClass(booking.status)}>
+          {formatStatusLabel(booking.status)}
+        </Badge>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
-              {getFacilityName(booking)}
-            </h2>
+        <Badge className={getPaymentStatusClass(booking.payment_status)}>
+          {formatStatusLabel(booking.payment_status)}
+        </Badge>
 
-            <p className="mt-1 text-sm text-slate-500">
-              {formatDate(booking.booking_date)} • {formatTime(booking.start_time)} -{" "}
-              {formatTime(booking.end_time)}
-            </p>
-          </div>
+        <Badge className={getCompletionStatusClass(completionStatus)}>
+          {formatCompletionStatus(completionStatus)}
+        </Badge>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1]"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-2">
-          <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(booking.status)}`}>
-            {formatStatusLabel(booking.status)}
-          </span>
-
-          <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getPaymentStatusClass(booking.payment_status)}`}>
-            {formatStatusLabel(booking.payment_status)}
-          </span>
-
-          <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getCompletionStatusClass(completionStatus)}`}>
-            {formatCompletionStatus(completionStatus)}
-          </span>
-
-          {booking.is_walk_in && (
-            <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black uppercase text-purple-700">
-              Walk-in
-            </span>
-          )}
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <DetailItem label="Customer" value={getCustomerName(booking)} />
-          <DetailItem
-            label="Contact"
-            value={booking.walk_in_contact_number || booking.contact_number || "-"}
-          />
-          <DetailItem label="Facility" value={getFacilityName(booking)} />
-          <DetailItem label="Date" value={formatDate(booking.booking_date)} />
-          <DetailItem
-            label="Time"
-            value={`${formatTime(booking.start_time)} - ${formatTime(booking.end_time)}`}
-          />
-          <DetailItem label="Session Type" value={formatStatusLabel(booking.session_type)} />
-          <DetailItem label="Total Hours" value={`${booking.total_hours || 0} hour(s)`} />
-          <DetailItem label="Rate Per Hour" value={money(booking.rate_per_hour)} />
-          <DetailItem label="Total Amount" value={money(getBookingTotal(booking))} />
-          <DetailItem label="Amount Paid" value={money(booking.amount_paid || 0)} />
-          <DetailItem label="Payment Method" value={booking.payment_method || "-"} />
-          <DetailItem label="Payment Reference" value={booking.payment_reference || "-"} />
-          <DetailItem label="Receipt Number" value={booking.receipt_number || "-"} />
-          <DetailItem label="Created At" value={formatDateTime(booking.created_at)} />
-          <DetailItem label="Completed At" value={formatDateTime(booking.completed_at)} />
-        </div>
-
-        {booking.payment_proof_url && (
-          <div className="mt-6 rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] p-4">
-            <p className="mb-3 text-sm font-black text-[#2B2B2B]">
-              Payment Proof
-            </p>
-
-            <a
-              href={booking.payment_proof_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
-            >
-              <FileImage size={16} />
-              View Payment Proof
-            </a>
-          </div>
+        {booking.is_walk_in && (
+          <Badge className="bg-purple-100 text-purple-700">Walk-in</Badge>
         )}
-
-        {booking.payment_rejection_reason && (
-          <div className="mt-5 rounded-2xl bg-red-50 px-4 py-4 text-sm text-red-700">
-            <b>Payment Rejection Reason:</b> {booking.payment_rejection_reason}
-          </div>
-        )}
-
-        {booking.completion_notes && completionStatus !== "not_completed" && (
-          <div className="mt-5 rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-700">
-            <b>Completion Notes:</b> {booking.completion_notes}
-          </div>
-        )}
-
-        {canCompleteBooking(booking) && (
-          <div className="mt-6 rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] p-4">
-            <p className="text-sm font-black text-[#2B2B2B]">
-              Booking Completion
-            </p>
-
-            <p className="mt-1 text-sm text-slate-500">
-              This booking time has ended. Mark the final attendance result.
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => onCompletion(booking, "completed")}
-                className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-bold text-white hover:bg-green-700"
-              >
-                Mark Completed
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onCompletion(booking, "no_show")}
-                className="rounded-2xl bg-orange-500 px-5 py-3 text-sm font-bold text-white hover:bg-orange-600"
-              >
-                Mark No-show
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onCompletion(booking, "cancelled_late")}
-                className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-700"
-              >
-                Mark Cancelled Late
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
-          {canMarkExpired(booking) && (
-            <button
-              type="button"
-              onClick={onExpire}
-              disabled={processing}
-              className="rounded-2xl bg-orange-500 px-6 py-3 font-bold text-white hover:bg-orange-600 disabled:opacity-60"
-            >
-              Mark Expired
-            </button>
-          )}
-
-          {canRejectPayment(booking) && (
-            <button
-              type="button"
-              onClick={onReject}
-              disabled={processing}
-              className="rounded-2xl bg-red-600 px-6 py-3 font-bold text-white hover:bg-red-700 disabled:opacity-60"
-            >
-              Reject Payment
-            </button>
-          )}
-
-          {canVerifyPayment(booking) && (
-            <button
-              type="button"
-              onClick={onVerify}
-              disabled={processing}
-              className="rounded-2xl bg-green-600 px-6 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-60"
-            >
-              Verify Payment
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_390px]">
+        <section>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <DetailItem label="Customer" value={getCustomerName(booking)} />
+            <DetailItem label="Email" value={getCustomerEmail(booking)} />
+            <DetailItem label="Contact" value={getCustomerContact(booking)} />
+            <DetailItem label="Facility" value={getFacilityName(booking)} />
+            <DetailItem label="Date" value={formatDate(booking.booking_date)} />
+            <DetailItem
+              label="Time"
+              value={`${formatTime(booking.start_time)} - ${formatTime(booking.end_time)}`}
+            />
+            <DetailItem label="Session Type" value={formatStatusLabel(booking.session_type)} />
+            <DetailItem label="Total Hours" value={`${booking.total_hours || 0} hour(s)`} />
+            <DetailItem label="Rate Per Hour" value={money(booking.rate_per_hour)} />
+            <DetailItem label="Total Amount" value={money(getBookingTotal(booking))} />
+            <DetailItem label="Amount Paid" value={money(booking.amount_paid || 0)} />
+            <DetailItem label="Balance" value={money(getBalance(booking))} />
+            <DetailItem label="Payment Method" value={booking.payment_method || "-"} />
+            <DetailItem label="Payment Reference" value={booking.payment_reference || "-"} />
+            <DetailItem label="Receipt Number" value={booking.receipt_number || "-"} />
+            <DetailItem label="Created At" value={formatDateTime(booking.created_at)} />
+            <DetailItem label="Payment Submitted" value={formatDateTime(booking.payment_submitted_at)} />
+            <DetailItem label="Payment Verified" value={formatDateTime(booking.payment_verified_at)} />
+          </div>
+
+          {booking.payment_notes && (
+            <ReasonBox title="Payment Notes" value={booking.payment_notes} tone="slate" />
+          )}
+
+          {booking.payment_verification_notes && (
+            <ReasonBox
+              title="Verification Notes"
+              value={booking.payment_verification_notes}
+              tone="green"
+            />
+          )}
+
+          {booking.payment_rejection_reason && (
+            <ReasonBox
+              title="Payment Rejection Reason"
+              value={booking.payment_rejection_reason}
+              tone="red"
+            />
+          )}
+
+          {booking.completion_notes && completionStatus !== "not_completed" && (
+            <ReasonBox title="Completion Notes" value={booking.completion_notes} tone="slate" />
+          )}
+        </section>
+
+        <aside className="space-y-4">
+          <section className="rounded-3xl border border-[#DED8D2] bg-[#F5F3F1] p-4">
+            <p className="text-sm font-black text-[#0B1F33]">Payment Proof</p>
+
+            {booking.payment_proof_url ? (
+              <>
+                {proofType === "image" ? (
+                  <div className="mt-3 overflow-hidden rounded-2xl border border-[#DED8D2] bg-white p-3">
+                    <img
+                      src={booking.payment_proof_url}
+                      alt="Payment Proof"
+                      className="mx-auto max-h-[360px] w-full rounded-xl object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-2xl bg-white p-4 text-sm font-bold text-slate-600">
+                    PDF payment proof uploaded.
+                  </div>
+                )}
+
+                <a
+                  href={booking.payment_proof_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
+                >
+                  <FileImage size={16} />
+                  Open Payment Proof
+                </a>
+              </>
+            ) : (
+              <div className="mt-3 rounded-2xl border border-dashed border-[#DED8D2] bg-white p-6 text-center text-sm font-bold text-slate-500">
+                No payment proof uploaded.
+              </div>
+            )}
+          </section>
+
+          {canCompleteBooking(booking) && (
+            <section className="rounded-3xl border border-[#DED8D2] bg-[#F5F3F1] p-4">
+              <p className="text-sm font-black text-[#0B1F33]">
+                Booking Completion
+              </p>
+
+              <p className="mt-1 text-sm text-slate-500">
+                This booking time has ended. Mark the final attendance result.
+              </p>
+
+              <div className="mt-4 flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => onCompletion(booking, "completed")}
+                  className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-bold text-white hover:bg-green-700"
+                >
+                  Mark Completed
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onCompletion(booking, "no_show")}
+                  className="rounded-2xl bg-orange-500 px-5 py-3 text-sm font-bold text-white hover:bg-orange-600"
+                >
+                  Mark No-show
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onCompletion(booking, "cancelled_late")}
+                  className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-700"
+                >
+                  Mark Cancelled Late
+                </button>
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-3xl border border-[#DED8D2] bg-white p-4">
+            <p className="text-sm font-black text-[#0B1F33]">Actions</p>
+
+            <div className="mt-4 flex flex-col gap-3">
+              {canMarkExpired(booking) && (
+                <button
+                  type="button"
+                  onClick={onExpire}
+                  disabled={processing}
+                  className="rounded-2xl bg-orange-500 px-6 py-3 font-bold text-white hover:bg-orange-600 disabled:opacity-60"
+                >
+                  Mark Expired
+                </button>
+              )}
+
+              {canRejectPayment(booking) && (
+                <button
+                  type="button"
+                  onClick={onReject}
+                  disabled={processing}
+                  className="rounded-2xl bg-red-600 px-6 py-3 font-bold text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  Reject Payment
+                </button>
+              )}
+
+              {canVerifyPayment(booking) && (
+                <button
+                  type="button"
+                  onClick={onVerify}
+                  disabled={processing}
+                  className="rounded-2xl bg-green-600 px-6 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-60"
+                >
+                  Verify Payment
+                </button>
+              )}
+
+              {paymentStatus === "paid" && (
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1]"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Printer size={17} />
+                    Print Receipt
+                  </span>
+                </button>
+              )}
+            </div>
+          </section>
+        </aside>
+      </div>
+    </ModalShell>
   );
 }
 
-function PaymentVerificationModal({ booking, processing, onClose, onConfirm }) {
+function PaymentVerificationModal({
+  booking,
+  checklist,
+  notes,
+  processing,
+  onChecklistChange,
+  onNotesChange,
+  onClose,
+  onConfirm,
+}) {
+  const proofType = getPaymentProofType(booking.payment_proof_url);
+
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-green-600">
-              Verify Payment
+    <ModalShell title="Verify Payment" onClose={onClose} maxWidth="max-w-5xl">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_380px]">
+        <section>
+          <div className="rounded-3xl bg-green-50 p-5">
+            <p className="text-sm font-black uppercase tracking-widest text-green-700">
+              Confirm payment verification
             </p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
-              Confirm payment verification
+            <h2 className="mt-2 text-2xl font-black text-[#0B1F33]">
+              This will approve the booking and issue a receipt.
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
-              This will mark the booking as paid and approved.
+            <p className="mt-2 text-sm font-semibold text-green-700">
+              Verify only if the proof is clear, the reference is visible, and the
+              amount matches the actual payment received.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={processing}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
-          >
-            Close
-          </button>
-        </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <MiniDetail label="Customer" value={getCustomerName(booking)} />
+            <MiniDetail label="Facility" value={getFacilityName(booking)} />
+            <MiniDetail label="Total Amount" value={money(getBookingTotal(booking))} />
+            <MiniDetail label="Amount Paid" value={money(booking.amount_paid)} />
+            <MiniDetail label="Balance" value={money(getBalance(booking))} />
+            <MiniDetail label="Payment Method" value={booking.payment_method || "-"} />
+            <MiniDetail label="Reference" value={booking.payment_reference || "-"} />
+            <MiniDetail label="Submitted At" value={formatDateTime(booking.payment_submitted_at)} />
+          </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <MiniDetail label="Customer" value={getCustomerName(booking)} />
-          <MiniDetail label="Facility" value={getFacilityName(booking)} />
-          <MiniDetail label="Amount Paid" value={money(booking.amount_paid)} />
-          <MiniDetail label="Reference" value={booking.payment_reference || "-"} />
-        </div>
+          <div className="mt-5 rounded-3xl border border-[#DED8D2] bg-white p-5">
+            <p className="text-sm font-black text-[#0B1F33]">
+              Verification Checklist
+            </p>
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={processing}
-            className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
-          >
-            Cancel
-          </button>
+            <div className="mt-4 space-y-3">
+              <ChecklistItem
+                label="Amount paid matches the booking total."
+                checked={checklist.amount_matches}
+                onChange={() => onChecklistChange("amount_matches")}
+              />
 
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={processing}
-            className="rounded-2xl bg-green-600 px-6 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-60"
-          >
-            {processing ? "Verifying..." : "Verify Payment"}
-          </button>
-        </div>
+              <ChecklistItem
+                label="Payment proof is readable and not blurry."
+                checked={checklist.proof_readable}
+                onChange={() => onChecklistChange("proof_readable")}
+              />
+
+              <ChecklistItem
+                label="Payment reference number is visible or provided."
+                checked={checklist.reference_visible}
+                onChange={() => onChecklistChange("reference_visible")}
+              />
+
+              <ChecklistItem
+                label="Payment was received in the correct account."
+                checked={checklist.receiver_confirmed}
+                onChange={() => onChecklistChange("receiver_confirmed")}
+              />
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <label className="icb-label">Verification Notes</label>
+
+            <textarea
+              value={notes}
+              onChange={(event) => onNotesChange(event.target.value)}
+              placeholder="Optional notes for this payment verification"
+              className="icb-textarea min-h-[120px]"
+            />
+          </div>
+
+          <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={processing}
+              className="icb-btn-light"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={processing}
+              className="rounded-2xl bg-green-600 px-6 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-60"
+            >
+              <span className="inline-flex items-center gap-2">
+                <CheckCircle size={18} />
+                {processing ? "Verifying..." : "Verify Payment"}
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <aside className="rounded-3xl border border-[#DED8D2] bg-[#F5F3F1] p-4">
+          <p className="text-sm font-black text-[#0B1F33]">Payment Proof</p>
+
+          {booking.payment_proof_url ? (
+            <>
+              {proofType === "image" ? (
+                <div className="mt-3 overflow-hidden rounded-2xl border border-[#DED8D2] bg-white p-3">
+                  <img
+                    src={booking.payment_proof_url}
+                    alt="Payment Proof"
+                    className="mx-auto max-h-[420px] w-full rounded-xl object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="mt-3 rounded-2xl bg-white p-4 text-sm font-bold text-slate-600">
+                  PDF payment proof uploaded.
+                </div>
+              )}
+
+              <a
+                href={booking.payment_proof_url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
+              >
+                <FileImage size={16} />
+                Open Proof
+              </a>
+            </>
+          ) : (
+            <div className="mt-3 rounded-2xl border border-dashed border-[#DED8D2] bg-white p-6 text-center text-sm font-bold text-slate-500">
+              No payment proof uploaded.
+            </div>
+          )}
+        </aside>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -1771,72 +1979,63 @@ function RejectPaymentModal({
   onConfirm,
 }) {
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-red-600">
-              Reject Payment
-            </p>
+    <ModalShell title="Reject Payment" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="rounded-3xl bg-red-50 p-5">
+        <p className="text-sm font-black uppercase tracking-widest text-red-700">
+          Payment Rejection
+        </p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
-              Enter rejection reason
-            </h2>
+        <h2 className="mt-2 text-2xl font-black text-[#0B1F33]">
+          Enter a clear reason for rejection.
+        </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
-              The user will see this reason and can upload payment proof again.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={processing}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <MiniDetail label="Customer" value={getCustomerName(booking)} />
-          <MiniDetail label="Facility" value={getFacilityName(booking)} />
-        </div>
-
-        <div className="mt-5">
-          <label className="mb-2 block text-sm font-semibold">
-            Rejection Reason
-          </label>
-
-          <textarea
-            value={reason}
-            onChange={(event) => onReasonChange(event.target.value)}
-            placeholder="Example: Payment proof is blurry or amount does not match."
-            className="min-h-[120px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-          />
-        </div>
-
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={processing}
-            className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={processing}
-            className="rounded-2xl bg-red-600 px-6 py-3 font-bold text-white hover:bg-red-700 disabled:opacity-60"
-          >
-            {processing ? "Rejecting..." : "Reject Payment"}
-          </button>
-        </div>
+        <p className="mt-2 text-sm font-semibold text-red-700">
+          The user will see this reason and can upload a new proof again before
+          the reservation expires.
+        </p>
       </div>
-    </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <MiniDetail label="Customer" value={getCustomerName(booking)} />
+        <MiniDetail label="Facility" value={getFacilityName(booking)} />
+        <MiniDetail label="Amount Paid" value={money(booking.amount_paid)} />
+        <MiniDetail label="Reference" value={booking.payment_reference || "-"} />
+      </div>
+
+      <div className="mt-5">
+        <label className="icb-label">Rejection Reason</label>
+
+        <textarea
+          value={reason}
+          onChange={(event) => onReasonChange(event.target.value)}
+          placeholder="Example: Payment proof is blurry or amount does not match."
+          className="icb-textarea min-h-[130px]"
+        />
+      </div>
+
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={processing}
+          className="icb-btn-light"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={processing}
+          className="rounded-2xl bg-red-600 px-6 py-3 font-bold text-white hover:bg-red-700 disabled:opacity-60"
+        >
+          <span className="inline-flex items-center gap-2">
+            <XCircle size={18} />
+            {processing ? "Rejecting..." : "Reject Payment"}
+          </span>
+        </button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -1849,122 +2048,95 @@ function MaintenanceModal({
   onSubmit,
 }) {
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-purple-600">
-              Facility Maintenance
-            </p>
+    <ModalShell title="Add Maintenance Block" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <label className="icb-label">Facility</label>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
-              Add maintenance block
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              This will make the selected facility unavailable.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-2 block text-sm font-semibold">Facility</label>
-
-            <select
-              name="facility_id"
-              value={form.facility_id}
-              onChange={onChange}
-              className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-            >
-              <option value="">Select facility</option>
-              {facilities.map((facility) => (
-                <option key={facility.id} value={facility.id}>
-                  {facility.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold">Date</label>
-
-            <input
-              type="date"
-              name="maintenance_date"
-              value={form.maintenance_date}
-              onChange={onChange}
-              className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold">Start Time</label>
-
-            <input
-              type="time"
-              name="start_time"
-              value={form.start_time}
-              onChange={onChange}
-              className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold">End Time</label>
-
-            <input
-              type="time"
-              name="end_time"
-              value={form.end_time}
-              onChange={onChange}
-              className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-            />
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <label className="mb-2 block text-sm font-semibold">Reason</label>
-
-          <textarea
-            name="reason"
-            value={form.reason}
+          <select
+            name="facility_id"
+            value={form.facility_id}
             onChange={onChange}
-            placeholder="Example: Court cleaning, repair, private maintenance."
-            className="min-h-[110px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+            className="icb-select"
+          >
+            <option value="">Select facility</option>
+            {facilities.map((facility) => (
+              <option key={facility.id} value={facility.id}>
+                {facility.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="icb-label">Date</label>
+
+          <input
+            type="date"
+            name="maintenance_date"
+            value={form.maintenance_date}
+            onChange={onChange}
+            className="icb-input"
           />
         </div>
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
-          >
-            Cancel
-          </button>
+        <div>
+          <label className="icb-label">Start Time</label>
 
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={saving}
-            className="rounded-2xl bg-purple-600 px-6 py-3 font-bold text-white hover:bg-purple-700 disabled:opacity-60"
-          >
-            {saving ? "Saving..." : "Add Maintenance"}
-          </button>
+          <input
+            type="time"
+            name="start_time"
+            value={form.start_time}
+            onChange={onChange}
+            className="icb-input"
+          />
+        </div>
+
+        <div>
+          <label className="icb-label">End Time</label>
+
+          <input
+            type="time"
+            name="end_time"
+            value={form.end_time}
+            onChange={onChange}
+            className="icb-input"
+          />
         </div>
       </div>
-    </div>
+
+      <div className="mt-5">
+        <label className="icb-label">Reason</label>
+
+        <textarea
+          name="reason"
+          value={form.reason}
+          onChange={onChange}
+          placeholder="Example: Court cleaning, repair, private maintenance."
+          className="icb-textarea min-h-[110px]"
+        />
+      </div>
+
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={saving}
+          className="icb-btn-light"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={saving}
+          className="rounded-2xl bg-purple-600 px-6 py-3 font-bold text-white hover:bg-purple-700 disabled:opacity-60"
+        >
+          {saving ? "Saving..." : "Add Maintenance"}
+        </button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -1977,101 +2149,97 @@ function CompletionModal({
   onSubmit,
 }) {
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
-              Booking Completion
-            </p>
+    <ModalShell title="Booking Completion" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="rounded-2xl bg-[#F5F3F1] p-4">
+        <p className="text-sm font-black text-[#2B2B2B]">Booking Information</p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
-              Mark booking result
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Choose the final attendance result for this booking.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="mt-5 rounded-2xl bg-[#F5F3F1] p-4">
-          <p className="text-sm font-black text-[#2B2B2B]">
-            Booking Information
-          </p>
-
-          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <MiniDetail label="Facility" value={getFacilityName(booking)} />
-            <MiniDetail label="Date" value={formatDate(booking.booking_date)} />
-            <MiniDetail
-              label="Time"
-              value={`${formatTime(booking.start_time)} - ${formatTime(
-                booking.end_time
-              )}`}
-            />
-            <MiniDetail label="Customer" value={getCustomerName(booking)} />
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <label className="mb-2 block text-sm font-semibold">
-            Completion Status
-          </label>
-
-          <select
-            name="completion_status"
-            value={form.completion_status}
-            onChange={onChange}
-            className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-          >
-            <option value="completed">Completed</option>
-            <option value="no_show">No-show</option>
-            <option value="cancelled_late">Cancelled Late</option>
-          </select>
-        </div>
-
-        <div className="mt-5">
-          <label className="mb-2 block text-sm font-semibold">
-            Completion Notes
-          </label>
-
-          <textarea
-            name="completion_notes"
-            value={form.completion_notes}
-            onChange={onChange}
-            placeholder="Optional notes about the booking result"
-            className="min-h-[110px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <MiniDetail label="Facility" value={getFacilityName(booking)} />
+          <MiniDetail label="Date" value={formatDate(booking.booking_date)} />
+          <MiniDetail
+            label="Time"
+            value={`${formatTime(booking.start_time)} - ${formatTime(
+              booking.end_time
+            )}`}
           />
+          <MiniDetail label="Customer" value={getCustomerName(booking)} />
         </div>
+      </div>
 
-        <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
+      <div className="mt-5">
+        <label className="icb-label">Completion Status</label>
+
+        <select
+          name="completion_status"
+          value={form.completion_status}
+          onChange={onChange}
+          className="icb-select"
+        >
+          <option value="completed">Completed</option>
+          <option value="no_show">No-show</option>
+          <option value="cancelled_late">Cancelled Late</option>
+        </select>
+      </div>
+
+      <div className="mt-5">
+        <label className="icb-label">Completion Notes</label>
+
+        <textarea
+          name="completion_notes"
+          value={form.completion_notes}
+          onChange={onChange}
+          placeholder="Optional notes about the booking result"
+          className="icb-textarea min-h-[110px]"
+        />
+      </div>
+
+      <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={saving}
+          className="icb-btn-light"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={saving}
+          className="icb-btn-accent"
+        >
+          {saving ? "Saving..." : "Save Completion Status"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ModalShell({ title, onClose, children, maxWidth = "max-w-5xl" }) {
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#0B1F33]/60 px-4 py-6 backdrop-blur-sm">
+      <div
+        className={`max-h-[92vh] w-full ${maxWidth} overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl`}
+      >
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+              InCredoBall
+            </p>
+            <h2 className="mt-1 text-2xl font-black text-[#0B1F33]">{title}</h2>
+          </div>
+
           <button
             type="button"
             onClick={onClose}
-            disabled={saving}
-            className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
+            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#DED8D2] text-[#0B1F33] transition hover:bg-[#F5F3F1]"
           >
-            Cancel
-          </button>
-
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={saving}
-            className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saving ? "Saving..." : "Save Completion Status"}
+            <X size={20} />
           </button>
         </div>
+
+        {children}
       </div>
     </div>
   );
@@ -2094,6 +2262,21 @@ function FilterSelect({ label, value, onChange, options }) {
         ))}
       </select>
     </div>
+  );
+}
+
+function ChecklistItem({ label, checked, onChange }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] px-4 py-3">
+      <input
+        type="checkbox"
+        checked={Boolean(checked)}
+        onChange={onChange}
+        className="h-5 w-5 accent-green-600"
+      />
+
+      <span className="text-sm font-bold text-[#0B1F33]">{label}</span>
+    </label>
   );
 }
 
@@ -2125,6 +2308,21 @@ function DetailItem({ label, value }) {
   );
 }
 
+function ReasonBox({ title, value, tone = "red" }) {
+  const classes = {
+    red: "bg-red-50 text-red-700",
+    green: "bg-green-50 text-green-700",
+    slate: "bg-slate-100 text-slate-700",
+  };
+
+  return (
+    <div className={`mt-5 rounded-2xl p-4 ${classes[tone] || classes.slate}`}>
+      <p className="text-sm font-black">{title}</p>
+      <p className="mt-2 text-sm font-semibold">{value}</p>
+    </div>
+  );
+}
+
 function Legend({ color, label }) {
   return (
     <span className="flex items-center gap-2">
@@ -2148,5 +2346,13 @@ function HeroStat({ label, value }) {
       <p className="text-xs font-black uppercase tracking-widest">{label}</p>
       <h3 className="mt-1 text-2xl font-black">{value}</h3>
     </div>
+  );
+}
+
+function Badge({ children, className }) {
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${className}`}>
+      {children}
+    </span>
   );
 }

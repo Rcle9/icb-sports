@@ -1,3 +1,5 @@
+// src/pages/user/BookingTimeline.jsx
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -12,7 +14,7 @@ import {
   RefreshCw,
   Search,
   Timer,
-  XCircle,
+  Upload,
 } from "lucide-react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
@@ -98,14 +100,22 @@ function getFinalTotal(booking) {
   return Number(booking?.total_amount || 0) || computedTotal;
 }
 
-function getBalance(booking) {
-  const balance = Number(booking?.balance_amount || 0);
+function getPaidAmount(booking) {
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
 
-  if (booking?.balance_amount !== null && booking?.balance_amount !== undefined) {
-    return balance;
+  if (paymentStatus === "paid") {
+    return Number(booking?.amount_paid || getFinalTotal(booking) || 0);
   }
 
-  return Math.max(getFinalTotal(booking) - Number(booking?.amount_paid || 0), 0);
+  return Number(booking?.amount_paid || 0);
+}
+
+function getBalance(booking) {
+  if (booking?.balance_amount !== null && booking?.balance_amount !== undefined) {
+    return Number(booking.balance_amount || 0);
+  }
+
+  return Math.max(getFinalTotal(booking) - getPaidAmount(booking), 0);
 }
 
 function getReservedMinutesLeft(booking) {
@@ -147,6 +157,53 @@ function paymentStatusClass(status) {
   return "bg-slate-100 text-slate-700";
 }
 
+function completionStatusClass(status) {
+  const value = normalizeCompletionStatus(status);
+
+  if (value === "completed") return "bg-green-100 text-green-700";
+  if (value === "no_show") return "bg-orange-100 text-orange-700";
+  if (value === "cancelled_late") return "bg-red-100 text-red-700";
+
+  return "bg-slate-100 text-slate-600";
+}
+
+function isPaymentActionNeeded(booking) {
+  const status = normalizeStatus(booking?.status);
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+
+  return (
+    status === "reserved" &&
+    ["unpaid", "rejected_payment"].includes(paymentStatus)
+  );
+}
+
+function isPendingReview(booking) {
+  const status = normalizeStatus(booking?.status);
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+
+  return status === "pending" || paymentStatus === "pending_verification";
+}
+
+function isApprovedBooking(booking) {
+  const status = normalizeStatus(booking?.status);
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+
+  return status === "approved" || paymentStatus === "paid";
+}
+
+function isCompletedBooking(booking) {
+  const status = normalizeStatus(booking?.status);
+  const completionStatus = normalizeCompletionStatus(booking?.completion_status);
+
+  return status === "completed" || completionStatus === "completed";
+}
+
+function isIssueBooking(booking) {
+  const status = normalizeStatus(booking?.status);
+
+  return ["rejected", "cancelled", "expired"].includes(status);
+}
+
 function getCurrentStage(booking) {
   const status = normalizeStatus(booking?.status);
   const paymentStatus = normalizePaymentStatus(booking?.payment_status);
@@ -155,9 +212,11 @@ function getCurrentStage(booking) {
   if (status === "cancelled") return "Cancelled";
   if (status === "expired") return "Expired";
   if (status === "rejected") return "Rejected";
+
   if (completionStatus !== "not_completed" && completionStatus !== "-") {
     return formatStatusLabel(completionStatus);
   }
+
   if (status === "approved" && paymentStatus === "paid") return "Approved and Paid";
   if (paymentStatus === "pending_verification") return "Payment Review";
   if (paymentStatus === "rejected_payment") return "Payment Rejected";
@@ -227,12 +286,11 @@ function buildTimeline(booking) {
     completionStatus !== "" &&
     completionStatus !== "-";
 
-  const steps = [
+  return [
     {
       key: "created",
       title: "Booking Created",
-      description:
-        "Your facility reservation request was created in the system.",
+      description: "Your facility reservation request was created in the system.",
       date: booking.created_at,
       state: "done",
       icon: CalendarCheck,
@@ -322,10 +380,7 @@ function buildTimeline(booking) {
         : status === "pending"
         ? "active"
         : "pending",
-      icon:
-        isRejected || isCancelled || isExpired
-          ? AlertCircle
-          : CheckCircle2,
+      icon: isRejected || isCancelled || isExpired ? AlertCircle : CheckCircle2,
     },
     {
       key: "completion",
@@ -338,8 +393,6 @@ function buildTimeline(booking) {
       icon: Clock,
     },
   ];
-
-  return steps;
 }
 
 export default function BookingTimeline() {
@@ -357,6 +410,7 @@ export default function BookingTimeline() {
   const [selectedBookingId, setSelectedBookingId] = useState("");
 
   const [search, setSearch] = useState("");
+  const [quickFilter, setQuickFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
 
@@ -380,10 +434,40 @@ export default function BookingTimeline() {
       });
   }, [bookings]);
 
+  const stats = useMemo(() => {
+    const active = mappedBookings.filter((booking) =>
+      ["reserved", "pending", "approved"].includes(normalizeStatus(booking.status))
+    ).length;
+
+    const completed = mappedBookings.filter(isCompletedBooking).length;
+    const needsPayment = mappedBookings.filter(isPaymentActionNeeded).length;
+    const pendingReview = mappedBookings.filter(isPendingReview).length;
+    const approved = mappedBookings.filter(isApprovedBooking).length;
+    const issues = mappedBookings.filter(isIssueBooking).length;
+
+    return {
+      total: mappedBookings.length,
+      active,
+      completed,
+      needsPayment,
+      pendingReview,
+      approved,
+      issues,
+    };
+  }, [mappedBookings]);
+
   const filteredBookings = useMemo(() => {
     return mappedBookings.filter((booking) => {
       const status = normalizeStatus(booking.status);
       const paymentStatus = normalizePaymentStatus(booking.payment_status);
+
+      const matchesQuickFilter =
+        quickFilter === "all" ||
+        (quickFilter === "needs_payment" && isPaymentActionNeeded(booking)) ||
+        (quickFilter === "pending_review" && isPendingReview(booking)) ||
+        (quickFilter === "approved" && isApprovedBooking(booking)) ||
+        (quickFilter === "completed" && isCompletedBooking(booking)) ||
+        (quickFilter === "issues" && isIssueBooking(booking));
 
       const matchesStatus =
         statusFilter === "all" || status === normalizeStatus(statusFilter);
@@ -409,9 +493,9 @@ export default function BookingTimeline() {
       const matchesSearch =
         search.trim() === "" || searchText.includes(search.trim().toLowerCase());
 
-      return matchesStatus && matchesPayment && matchesSearch;
+      return matchesQuickFilter && matchesStatus && matchesPayment && matchesSearch;
     });
-  }, [mappedBookings, search, statusFilter, paymentFilter]);
+  }, [mappedBookings, search, quickFilter, statusFilter, paymentFilter]);
 
   const selectedBooking = useMemo(() => {
     if (selectedBookingId) {
@@ -436,40 +520,6 @@ export default function BookingTimeline() {
   const timelineSteps = useMemo(() => {
     return buildTimeline(selectedBooking);
   }, [selectedBooking]);
-
-  const stats = useMemo(() => {
-    const active = mappedBookings.filter((booking) =>
-      ["reserved", "pending", "approved"].includes(normalizeStatus(booking.status))
-    ).length;
-
-    const completed = mappedBookings.filter(
-      (booking) =>
-        normalizeStatus(booking.status) === "completed" ||
-        normalizeCompletionStatus(booking.completion_status) === "completed"
-    ).length;
-
-    const needsPayment = mappedBookings.filter((booking) => {
-      const status = normalizeStatus(booking.status);
-      const paymentStatus = normalizePaymentStatus(booking.payment_status);
-
-      return (
-        status === "reserved" &&
-        ["unpaid", "rejected_payment"].includes(paymentStatus)
-      );
-    }).length;
-
-    const issues = mappedBookings.filter((booking) =>
-      ["rejected", "cancelled", "expired"].includes(normalizeStatus(booking.status))
-    ).length;
-
-    return {
-      total: mappedBookings.length,
-      active,
-      completed,
-      needsPayment,
-      issues,
-    };
-  }, [mappedBookings]);
 
   useEffect(() => {
     if (user?.id) loadBookings();
@@ -553,6 +603,7 @@ export default function BookingTimeline() {
 
   function resetFilters() {
     setSearch("");
+    setQuickFilter("all");
     setStatusFilter("all");
     setPaymentFilter("all");
   }
@@ -615,22 +666,25 @@ export default function BookingTimeline() {
               value={stats.total}
               icon={<ReceiptText size={20} />}
             />
+
             <MiniStat
-              label="Active Bookings"
-              value={stats.active}
-              icon={<CalendarCheck size={20} />}
+              label="Pending Review"
+              value={stats.pendingReview}
+              icon={<CreditCard size={20} />}
               tone="blue"
             />
+
             <MiniStat
-              label="Completed"
-              value={stats.completed}
+              label="Approved"
+              value={stats.approved}
               icon={<CheckCircle2 size={20} />}
               tone="green"
             />
+
             <MiniStat
-              label="Needs Action"
+              label="Needs Payment"
               value={stats.needsPayment}
-              icon={<CreditCard size={20} />}
+              icon={<Upload size={20} />}
               tone="amber"
             />
           </section>
@@ -656,6 +710,50 @@ export default function BookingTimeline() {
                 />
                 {refreshing ? "Refreshing..." : "Refresh"}
               </button>
+            </div>
+
+            <div className="mb-5 flex flex-wrap gap-2">
+              <QuickFilterButton
+                label="All"
+                value="all"
+                current={quickFilter}
+                onClick={setQuickFilter}
+              />
+
+              <QuickFilterButton
+                label="Needs Payment"
+                value="needs_payment"
+                current={quickFilter}
+                onClick={setQuickFilter}
+              />
+
+              <QuickFilterButton
+                label="Pending Review"
+                value="pending_review"
+                current={quickFilter}
+                onClick={setQuickFilter}
+              />
+
+              <QuickFilterButton
+                label="Approved"
+                value="approved"
+                current={quickFilter}
+                onClick={setQuickFilter}
+              />
+
+              <QuickFilterButton
+                label="Completed"
+                value="completed"
+                current={quickFilter}
+                onClick={setQuickFilter}
+              />
+
+              <QuickFilterButton
+                label="Cancelled / Expired"
+                value="issues"
+                current={quickFilter}
+                onClick={setQuickFilter}
+              />
             </div>
 
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-[2fr_1fr_1fr_auto]">
@@ -822,6 +920,7 @@ export default function BookingTimeline() {
                               to={`/my-bookings?highlight=${selectedBooking.id}&pay=1`}
                               className="icb-btn-accent"
                             >
+                              <Upload size={18} />
                               Upload Payment
                             </Link>
                           )}
@@ -854,17 +953,31 @@ export default function BookingTimeline() {
   );
 }
 
-function isPaymentActionNeeded(booking) {
-  const status = normalizeStatus(booking?.status);
-  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+function QuickFilterButton({ label, value, current, onClick }) {
+  const active = current === value;
 
   return (
-    status === "reserved" &&
-    ["unpaid", "rejected_payment"].includes(paymentStatus)
+    <button
+      type="button"
+      onClick={() => onClick(value)}
+      className={`rounded-2xl px-4 py-2 text-xs font-black uppercase transition ${
+        active
+          ? "bg-[#C97B6C] text-white shadow-sm"
+          : "border border-[#DED8D2] bg-white text-[#0B1F33] hover:bg-[#F5F3F1]"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
-function BookingTimelineCard({ booking, selected, highlighted, selectedRef, onClick }) {
+function BookingTimelineCard({
+  booking,
+  selected,
+  highlighted,
+  selectedRef,
+  onClick,
+}) {
   const status = normalizeStatus(booking.status);
   const paymentStatus = normalizePaymentStatus(booking.payment_status);
   const minutesLeft = getReservedMinutesLeft(booking);
@@ -888,6 +1001,7 @@ function BookingTimelineCard({ booking, selected, highlighted, selectedRef, onCl
         )}
 
         <Badge className={statusClass(status)}>{formatStatusLabel(status)}</Badge>
+
         <Badge className={paymentStatusClass(paymentStatus)}>
           {formatStatusLabel(paymentStatus)}
         </Badge>
@@ -943,28 +1057,44 @@ function BookingSummary({ booking }) {
 
         <div className="mt-4 flex flex-wrap gap-2">
           <Badge className={statusClass(status)}>{formatStatusLabel(status)}</Badge>
+
           <Badge className={paymentStatusClass(paymentStatus)}>
             Payment: {formatStatusLabel(paymentStatus)}
+          </Badge>
+
+          <Badge className={completionStatusClass(completionStatus)}>
+            {formatStatusLabel(completionStatus)}
           </Badge>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryItem label="Total Amount" value={money(getFinalTotal(booking))} />
-        <SummaryItem label="Amount Paid" value={money(booking.amount_paid)} />
+        <SummaryItem label="Amount Paid" value={money(getPaidAmount(booking))} />
         <SummaryItem label="Balance" value={money(getBalance(booking))} />
         <SummaryItem label="Current Stage" value={getCurrentStage(booking)} />
         <SummaryItem label="Receipt No." value={booking.receipt_number || "-"} />
-        <SummaryItem
-          label="Payment Ref."
-          value={booking.payment_reference || "-"}
-        />
-        <SummaryItem
-          label="Completion"
-          value={formatStatusLabel(completionStatus)}
-        />
+        <SummaryItem label="Payment Ref." value={booking.payment_reference || "-"} />
+        <SummaryItem label="Completion" value={formatStatusLabel(completionStatus)} />
         <SummaryItem label="Booking ID" value={booking.id || "-"} />
       </div>
+
+      {isPaymentActionNeeded(booking) && (
+        <div className="mx-5 mb-5 rounded-2xl bg-orange-50 p-4">
+          <p className="text-sm font-black text-orange-700">Payment Action Needed</p>
+          <p className="mt-1 text-sm font-semibold text-orange-600">
+            Upload payment proof before the reservation timer expires.
+          </p>
+
+          <Link
+            to={`/my-bookings?highlight=${booking.id}&pay=1`}
+            className="icb-btn-accent mt-4"
+          >
+            <Upload size={18} />
+            Upload Payment Proof
+          </Link>
+        </div>
+      )}
 
       {booking.payment_rejection_reason && (
         <div className="mx-5 mb-5 rounded-2xl bg-red-50 p-4">

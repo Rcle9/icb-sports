@@ -1,42 +1,27 @@
+// src/pages/admin/Dashboard.jsx
+
 import { useEffect, useMemo, useState } from "react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar,
-} from "recharts";
 import { Link } from "react-router-dom";
+import {
+  AlertCircle,
+  BarChart3,
+  CalendarCheck,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  FileBarChart,
+  Landmark,
+  RefreshCw,
+  Settings,
+  ShieldCheck,
+  UsersRound,
+  Wrench,
+  XCircle,
+} from "lucide-react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
-
-const FACILITY_COLORS = [
-  "#C97B6C",
-  "#16a34a",
-  "#dc2626",
-  "#f97316",
-  "#7c3aed",
-  "#0891b2",
-  "#db2777",
-  "#65a30d",
-];
-
-function normalizeStatus(status) {
-  return String(status || "pending").toLowerCase();
-}
-
-function money(value) {
-  return `₱${Number(value || 0).toLocaleString()}`;
-}
 
 function getTodayDate() {
   const date = new Date();
@@ -47,58 +32,309 @@ function getTodayDate() {
   return `${year}-${month}-${day}`;
 }
 
-function formatDateLabel(dateString) {
-  if (!dateString) return "Unknown";
-
-  const date = new Date(`${dateString}T00:00:00`);
-
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
+function cleanTime(time) {
+  if (!time) return "";
+  return String(time).slice(0, 5);
 }
 
-function formatFullDate(dateString) {
-  if (!dateString) return "-";
+function formatTime(time) {
+  if (!time) return "-";
 
-  try {
-    return new Date(`${dateString}T00:00:00`).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  } catch {
-    return dateString;
-  }
-}
-
-function formatTime(time24) {
-  if (!time24) return "-";
-
-  const [hourStr, minute] = String(time24).slice(0, 5).split(":");
-  let hour = Number(hourStr);
+  const [h, m] = cleanTime(time).split(":");
+  let hour = Number(h);
   const suffix = hour >= 12 ? "PM" : "AM";
 
   hour = hour % 12 || 12;
 
-  return `${hour}:${minute} ${suffix}`;
+  return `${hour}:${m} ${suffix}`;
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return value;
+  }
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(value).toLocaleString(undefined, {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
+}
+
+function money(value) {
+  return `₱${Number(value || 0).toLocaleString()}`;
+}
+
+function normalizeStatus(status) {
+  return String(status || "").toLowerCase();
+}
+
+function normalizePaymentStatus(status) {
+  return String(status || "unpaid").toLowerCase();
+}
+
+function normalizeCompletionStatus(status) {
+  return String(status || "not_completed").toLowerCase();
+}
+
+function formatStatusLabel(status) {
+  return String(status || "-").replaceAll("_", " ");
 }
 
 function getFacilityName(booking) {
-  return booking?.facilities?.name || "Unknown Facility";
+  return booking?.facilities?.name || booking?.facility_name || "Facility";
 }
 
-function getUserName(booking) {
-  return booking?.profiles?.full_name || "Unknown User";
+function getCustomerName(booking) {
+  if (booking?.is_walk_in) {
+    return booking.walk_in_customer_name || "Walk-in Customer";
+  }
+
+  return booking?.profiles?.full_name || booking?.customer_name || "User";
+}
+
+function getBookingTotal(booking) {
+  const totalHours = Number(booking?.total_hours || 0);
+  const ratePerHour = Number(booking?.rate_per_hour || 0);
+  const computed = totalHours * ratePerHour;
+
+  return Number(booking?.total_amount || 0) || computed;
+}
+
+function getPaidAmount(booking) {
+  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+
+  if (paymentStatus === "paid") {
+    return Number(booking?.amount_paid || getBookingTotal(booking) || 0);
+  }
+
+  return Number(booking?.amount_paid || 0);
+}
+
+function getStatusClass(status) {
+  const value = normalizeStatus(status);
+
+  if (value === "approved") return "bg-green-100 text-green-700";
+  if (value === "reserved") return "bg-blue-100 text-blue-700";
+  if (value === "pending") return "bg-yellow-100 text-yellow-700";
+  if (value === "cancelled") return "bg-slate-200 text-slate-700";
+  if (value === "expired") return "bg-orange-100 text-orange-700";
+  if (value === "rejected") return "bg-red-100 text-red-700";
+  if (value === "completed") return "bg-purple-100 text-purple-700";
+
+  return "bg-slate-100 text-slate-700";
+}
+
+function getPaymentStatusClass(status) {
+  const value = normalizePaymentStatus(status);
+
+  if (value === "paid") return "bg-green-100 text-green-700";
+  if (value === "pending_verification") return "bg-blue-100 text-blue-700";
+  if (value === "unpaid") return "bg-yellow-100 text-yellow-700";
+  if (value === "rejected_payment") return "bg-red-100 text-red-700";
+  if (value === "expired") return "bg-orange-100 text-orange-700";
+
+  return "bg-slate-100 text-slate-700";
+}
+
+function groupCount(items, keyGetter) {
+  const map = new Map();
+
+  items.forEach((item) => {
+    const key = keyGetter(item);
+    map.set(key, Number(map.get(key) || 0) + 1);
+  });
+
+  return Array.from(map.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
 }
 
 export default function AdminDashboard() {
+  const today = getTodayDate();
+
   const [bookings, setBookings] = useState([]);
-  const [maintenance, setMaintenance] = useState([]);
-  const [users, setUsers] = useState([]);
   const [facilities, setFacilities] = useState([]);
-  const [inventory, setInventory] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
+
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [error, setError] = useState("");
+
+  const todayBookings = useMemo(() => {
+    return bookings.filter((booking) => booking.booking_date === today);
+  }, [bookings, today]);
+
+  const upcomingBookings = useMemo(() => {
+    return bookings
+      .filter((booking) => {
+        const status = normalizeStatus(booking.status);
+        return booking.booking_date >= today && ["reserved", "pending", "approved"].includes(status);
+      })
+      .sort((a, b) => {
+        const dateA = `${a.booking_date || ""} ${cleanTime(a.start_time)}`;
+        const dateB = `${b.booking_date || ""} ${cleanTime(b.start_time)}`;
+        return dateA.localeCompare(dateB);
+      })
+      .slice(0, 8);
+  }, [bookings, today]);
+
+  const pendingPaymentBookings = useMemo(() => {
+    return bookings
+      .filter(
+        (booking) =>
+          normalizePaymentStatus(booking.payment_status) ===
+          "pending_verification"
+      )
+      .sort((a, b) => new Date(b.payment_submitted_at || b.updated_at || 0) - new Date(a.payment_submitted_at || a.updated_at || 0))
+      .slice(0, 6);
+  }, [bookings]);
+
+  const recentBookings = useMemo(() => {
+    return [...bookings]
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+      .slice(0, 6);
+  }, [bookings]);
+
+  const activeMaintenance = useMemo(() => {
+    return maintenanceBlocks
+      .filter((block) => normalizeStatus(block.status) === "active")
+      .sort((a, b) => {
+        const dateA = `${a.maintenance_date || ""} ${cleanTime(a.start_time)}`;
+        const dateB = `${b.maintenance_date || ""} ${cleanTime(b.start_time)}`;
+        return dateA.localeCompare(dateB);
+      })
+      .slice(0, 6);
+  }, [maintenanceBlocks]);
+
+  const facilityRanking = useMemo(() => {
+    return groupCount(bookings, (booking) => getFacilityName(booking)).slice(0, 5);
+  }, [bookings]);
+
+  const topFacility = facilityRanking[0] || { name: "-", value: 0 };
+
+  const summary = useMemo(() => {
+    const todayPaidRevenue = todayBookings.reduce(
+      (sum, booking) => sum + getPaidAmount(booking),
+      0
+    );
+
+    const totalPaidRevenue = bookings.reduce(
+      (sum, booking) => sum + getPaidAmount(booking),
+      0
+    );
+
+    const todayExpectedRevenue = todayBookings.reduce(
+      (sum, booking) => sum + getBookingTotal(booking),
+      0
+    );
+
+    const activeReservations = bookings.filter(
+      (booking) => normalizeStatus(booking.status) === "reserved"
+    ).length;
+
+    const pendingPayments = bookings.filter(
+      (booking) =>
+        normalizePaymentStatus(booking.payment_status) ===
+        "pending_verification"
+    ).length;
+
+    const rejectedPayments = bookings.filter(
+      (booking) =>
+        normalizePaymentStatus(booking.payment_status) === "rejected_payment"
+    ).length;
+
+    const unpaidReservations = bookings.filter((booking) => {
+      const status = normalizeStatus(booking.status);
+      const paymentStatus = normalizePaymentStatus(booking.payment_status);
+
+      return ["reserved", "pending"].includes(status) && paymentStatus === "unpaid";
+    }).length;
+
+    const approved = bookings.filter(
+      (booking) => normalizeStatus(booking.status) === "approved"
+    ).length;
+
+    const reserved = bookings.filter(
+      (booking) => normalizeStatus(booking.status) === "reserved"
+    ).length;
+
+    const cancelled = bookings.filter(
+      (booking) => normalizeStatus(booking.status) === "cancelled"
+    ).length;
+
+    const expired = bookings.filter(
+      (booking) => normalizeStatus(booking.status) === "expired"
+    ).length;
+
+    const completed = bookings.filter(
+      (booking) =>
+        normalizeCompletionStatus(booking.completion_status) === "completed"
+    ).length;
+
+    const noShow = bookings.filter(
+      (booking) => normalizeCompletionStatus(booking.completion_status) === "no_show"
+    ).length;
+
+    const users = profiles.filter(
+      (profile) => String(profile.role || "user").toLowerCase() === "user"
+    ).length;
+
+    const staff = profiles.filter(
+      (profile) => String(profile.role || "").toLowerCase() === "staff"
+    ).length;
+
+    const admins = profiles.filter(
+      (profile) => String(profile.role || "").toLowerCase() === "admin"
+    ).length;
+
+    const onlineBookings = bookings.filter((booking) => !booking.is_walk_in).length;
+    const walkInBookings = bookings.filter((booking) => booking.is_walk_in).length;
+
+    return {
+      todayBookings: todayBookings.length,
+      todayPaidRevenue,
+      todayExpectedRevenue,
+      totalPaidRevenue,
+      activeReservations,
+      pendingPayments,
+      rejectedPayments,
+      unpaidReservations,
+      approved,
+      reserved,
+      cancelled,
+      expired,
+      completed,
+      noShow,
+      users,
+      staff,
+      admins,
+      onlineBookings,
+      walkInBookings,
+      facilities: facilities.length,
+      activeMaintenance: activeMaintenance.length,
+    };
+  }, [bookings, facilities, profiles, todayBookings, activeMaintenance]);
 
   useEffect(() => {
     loadDashboard();
@@ -108,22 +344,17 @@ export default function AdminDashboard() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "bookings" },
-        () => loadDashboard()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "maintenance_requests" },
-        () => loadDashboard()
+        () => loadDashboard(false)
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "facilities" },
-        () => loadDashboard()
+        () => loadDashboard(false)
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "inventory" },
-        () => loadDashboard()
+        { event: "*", schema: "public", table: "facility_maintenance_blocks" },
+        () => loadDashboard(false)
       )
       .subscribe();
 
@@ -132,223 +363,85 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  async function loadDashboard() {
+  async function loadDashboard(showLoading = true) {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
+      setError("");
 
-      const [bookingsRes, maintenanceRes, usersRes, facilitiesRes, inventoryRes] =
-        await Promise.all([
-          supabase
-            .from("bookings")
-            .select(
-              `
-              *,
-              facilities (*),
-              profiles:user_id (
-                id,
-                full_name,
-                role
-              )
-            `
+      const { data: bookingData, error: bookingError } = await supabase
+        .from("bookings")
+        .select(`
+          *,
+          facilities (*),
+          profiles:user_id (
+            id,
+            full_name,
+            email,
+            role
+          )
+        `)
+        .order("created_at", { ascending: false });
+
+      if (bookingError) throw bookingError;
+
+      const { data: facilityData, error: facilityError } = await supabase
+        .from("facilities")
+        .select("*")
+        .order("name", { ascending: true });
+
+      if (facilityError) throw facilityError;
+
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (profileError) throw profileError;
+
+      let maintenanceData = [];
+
+      try {
+        const { data, error } = await supabase
+          .from("facility_maintenance_blocks")
+          .select(`
+            *,
+            facilities (*),
+            profiles:created_by (
+              id,
+              full_name,
+              role
             )
-            .order("created_at", { ascending: false }),
+          `)
+          .order("maintenance_date", { ascending: true });
 
-          supabase
-            .from("maintenance_requests")
-            .select("*")
-            .order("created_at", { ascending: false }),
+        if (error) throw error;
 
-          supabase.from("profiles").select("*"),
+        maintenanceData = data || [];
+      } catch (maintenanceError) {
+        console.error(
+          "Maintenance blocks unavailable:",
+          maintenanceError?.message || maintenanceError
+        );
+        maintenanceData = [];
+      }
 
-          supabase.from("facilities").select("*"),
-
-          supabase.from("inventory").select("*"),
-        ]);
-
-      if (bookingsRes.error) throw bookingsRes.error;
-      if (maintenanceRes.error) throw maintenanceRes.error;
-      if (usersRes.error) throw usersRes.error;
-      if (facilitiesRes.error) throw facilitiesRes.error;
-      if (inventoryRes.error) throw inventoryRes.error;
-
-      setBookings(bookingsRes.data || []);
-      setMaintenance(maintenanceRes.data || []);
-      setUsers(usersRes.data || []);
-      setFacilities(facilitiesRes.data || []);
-      setInventory(inventoryRes.data || []);
-    } catch (error) {
-      console.error("Admin dashboard error:", error.message);
+      setBookings(bookingData || []);
+      setFacilities(facilityData || []);
+      setProfiles(profileData || []);
+      setMaintenanceBlocks(maintenanceData || []);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to load admin dashboard.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
-  const facilityNames = useMemo(() => {
-    const names = bookings.map(
-      (booking) => booking.facilities?.name || "Unknown Facility"
-    );
-
-    return [...new Set(names)];
-  }, [bookings]);
-
-  const bookingTrendByFacility = useMemo(() => {
-    const grouped = {};
-
-    bookings.forEach((booking) => {
-      const dateKey = booking.booking_date || "Unknown";
-      const dateLabel = formatDateLabel(dateKey);
-      const facilityName = booking.facilities?.name || "Unknown Facility";
-
-      if (!grouped[dateKey]) {
-        grouped[dateKey] = {
-          date: dateLabel,
-          rawDate: dateKey,
-        };
-
-        facilityNames.forEach((name) => {
-          grouped[dateKey][name] = 0;
-        });
-      }
-
-      grouped[dateKey][facilityName] =
-        Number(grouped[dateKey][facilityName] || 0) + 1;
-    });
-
-    return Object.values(grouped)
-      .sort((a, b) => new Date(a.rawDate) - new Date(b.rawDate))
-      .slice(-7);
-  }, [bookings, facilityNames]);
-
-  const facilityUsage = useMemo(() => {
-    const grouped = {};
-
-    bookings.forEach((booking) => {
-      const facilityName = booking.facilities?.name || "Unknown Facility";
-
-      grouped[facilityName] = (grouped[facilityName] || 0) + 1;
-    });
-
-    return Object.entries(grouped).map(([name, count]) => ({
-      name,
-      bookings: count,
-    }));
-  }, [bookings]);
-
-  const bookingStatus = useMemo(() => {
-    const approved = bookings.filter(
-      (b) => normalizeStatus(b.status) === "approved"
-    ).length;
-    const pending = bookings.filter(
-      (b) => normalizeStatus(b.status) === "pending"
-    ).length;
-    const rejected = bookings.filter(
-      (b) => normalizeStatus(b.status) === "rejected"
-    ).length;
-    const cancelled = bookings.filter(
-      (b) => normalizeStatus(b.status) === "cancelled"
-    ).length;
-
-    return [
-      { name: "Approved", value: approved, color: "#16a34a" },
-      { name: "Pending", value: pending, color: "#f59e0b" },
-      { name: "Rejected", value: rejected, color: "#dc2626" },
-      { name: "Cancelled", value: cancelled, color: "#64748b" },
-    ];
-  }, [bookings]);
-
-  const maintenancePriority = useMemo(() => {
-    const critical = maintenance.filter((m) => m.priority === "critical").length;
-    const high = maintenance.filter((m) => m.priority === "high").length;
-    const medium = maintenance.filter((m) => m.priority === "medium").length;
-    const low = maintenance.filter((m) => m.priority === "low").length;
-
-    return [
-      { name: "Critical", value: critical, color: "#C97B6C" },
-      { name: "High", value: high, color: "#dc2626" },
-      { name: "Medium", value: medium, color: "#f59e0b" },
-      { name: "Low", value: low, color: "#16a34a" },
-    ];
-  }, [maintenance]);
-
-  const stats = useMemo(() => {
-    const today = getTodayDate();
-
-    const normalizedUsers = users.map((user) => ({
-      ...user,
-      role: String(user.role || "user").toLowerCase(),
-    }));
-
-    const approvedBookings = bookings.filter(
-      (b) => normalizeStatus(b.status) === "approved"
-    );
-
-    const pendingBookings = bookings.filter(
-      (b) => normalizeStatus(b.status) === "pending"
-    );
-
-    const todaysBookings = bookings.filter((b) => b.booking_date === today);
-
-    const approvedRevenue = approvedBookings.reduce((sum, booking) => {
-      return sum + Number(booking.total_amount || 0);
-    }, 0);
-
-    const openMaintenance = maintenance.filter((m) =>
-      ["pending", "open", "in_progress"].includes(normalizeStatus(m.status))
-    );
-
-    const lowStockItems = inventory.filter((item) => {
-      const quantity = Number(item.quantity || 0);
-      const threshold = Number(item.min_threshold || 0);
-
-      return threshold > 0 && quantity <= threshold;
-    });
-
-    return {
-      users: normalizedUsers.length,
-      staff: normalizedUsers.filter((u) => u.role === "staff").length,
-      admins: normalizedUsers.filter((u) => u.role === "admin").length,
-      facilities: facilities.length,
-      bookings: bookings.length,
-      approved: approvedBookings.length,
-      pending: pendingBookings.length,
-      todaysBookings: todaysBookings.length,
-      approvedRevenue,
-      openMaintenance: openMaintenance.length,
-      lowStock: lowStockItems.length,
-    };
-  }, [users, bookings, maintenance, facilities, inventory]);
-
-  const todaysBookings = useMemo(() => {
-    const today = getTodayDate();
-
-    return bookings
-      .filter((booking) => booking.booking_date === today)
-      .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)))
-      .slice(0, 5);
-  }, [bookings]);
-
-  const recentBookingActivity = useMemo(() => {
-    return bookings.slice(0, 6);
-  }, [bookings]);
-
-  const lowStockItems = useMemo(() => {
-    return inventory
-      .filter((item) => {
-        const quantity = Number(item.quantity || 0);
-        const threshold = Number(item.min_threshold || 0);
-
-        return threshold > 0 && quantity <= threshold;
-      })
-      .slice(0, 5);
-  }, [inventory]);
-
-  const pendingMaintenance = useMemo(() => {
-    return maintenance
-      .filter((item) =>
-        ["pending", "open", "in_progress"].includes(normalizeStatus(item.status))
-      )
-      .slice(0, 5);
-  }, [maintenance]);
+  async function handleRefresh() {
+    setRefreshing(true);
+    await loadDashboard(false);
+  }
 
   return (
     <div className="page-shell">
@@ -356,298 +449,413 @@ export default function AdminDashboard() {
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Admin Dashboard" />
+          <Topbar
+            title="Admin Dashboard"
+            subtitle="System overview, booking payments, and facility activity"
+          />
 
-          <section className="mb-6 rounded-[28px] bg-[#C97B6C] p-8 text-white">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          {error && <div className="icb-alert-error mb-5">{error}</div>}
+
+          <section className="page-hero mb-6">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <p className="text-sm font-semibold">Admin Control Center</p>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                  Admin Command Center
+                </p>
 
-                <h2 className="mt-2 text-3xl font-black">
-                  Monitor bookings, revenue, inventory, and maintenance.
+                <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
+                  Monitor bookings, payments, users, and facilities.
                 </h2>
 
-                <p className="mt-2 max-w-3xl text-sm text-blue-50">
-                  See today’s booking activity, pending requests, facility trends,
-                  and operational alerts from one dashboard.
+                <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85">
+                  View today’s bookings, payment verifications, active
+                  reservations, facility usage, and quick system actions in one
+                  dashboard.
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                <QuickButton to="/admin/reports" label="Reports" />
-                <QuickButton to="/admin/bookings" label="Bookings" />
-                <QuickButton to="/admin/inventory" label="Inventory" />
-                <QuickButton to="/admin/maintenance" label="Maintenance" />
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <HeroStat label="Today Bookings" value={summary.todayBookings} />
+                <HeroStat label="Today Paid" value={money(summary.todayPaidRevenue)} />
+                <HeroStat label="Payment Review" value={summary.pendingPayments} />
+                <HeroStat label="Users" value={summary.users} />
               </div>
             </div>
           </section>
 
-          <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
-            <StatCard
-              title="Today's Bookings"
-              value={loading ? "..." : stats.todaysBookings}
-              sub="Bookings scheduled today"
-            />
+          <section className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="icb-eyebrow">Dashboard Actions</p>
+              <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                Quick access
+              </h3>
+            </div>
 
-            <StatCard
-              title="Pending Requests"
-              value={loading ? "..." : stats.pending}
-              sub="Waiting for staff approval"
-              accent="#D9A441"
-            />
-
-            <StatCard
-              title="Approved Revenue"
-              value={loading ? "..." : money(stats.approvedRevenue)}
-              sub={`${stats.approved} approved bookings`}
-              accent="#C97B6C"
-            />
-
-            <StatCard
-              title="Low Stock Alerts"
-              value={loading ? "..." : stats.lowStock}
-              sub="Inventory needs checking"
-              accent="#C65B5B"
-            />
-          </section>
-
-          <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
-            <StatCard
-              title="Users"
-              value={loading ? "..." : stats.users}
-              sub={`Staff: ${stats.staff} • Admins: ${stats.admins}`}
-            />
-
-            <StatCard
-              title="Facilities"
-              value={loading ? "..." : stats.facilities}
-              sub="Managed sports facilities"
-            />
-
-            <StatCard
-              title="Facility Bookings"
-              value={loading ? "..." : stats.bookings}
-              sub={`Approved: ${stats.approved} • Pending: ${stats.pending}`}
-            />
-
-            <StatCard
-              title="Open Maintenance"
-              value={loading ? "..." : stats.openMaintenance}
-              sub="Active repair requests"
-              accent="#f97316"
-            />
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="icb-btn-light"
+            >
+              <RefreshCw size={17} className={refreshing ? "animate-spin" : ""} />
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
           </section>
 
           {loading ? (
-            <div className="rounded-[28px] bg-white p-8 shadow-sm">
-              Loading dashboard...
-            </div>
+            <section className="icb-card p-6">
+              <p className="text-sm font-semibold text-slate-500">
+                Loading admin dashboard...
+              </p>
+            </section>
           ) : (
             <>
-              <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
-                <DashboardListCard
-                  title="Today's Bookings"
-                  description="Scheduled reservations for today."
-                  emptyText="No bookings scheduled today."
-                >
-                  {todaysBookings.map((booking) => (
-                    <BookingActivityItem key={booking.id} booking={booking} />
-                  ))}
-                </DashboardListCard>
+              <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <MetricCard
+                  title="Today’s Bookings"
+                  value={summary.todayBookings}
+                  description="Bookings scheduled for today"
+                  icon={<CalendarCheck size={21} />}
+                  tone="blue"
+                />
 
-                <DashboardListCard
-                  title="Low Stock Inventory"
-                  description="Items that reached minimum threshold."
-                  emptyText="No low stock items."
-                >
-                  {lowStockItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-slate-100 p-4"
-                    >
-                      <p className="font-black text-slate-950">
-                        {item.name || "Inventory Item"}
-                      </p>
+                <MetricCard
+                  title="Today’s Paid Revenue"
+                  value={money(summary.todayPaidRevenue)}
+                  description={`Expected today: ${money(summary.todayExpectedRevenue)}`}
+                  icon={<Landmark size={21} />}
+                  tone="green"
+                />
 
-                      <p className="mt-1 text-sm text-slate-500">
-                        Category: {item.category || "-"}
-                      </p>
+                <MetricCard
+                  title="Payment Verifications"
+                  value={summary.pendingPayments}
+                  description="Payment proofs waiting for staff review"
+                  icon={<CreditCard size={21} />}
+                  tone="orange"
+                />
 
-                      <p className="mt-2 text-sm font-bold text-[#C65B5B]">
-                        Qty: {item.quantity || 0} • Min: {item.min_threshold || 0}
-                      </p>
-                    </div>
-                  ))}
-                </DashboardListCard>
+                <MetricCard
+                  title="Active Reservations"
+                  value={summary.activeReservations}
+                  description="Reserved slots not yet fully approved"
+                  icon={<Clock size={21} />}
+                  tone="purple"
+                />
 
-                <DashboardListCard
-                  title="Pending Maintenance"
-                  description="Open requests that need attention."
-                  emptyText="No pending maintenance."
-                >
-                  {pendingMaintenance.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-2xl border border-slate-100 p-4"
-                    >
-                      <p className="font-black text-slate-950">
-                        {item.item_name || "Maintenance Request"}
-                      </p>
+                <MetricCard
+                  title="Approved Bookings"
+                  value={summary.approved}
+                  description="Total approved records"
+                  icon={<CheckCircle2 size={21} />}
+                  tone="green"
+                />
 
-                      <p className="mt-1 text-sm capitalize text-slate-500">
-                        {String(item.request_type || "-").replaceAll("_", " ")}
-                      </p>
+                <MetricCard
+                  title="Cancelled Bookings"
+                  value={summary.cancelled}
+                  description="Cancelled reservation records"
+                  icon={<XCircle size={21} />}
+                  tone="red"
+                />
 
-                      <p className="mt-2 text-sm font-bold capitalize text-[#f97316]">
-                        {String(item.status || "pending").replaceAll("_", " ")}
-                      </p>
-                    </div>
-                  ))}
-                </DashboardListCard>
+                <MetricCard
+                  title="Expired Bookings"
+                  value={summary.expired}
+                  description="Expired unpaid reservations"
+                  icon={<AlertCircle size={21} />}
+                  tone="orange"
+                />
+
+                <MetricCard
+                  title="Completed Bookings"
+                  value={summary.completed}
+                  description={`No-show records: ${summary.noShow}`}
+                  icon={<ShieldCheck size={21} />}
+                  tone="blue"
+                />
               </section>
 
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
-                <section className="rounded-[28px] bg-white p-6 shadow-sm">
-                  <h3 className="text-2xl font-black text-slate-950">
-                    Booking Trend by Facility
-                  </h3>
+              <section className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1fr_1fr]">
+                <QuickActionCard
+                  icon={<CalendarCheck size={24} />}
+                  title="Manage Bookings"
+                  description="Review reservations, verify payments, reject proof, and issue receipts."
+                  to="/admin/manage-bookings"
+                />
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    Each color represents a different facility.
-                  </p>
+                <QuickActionCard
+                  icon={<FileBarChart size={24} />}
+                  title="Reports"
+                  description="View revenue, facility performance, completion, and payment reports."
+                  to="/admin/reports"
+                />
 
-                  <div className="mt-6 h-[360px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={bookingTrendByFacility}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Legend />
+                <QuickActionCard
+                  icon={<Settings size={24} />}
+                  title="Payment Settings"
+                  description="Update GCash details, bank information, QR codes, and reservation timer."
+                  to="/admin/payment-settings"
+                />
 
-                        {facilityNames.map((facilityName, index) => (
-                          <Line
-                            key={facilityName}
-                            type="monotone"
-                            dataKey={facilityName}
-                            name={facilityName}
-                            stroke={FACILITY_COLORS[index % FACILITY_COLORS.length]}
-                            strokeWidth={3}
-                            dot={{ r: 4 }}
-                            activeDot={{ r: 7 }}
-                          />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </section>
+                <QuickActionCard
+                  icon={<ShieldCheck size={24} />}
+                  title="Facility Management"
+                  description="Add, edit, activate, and manage facility information."
+                  to="/admin/facilities"
+                />
 
-                <section className="rounded-[28px] bg-white p-6 shadow-sm">
-                  <h3 className="text-2xl font-black text-slate-950">
-                    Booking Status
-                  </h3>
+                <QuickActionCard
+                  icon={<UsersRound size={24} />}
+                  title="User Management"
+                  description="Manage user roles and review system accounts."
+                  to="/admin/users"
+                />
 
-                  <div className="mt-6 h-[360px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={bookingStatus}
-                          dataKey="value"
-                          nameKey="name"
-                          outerRadius={120}
-                          label
-                        >
-                          {bookingStatus.map((entry) => (
-                            <Cell key={entry.name} fill={entry.color} />
-                          ))}
-                        </Pie>
+                <QuickActionCard
+                  icon={<BarChart3 size={24} />}
+                  title="Command Center"
+                  description="Open the admin operations command overview."
+                  to="/admin/command-center"
+                />
+              </section>
 
-                        <Tooltip />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </section>
+              <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+                <div className="icb-card p-5 sm:p-6">
+                  <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="icb-eyebrow">Payment Alerts</p>
+                      <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                        Pending payment verification
+                      </h3>
+                      <p className="mt-1 text-sm font-semibold text-slate-500">
+                        Payments submitted by users that need staff/admin review.
+                      </p>
+                    </div>
 
-                <section className="rounded-[28px] bg-white p-6 shadow-sm">
-                  <h3 className="text-2xl font-black text-slate-950">
-                    Facility Usage
-                  </h3>
-
-                  <div className="mt-6 h-[360px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={facilityUsage}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" />
-                        <YAxis allowDecimals={false} />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="bookings" name="Bookings" fill="#C97B6C" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </section>
-
-                <section className="rounded-[28px] bg-white p-6 shadow-sm">
-                  <h3 className="text-2xl font-black text-slate-950">
-                    Maintenance Priority
-                  </h3>
-
-                  <div className="mt-6 h-[360px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={maintenancePriority}
-                          dataKey="value"
-                          nameKey="name"
-                          outerRadius={120}
-                          label
-                        >
-                          {maintenancePriority.map((entry) => (
-                            <Cell key={entry.name} fill={entry.color} />
-                          ))}
-                        </Pie>
-
-                        <Tooltip />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </section>
-              </div>
-
-              <section className="mt-6 rounded-[28px] bg-white p-6 shadow-sm">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <h3 className="text-2xl font-black text-slate-950">
-                      Recent Booking Activity
-                    </h3>
-
-                    <p className="mt-1 text-sm text-slate-500">
-                      Latest facility booking records.
-                    </p>
+                    <Link to="/admin/manage-bookings" className="icb-btn-light">
+                      View All
+                    </Link>
                   </div>
 
-                  <Link
-                    to="/admin/reports"
-                    className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
-                  >
-                    View Full Reports
-                  </Link>
-                </div>
-
-                <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {recentBookingActivity.length === 0 ? (
-                    <p className="text-sm text-slate-500">
-                      No booking activity yet.
-                    </p>
+                  {pendingPaymentBookings.length === 0 ? (
+                    <EmptyState text="No pending payment verifications." />
                   ) : (
-                    recentBookingActivity.map((booking) => (
-                      <BookingActivityItem key={booking.id} booking={booking} />
-                    ))
+                    <div className="space-y-3">
+                      {pendingPaymentBookings.map((booking) => (
+                        <PaymentAlertCard key={booking.id} booking={booking} />
+                      ))}
+                    </div>
                   )}
                 </div>
+
+                <div className="icb-card p-5 sm:p-6">
+                  <div className="mb-5">
+                    <p className="icb-eyebrow">Facility Performance</p>
+                    <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                      Most booked facility
+                    </h3>
+                  </div>
+
+                  <div className="rounded-[28px] bg-[#0B1F33] p-5 text-white">
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                      Top Facility
+                    </p>
+
+                    <h4 className="mt-3 text-3xl font-black">
+                      {topFacility.name}
+                    </h4>
+
+                    <p className="mt-2 text-sm font-semibold text-white/75">
+                      {topFacility.value} booking(s) recorded.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {facilityRanking.length === 0 ? (
+                      <EmptyState text="No facility ranking data yet." />
+                    ) : (
+                      facilityRanking.map((item, index) => (
+                        <div
+                          key={item.name}
+                          className="flex items-center justify-between gap-3 rounded-2xl border border-[#DED8D2] bg-white px-4 py-3"
+                        >
+                          <div>
+                            <p className="text-sm font-black text-[#0B1F33]">
+                              {index + 1}. {item.name}
+                            </p>
+                            <p className="text-xs font-semibold text-slate-500">
+                              Facility ranking
+                            </p>
+                          </div>
+
+                          <span className="rounded-full bg-[#F3E4DF] px-3 py-1 text-xs font-black text-[#C97B6C]">
+                            {item.value}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </section>
+
+              <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <DashboardPanel
+                  eyebrow="Upcoming"
+                  title="Upcoming bookings"
+                  description="Nearest reserved, pending, and approved bookings."
+                  actionText="Manage"
+                  actionPath="/admin/manage-bookings"
+                >
+                  {upcomingBookings.length === 0 ? (
+                    <EmptyState text="No upcoming bookings." />
+                  ) : (
+                    <div className="space-y-3">
+                      {upcomingBookings.map((booking) => (
+                        <BookingRow key={booking.id} booking={booking} />
+                      ))}
+                    </div>
+                  )}
+                </DashboardPanel>
+
+                <DashboardPanel
+                  eyebrow="Maintenance"
+                  title="Active maintenance blocks"
+                  description="Facility times currently blocked for maintenance."
+                  actionText="Open Calendar"
+                  actionPath="/admin/manage-bookings"
+                >
+                  {activeMaintenance.length === 0 ? (
+                    <EmptyState text="No active maintenance blocks." />
+                  ) : (
+                    <div className="space-y-3">
+                      {activeMaintenance.map((block) => (
+                        <MaintenanceRow key={block.id} block={block} />
+                      ))}
+                    </div>
+                  )}
+                </DashboardPanel>
+              </section>
+
+              <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <SmallInfoCard
+                  label="Facilities"
+                  value={summary.facilities}
+                  description="Total facility records"
+                />
+                <SmallInfoCard
+                  label="Staff"
+                  value={summary.staff}
+                  description="Staff accounts"
+                />
+                <SmallInfoCard
+                  label="Admins"
+                  value={summary.admins}
+                  description="Admin accounts"
+                />
+                <SmallInfoCard
+                  label="Total Paid Revenue"
+                  value={money(summary.totalPaidRevenue)}
+                  description="All verified payments"
+                />
+                <SmallInfoCard
+                  label="Online Bookings"
+                  value={summary.onlineBookings}
+                  description="Created by customers"
+                />
+                <SmallInfoCard
+                  label="Walk-in Bookings"
+                  value={summary.walkInBookings}
+                  description="Created by staff"
+                />
+                <SmallInfoCard
+                  label="Rejected Payments"
+                  value={summary.rejectedPayments}
+                  description="Rejected proof uploads"
+                />
+                <SmallInfoCard
+                  label="Unpaid Reservations"
+                  value={summary.unpaidReservations}
+                  description="Still waiting for payment"
+                />
+              </section>
+
+              <DashboardPanel
+                eyebrow="Recent Activity"
+                title="Recent booking records"
+                description="Latest booking activity across the system."
+                actionText="View All"
+                actionPath="/admin/manage-bookings"
+              >
+                {recentBookings.length === 0 ? (
+                  <EmptyState text="No recent bookings found." />
+                ) : (
+                  <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
+                    <table className="w-full min-w-[920px] border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-slate-100">
+                          <th className="border border-[#DED8D2] px-4 py-3 text-left">
+                            Customer
+                          </th>
+                          <th className="border border-[#DED8D2] px-4 py-3 text-left">
+                            Facility
+                          </th>
+                          <th className="border border-[#DED8D2] px-4 py-3 text-left">
+                            Schedule
+                          </th>
+                          <th className="border border-[#DED8D2] px-4 py-3 text-left">
+                            Total
+                          </th>
+                          <th className="border border-[#DED8D2] px-4 py-3 text-left">
+                            Status
+                          </th>
+                          <th className="border border-[#DED8D2] px-4 py-3 text-left">
+                            Payment
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {recentBookings.map((booking) => (
+                          <tr key={booking.id}>
+                            <td className="border border-[#DED8D2] px-4 py-3 font-bold text-[#0B1F33]">
+                              {getCustomerName(booking)}
+                            </td>
+                            <td className="border border-[#DED8D2] px-4 py-3">
+                              {getFacilityName(booking)}
+                            </td>
+                            <td className="border border-[#DED8D2] px-4 py-3">
+                              {formatDate(booking.booking_date)}
+                              <br />
+                              <span className="text-xs text-slate-500">
+                                {formatTime(booking.start_time)} -{" "}
+                                {formatTime(booking.end_time)}
+                              </span>
+                            </td>
+                            <td className="border border-[#DED8D2] px-4 py-3 font-black text-[#C97B6C]">
+                              {money(getBookingTotal(booking))}
+                            </td>
+                            <td className="border border-[#DED8D2] px-4 py-3">
+                              <Badge className={getStatusClass(booking.status)}>
+                                {formatStatusLabel(booking.status)}
+                              </Badge>
+                            </td>
+                            <td className="border border-[#DED8D2] px-4 py-3">
+                              <Badge
+                                className={getPaymentStatusClass(
+                                  booking.payment_status
+                                )}
+                              >
+                                {formatStatusLabel(booking.payment_status)}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </DashboardPanel>
             </>
           )}
         </div>
@@ -656,91 +864,236 @@ export default function AdminDashboard() {
   );
 }
 
-function QuickButton({ to, label }) {
+function HeroStat({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white">
+      <p className="text-xs font-bold text-white/70">{label}</p>
+      <p className="mt-1 text-lg font-black sm:text-xl">{value}</p>
+    </div>
+  );
+}
+
+function MetricCard({ title, value, description, icon, tone = "slate" }) {
+  const tones = {
+    green: "bg-green-50 text-green-700",
+    blue: "bg-blue-50 text-blue-700",
+    orange: "bg-orange-50 text-orange-700",
+    purple: "bg-purple-50 text-purple-700",
+    red: "bg-red-50 text-red-700",
+    slate: "bg-slate-100 text-slate-700",
+  };
+
+  return (
+    <div className="icb-card icb-card-hover p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div
+          className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
+            tones[tone] || tones.slate
+          }`}
+        >
+          {icon}
+        </div>
+
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-black uppercase ${
+            tones[tone] || tones.slate
+          }`}
+        >
+          {title}
+        </span>
+      </div>
+
+      <h3 className="mt-5 break-words text-3xl font-black text-[#0B1F33]">
+        {value}
+      </h3>
+
+      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function QuickActionCard({ icon, title, description, to }) {
   return (
     <Link
       to={to}
-      className="rounded-2xl bg-white/15 px-4 py-3 text-sm font-black text-white hover:bg-white/25"
+      className="icb-card icb-card-hover group block p-5 transition hover:-translate-y-1"
     >
-      {label}
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#C97B6C] transition group-hover:bg-[#C97B6C] group-hover:text-white">
+        {icon}
+      </div>
+
+      <h3 className="mt-4 text-xl font-black text-[#0B1F33]">{title}</h3>
+
+      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+        {description}
+      </p>
     </Link>
   );
 }
 
-function StatCard({ title, value, sub, accent = "#0f172a" }) {
+function DashboardPanel({
+  eyebrow,
+  title,
+  description,
+  actionText,
+  actionPath,
+  children,
+}) {
   return (
-    <div className="rounded-2xl bg-white p-6 shadow-sm">
-      <p className="text-sm font-semibold text-slate-500">{title}</p>
-      <h3 className="mt-2 text-3xl font-black" style={{ color: accent }}>
-        {value}
-      </h3>
-      <p className="mt-2 text-xs text-slate-500">{sub}</p>
-    </div>
-  );
-}
+    <section className="icb-card p-5 sm:p-6">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="icb-eyebrow">{eyebrow}</p>
 
-function DashboardListCard({ title, description, emptyText, children }) {
-  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+          <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">{title}</h3>
 
-  return (
-    <section className="rounded-[28px] bg-white p-6 shadow-sm">
-      <h3 className="text-xl font-black text-slate-950">{title}</h3>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
-
-      <div className="mt-5 space-y-3">
-        {hasChildren ? (
-          children
-        ) : (
-          <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-            {emptyText}
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            {description}
           </p>
+        </div>
+
+        {actionPath && (
+          <Link to={actionPath} className="icb-btn-light">
+            {actionText || "Open"}
+          </Link>
         )}
       </div>
+
+      {children}
     </section>
   );
 }
 
-function BookingActivityItem({ booking }) {
-  const status = normalizeStatus(booking.status);
-
+function PaymentAlertCard({ booking }) {
   return (
-    <div className="rounded-2xl border border-slate-100 p-4">
-      <div className="flex items-start justify-between gap-3">
+    <Link
+      to={`/admin/manage-bookings?highlight=${booking.id}`}
+      className="block rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-4 transition hover:border-[#C97B6C] hover:bg-white"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="font-black text-slate-950">{getFacilityName(booking)}</p>
+          <p className="text-sm font-black text-[#0B1F33]">
+            {getCustomerName(booking)}
+          </p>
 
-          <p className="mt-1 text-sm text-slate-500">
-            {getUserName(booking)}
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            {getFacilityName(booking)} • {formatDate(booking.booking_date)}
+          </p>
+
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            Submitted: {formatDateTime(booking.payment_submitted_at)}
           </p>
         </div>
 
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(
-            status
-          )}`}
-        >
-          {status}
-        </span>
-      </div>
+        <div className="text-left sm:text-right">
+          <p className="text-lg font-black text-[#C97B6C]">
+            {money(booking.amount_paid || getBookingTotal(booking))}
+          </p>
 
-      <p className="mt-3 text-sm text-slate-600">
-        {formatFullDate(booking.booking_date)} • {formatTime(booking.start_time)} -{" "}
-        {formatTime(booking.end_time)}
+          <Badge className={getPaymentStatusClass(booking.payment_status)}>
+            {formatStatusLabel(booking.payment_status)}
+          </Badge>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function BookingRow({ booking }) {
+  return (
+    <Link
+      to={`/admin/manage-bookings?highlight=${booking.id}`}
+      className="block rounded-2xl border border-[#DED8D2] bg-white p-4 transition hover:border-[#C97B6C] hover:bg-[#FBFAF9]"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-black text-[#0B1F33]">
+            {getFacilityName(booking)}
+          </p>
+
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            {getCustomerName(booking)}
+          </p>
+
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            {formatDate(booking.booking_date)} • {formatTime(booking.start_time)} -{" "}
+            {formatTime(booking.end_time)}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Badge className={getStatusClass(booking.status)}>
+            {formatStatusLabel(booking.status)}
+          </Badge>
+
+          <Badge className={getPaymentStatusClass(booking.payment_status)}>
+            {formatStatusLabel(booking.payment_status)}
+          </Badge>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function MaintenanceRow({ block }) {
+  return (
+    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-purple-100 text-purple-700">
+          <Wrench size={18} />
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-sm font-black text-purple-800">
+            {block.facilities?.name || "Facility"}
+          </p>
+
+          <p className="mt-1 text-sm font-semibold text-purple-700">
+            {formatDate(block.maintenance_date)} • {formatTime(block.start_time)} -{" "}
+            {formatTime(block.end_time)}
+          </p>
+
+          <p className="mt-1 text-xs font-semibold text-purple-600">
+            {block.reason || "Facility maintenance"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SmallInfoCard({ label, value, description }) {
+  return (
+    <div className="icb-card p-5">
+      <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+        {label}
       </p>
 
-      <p className="mt-2 text-sm font-black text-[#C97B6C]">
-        {money(booking.total_amount || 0)}
+      <h3 className="mt-3 break-words text-2xl font-black text-[#0B1F33]">
+        {value}
+      </h3>
+
+      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+        {description}
       </p>
     </div>
   );
 }
 
-function getStatusClass(status) {
-  const value = normalizeStatus(status);
+function EmptyState({ text }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-center text-sm font-semibold text-slate-500">
+      {text}
+    </div>
+  );
+}
 
-  if (value === "approved") return "bg-green-100 text-green-700";
-  if (value === "rejected") return "bg-red-100 text-red-700";
-  if (value === "cancelled") return "bg-slate-200 text-slate-700";
-
-  return "bg-yellow-100 text-yellow-700";
+function Badge({ children, className }) {
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${className}`}>
+      {children}
+    </span>
+  );
 }

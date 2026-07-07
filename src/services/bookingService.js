@@ -1,5 +1,12 @@
+// src/services/bookingService.js
+
 import { supabase } from "./supabaseClient";
 import { getReservationExpirationMinutes } from "./paymentSettingsService";
+import {
+  createAdminNotification,
+  createBookingNotification,
+  createStaffNotification,
+} from "./notificationService";
 
 const PAYMENT_PROOF_BUCKET = "payment-proofs";
 
@@ -14,6 +21,10 @@ function normalizeStatus(status) {
 
 function normalizePaymentStatus(status) {
   return String(status || "unpaid").toLowerCase();
+}
+
+function money(value) {
+  return `₱${Number(value || 0).toLocaleString()}`;
 }
 
 function getTotalAmount(payload) {
@@ -53,6 +64,39 @@ function isExpiredUnpaidReservation(booking) {
   return new Date(booking.reservation_expires_at).getTime() <= Date.now();
 }
 
+function buildBookingMetadata(booking = {}) {
+  return {
+    booking_id: booking.id || null,
+    user_id: booking.user_id || null,
+    facility_id: booking.facility_id || null,
+    facility_name:
+      booking.facilities?.name ||
+      booking.facility_name ||
+      booking.facility ||
+      null,
+    booking_date: booking.booking_date || null,
+    start_time: cleanTime(booking.start_time),
+    end_time: cleanTime(booking.end_time),
+    session_type: booking.session_type || null,
+    total_hours: booking.total_hours || null,
+    rate_per_hour: booking.rate_per_hour || null,
+    total_amount: booking.total_amount || null,
+    amount_paid: booking.amount_paid || null,
+    balance_amount: booking.balance_amount || null,
+    payment_status: booking.payment_status || null,
+    status: booking.status || null,
+    receipt_number: booking.receipt_number || null,
+  };
+}
+
+async function safeNotify(fn) {
+  try {
+    await fn();
+  } catch (error) {
+    console.error("Notification error:", error?.message || error);
+  }
+}
+
 async function getCurrentUserId() {
   const {
     data: { user },
@@ -88,6 +132,34 @@ async function uploadPaymentProof(file, bookingId) {
   return data?.publicUrl || null;
 }
 
+async function fetchBookingWithDetails(bookingId) {
+  if (!bookingId) return null;
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .select(
+      `
+      *,
+      facilities (*),
+      profiles:user_id (
+        id,
+        full_name,
+        email,
+        role
+      )
+    `
+    )
+    .eq("id", bookingId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("fetchBookingWithDetails error:", error.message);
+    return null;
+  }
+
+  return data || null;
+}
+
 export async function getAllBookings() {
   const { data, error } = await supabase
     .from("bookings")
@@ -98,6 +170,7 @@ export async function getAllBookings() {
       profiles:user_id (
         id,
         full_name,
+        email,
         role
       )
     `
@@ -133,6 +206,55 @@ export async function createBooking(payload) {
   if (error) {
     console.error("createBooking RPC error:", error);
     throw error;
+  }
+
+  const bookingId =
+    typeof data === "string"
+      ? data
+      : data?.id || data?.booking_id || data?.[0]?.id || data?.[0]?.booking_id;
+
+  const booking = bookingId ? await fetchBookingWithDetails(bookingId) : null;
+  const metadata = buildBookingMetadata(booking || payload);
+
+  await safeNotify(async () => {
+    await createStaffNotification({
+      title: "New Booking Request",
+      message: "A customer created a new facility booking request.",
+      type: "booking_created",
+      referenceId: bookingId || null,
+      referenceType: "bookings",
+      actionUrl: bookingId
+        ? `/staff/manage-bookings?highlight=${bookingId}`
+        : "/staff/manage-bookings",
+      metadata,
+    });
+  });
+
+  await safeNotify(async () => {
+    await createAdminNotification({
+      title: "New Booking Request",
+      message: "A new facility booking request was submitted.",
+      type: "booking_created",
+      referenceId: bookingId || null,
+      referenceType: "bookings",
+      actionUrl: bookingId
+        ? `/admin/manage-bookings?highlight=${bookingId}`
+        : "/admin/manage-bookings",
+      metadata,
+    });
+  });
+
+  if (payload.user_id && bookingId) {
+    await safeNotify(async () => {
+      await createBookingNotification({
+        userId: payload.user_id,
+        bookingId,
+        title: "Booking Submitted",
+        message: `Your booking request has been submitted. Please wait for staff approval.`,
+        type: "booking_created",
+        metadata,
+      });
+    });
   }
 
   return data;
@@ -191,6 +313,33 @@ export async function submitPaymentProof(bookingId, payload) {
     .single();
 
   if (error) throw error;
+
+  const detailedBooking = (await fetchBookingWithDetails(bookingId)) || data;
+  const metadata = buildBookingMetadata(detailedBooking);
+
+  await safeNotify(async () => {
+    await createStaffNotification({
+      title: "Payment Proof Submitted",
+      message: `A customer submitted payment proof for ${money(amountPaid)}.`,
+      type: "payment_uploaded",
+      referenceId: bookingId,
+      referenceType: "bookings",
+      actionUrl: `/staff/manage-bookings?highlight=${bookingId}`,
+      metadata,
+    });
+  });
+
+  await safeNotify(async () => {
+    await createAdminNotification({
+      title: "Payment Proof Submitted",
+      message: `Payment proof for ${money(amountPaid)} is waiting for verification.`,
+      type: "payment_uploaded",
+      referenceId: bookingId,
+      referenceType: "bookings",
+      actionUrl: `/admin/manage-bookings?highlight=${bookingId}`,
+      metadata,
+    });
+  });
 
   return data;
 }
@@ -261,6 +410,34 @@ export async function verifyPayment(bookingId, verificationPayload = {}) {
 
   if (error) throw error;
 
+  const detailedBooking = (await fetchBookingWithDetails(bookingId)) || data;
+  const metadata = buildBookingMetadata(detailedBooking);
+
+  if (data.user_id) {
+    await safeNotify(async () => {
+      await createBookingNotification({
+        userId: data.user_id,
+        bookingId,
+        title: "Payment Verified",
+        message: `Your payment was verified. Your booking is now approved. Receipt: ${receiptNumber}.`,
+        type: "payment_approved",
+        metadata,
+      });
+    });
+  }
+
+  await safeNotify(async () => {
+    await createAdminNotification({
+      title: "Payment Verified",
+      message: `A booking payment was verified and receipt ${receiptNumber} was issued.`,
+      type: "payment_verified",
+      referenceId: bookingId,
+      referenceType: "bookings",
+      actionUrl: `/admin/manage-bookings?highlight=${bookingId}`,
+      metadata,
+    });
+  });
+
   return data;
 }
 
@@ -287,6 +464,24 @@ export async function rejectPayment(
 
   if (error) throw error;
 
+  const detailedBooking = (await fetchBookingWithDetails(bookingId)) || data;
+  const metadata = buildBookingMetadata(detailedBooking);
+
+  if (data.user_id) {
+    await safeNotify(async () => {
+      await createBookingNotification({
+        userId: data.user_id,
+        bookingId,
+        title: "Payment Proof Rejected",
+        message:
+          reason ||
+          "Your payment proof was rejected. Please upload a clearer or correct proof of payment.",
+        type: "payment_rejected",
+        metadata,
+      });
+    });
+  }
+
   return data;
 }
 
@@ -309,21 +504,69 @@ export async function expireBookingReservation(bookingId) {
 
   if (error) throw error;
 
+  if (data?.user_id) {
+    const metadata = buildBookingMetadata(data);
+
+    await safeNotify(async () => {
+      await createBookingNotification({
+        userId: data.user_id,
+        bookingId,
+        title: "Reservation Expired",
+        message:
+          "Your reservation expired because payment was not completed within the allowed time.",
+        type: "reservation_expired",
+        metadata,
+      });
+    });
+  }
+
   return data;
 }
 
 export async function approveBooking(bookingId) {
+  const reservationMinutes = await getReservationExpirationMinutes();
+
   const { data, error } = await supabase
     .from("bookings")
     .update({
-      status: "approved",
+      status: "reserved",
       facility_approval_status: "approved",
+      payment_status: "unpaid",
+      reservation_expires_at: getReservationExpirationDate(reservationMinutes),
     })
     .eq("id", bookingId)
     .select()
     .single();
 
   if (error) throw error;
+
+  const detailedBooking = (await fetchBookingWithDetails(bookingId)) || data;
+  const metadata = buildBookingMetadata(detailedBooking);
+
+  if (data.user_id) {
+    await safeNotify(async () => {
+      await createBookingNotification({
+        userId: data.user_id,
+        bookingId,
+        title: "Booking Reserved",
+        message: `Your booking was approved. Please complete payment within ${reservationMinutes} minutes to confirm your reservation.`,
+        type: "booking_reserved",
+        metadata,
+      });
+    });
+  }
+
+  await safeNotify(async () => {
+    await createAdminNotification({
+      title: "Booking Reserved",
+      message: "A staff member approved and reserved a customer booking.",
+      type: "booking_reserved",
+      referenceId: bookingId,
+      referenceType: "bookings",
+      actionUrl: `/admin/manage-bookings?highlight=${bookingId}`,
+      metadata,
+    });
+  });
 
   return data;
 }
@@ -341,6 +584,21 @@ export async function rejectBooking(bookingId, reason = "") {
     .single();
 
   if (error) throw error;
+
+  const metadata = buildBookingMetadata(data);
+
+  if (data.user_id) {
+    await safeNotify(async () => {
+      await createBookingNotification({
+        userId: data.user_id,
+        bookingId,
+        title: "Booking Rejected",
+        message: reason || "Your booking request was rejected by staff.",
+        type: "booking_rejected",
+        metadata,
+      });
+    });
+  }
 
   return data;
 }
@@ -373,6 +631,32 @@ export async function cancelBooking(bookingId, reason = "") {
     .single();
 
   if (error) throw error;
+
+  const metadata = buildBookingMetadata(data);
+
+  await safeNotify(async () => {
+    await createStaffNotification({
+      title: "Booking Cancelled",
+      message: "A customer cancelled a booking request or reservation.",
+      type: "booking_cancelled",
+      referenceId: bookingId,
+      referenceType: "bookings",
+      actionUrl: `/staff/manage-bookings?highlight=${bookingId}`,
+      metadata,
+    });
+  });
+
+  await safeNotify(async () => {
+    await createAdminNotification({
+      title: "Booking Cancelled",
+      message: "A customer cancelled a booking request or reservation.",
+      type: "booking_cancelled",
+      referenceId: bookingId,
+      referenceType: "bookings",
+      actionUrl: `/admin/manage-bookings?highlight=${bookingId}`,
+      metadata,
+    });
+  });
 
   return data;
 }

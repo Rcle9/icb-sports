@@ -1,6 +1,9 @@
+// src/pages/staff/OperationsBoard.jsx
+
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarCheck,
+  CalendarDays,
   CheckCircle,
   Clock,
   CreditCard,
@@ -43,6 +46,20 @@ function formatDate(value) {
       year: "numeric",
       month: "long",
       day: "numeric",
+    });
+  } catch {
+    return value;
+  }
+}
+
+function formatShortDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
     });
   } catch {
     return value;
@@ -123,7 +140,7 @@ function getStatusClass(status) {
 
   if (value === "approved") return "bg-green-100 text-green-700";
   if (value === "reserved") return "bg-blue-100 text-blue-700";
-  if (value === "pending") return "bg-yellow-100 text-yellow-700";
+  if (value === "pending") return "bg-amber-100 text-amber-700";
   if (value === "cancelled") return "bg-slate-200 text-slate-700";
   if (value === "expired") return "bg-orange-100 text-orange-700";
   if (value === "rejected") return "bg-red-100 text-red-700";
@@ -136,9 +153,20 @@ function getPaymentStatusClass(status) {
 
   if (value === "paid") return "bg-green-100 text-green-700";
   if (value === "pending_verification") return "bg-blue-100 text-blue-700";
-  if (value === "unpaid") return "bg-yellow-100 text-yellow-700";
+  if (value === "unpaid") return "bg-amber-100 text-amber-700";
   if (value === "rejected_payment") return "bg-red-100 text-red-700";
   if (value === "expired") return "bg-orange-100 text-orange-700";
+
+  return "bg-slate-100 text-slate-700";
+}
+
+function getCompletionStatusClass(status) {
+  const value = normalizeCompletionStatus(status);
+
+  if (value === "completed") return "bg-green-100 text-green-700";
+  if (value === "no_show") return "bg-orange-100 text-orange-700";
+  if (value === "cancelled_late") return "bg-red-100 text-red-700";
+  if (value === "not_completed") return "bg-slate-100 text-slate-700";
 
   return "bg-slate-100 text-slate-700";
 }
@@ -149,11 +177,13 @@ export default function OperationsBoard() {
   const sidebarRole =
     String(profile?.role || "").toLowerCase() === "admin" ? "admin" : "staff";
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const [bookings, setBookings] = useState([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const dayBookings = useMemo(() => {
@@ -167,7 +197,9 @@ export default function OperationsBoard() {
           normalizeStatus(booking.status) === "approved" &&
           normalizePaymentStatus(booking.payment_status) === "paid"
       )
-      .sort((a, b) => cleanTime(a.start_time).localeCompare(cleanTime(b.start_time)));
+      .sort((a, b) =>
+        cleanTime(a.start_time).localeCompare(cleanTime(b.start_time))
+      );
   }, [dayBookings]);
 
   const pendingPayments = useMemo(() => {
@@ -323,6 +355,15 @@ export default function OperationsBoard() {
     }
   }
 
+  async function handleRefresh() {
+    try {
+      setRefreshing(true);
+      await loadBoard(false);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   function openManageBookings(booking) {
     if (booking?.id) {
       window.location.href = `/staff/manage-bookings?highlight=${booking.id}`;
@@ -342,50 +383,74 @@ export default function OperationsBoard() {
 
   return (
     <div className="page-shell">
-      <Sidebar role={sidebarRole} />
+      <Sidebar
+        role={sidebarRole}
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Operations Board" />
+          <Topbar
+            title="Operations Board"
+            subtitle="Monitor facility bookings, payments, walk-ins, and daily operations."
+            showMenuButton
+            onMenuClick={() => setSidebarOpen(true)}
+          />
 
-          {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          {error && <div className="icb-alert-error mb-5">{error}</div>}
 
           <section className="page-hero mb-6">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <p className="text-sm font-semibold">Daily Operations</p>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                  Daily Operations
+                </p>
 
-                <h2 className="mt-2 text-3xl font-black">
+                <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
                   Staff Operations Board
                 </h2>
 
-                <p className="mt-2 text-sm text-white/90">
-                  Monitor today’s bookings, pending payments, maintenance, and completion tasks.
+                <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85 sm:text-base">
+                  Monitor today’s approved facility bookings, pending payment
+                  verification, maintenance blocks, walk-in sessions, and
+                  completion tasks in one organized workspace.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <HeroStat label="Today Revenue" value={money(summary.todayRevenue)} />
+                <HeroStat
+                  label="Today Revenue"
+                  value={money(summary.todayRevenue)}
+                />
+
                 <HeroStat label="Today Bookings" value={summary.totalToday} />
-                <HeroStat label="Payment Review" value={summary.pendingPayments} />
-                <HeroStat label="Completion Due" value={summary.completionNeeded} />
+
+                <HeroStat
+                  label="Payment Review"
+                  value={summary.pendingPayments}
+                />
+
+                <HeroStat
+                  label="Completion Due"
+                  value={summary.completionNeeded}
+                />
               </div>
             </div>
           </section>
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <section className="icb-card mb-6 p-5 sm:p-6">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                <p className="icb-eyebrow">Operation Date</p>
+
+                <h3 className="icb-section-title mt-2">
                   {formatDate(selectedDate)}
                 </h3>
 
-                <p className="text-sm text-slate-500">
-                  Choose the operation date you want to monitor.
+                <p className="icb-section-subtitle">
+                  Choose the date you want to monitor and use the quick actions
+                  to handle common staff tasks.
                 </p>
               </div>
 
@@ -394,36 +459,37 @@ export default function OperationsBoard() {
                   type="date"
                   value={selectedDate}
                   onChange={(event) => setSelectedDate(event.target.value)}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
+                  className="icb-input w-auto min-w-[190px]"
                 />
 
                 <button
                   type="button"
-                  onClick={() => loadBoard()}
-                  className="rounded-2xl border border-[#DED8D2] px-5 py-3 text-sm font-bold hover:bg-[#F5F3F1]"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  className="icb-btn-light disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span className="inline-flex items-center gap-2">
-                    <RefreshCw size={16} />
-                    Refresh
-                  </span>
+                  <RefreshCw
+                    size={17}
+                    className={refreshing ? "animate-spin" : ""}
+                  />
+                  {refreshing ? "Refreshing..." : "Refresh"}
                 </button>
 
                 <button
                   type="button"
                   onClick={openWalkInBooking}
-                  className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
+                  className="icb-btn-accent"
                 >
-                  <span className="inline-flex items-center gap-2">
-                    <UserPlus size={16} />
-                    Walk-in Booking
-                  </span>
+                  <UserPlus size={17} />
+                  Walk-in Booking
                 </button>
 
                 <button
                   type="button"
                   onClick={openAvailabilityBoard}
-                  className="rounded-2xl bg-[#2B2B2B] px-5 py-3 text-sm font-bold text-white hover:bg-[#C97B6C]"
+                  className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-[#0B1F33] px-5 py-3 text-sm font-black text-white transition hover:bg-[#C97B6C]"
                 >
+                  <CalendarDays size={17} />
                   Availability Board
                 </button>
               </div>
@@ -431,16 +497,19 @@ export default function OperationsBoard() {
           </section>
 
           {loading ? (
-            <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-              <p className="text-sm text-slate-500">Loading operations board...</p>
+            <section className="icb-card p-8">
+              <p className="text-sm font-semibold text-slate-500">
+                Loading operations board...
+              </p>
             </section>
           ) : (
             <>
-              <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+              <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
                 <MetricCard
                   icon={CalendarCheck}
                   label="Approved Today"
                   value={summary.approvedToday}
+                  description="Paid sessions"
                   tone="green"
                 />
 
@@ -448,6 +517,7 @@ export default function OperationsBoard() {
                   icon={CreditCard}
                   label="Pending Payments"
                   value={summary.pendingPayments}
+                  description="Needs review"
                   tone="blue"
                 />
 
@@ -455,6 +525,7 @@ export default function OperationsBoard() {
                   icon={CheckCircle}
                   label="Completion Due"
                   value={summary.completionNeeded}
+                  description="Past sessions"
                   tone="orange"
                 />
 
@@ -462,6 +533,7 @@ export default function OperationsBoard() {
                   icon={UserPlus}
                   label="Walk-ins Today"
                   value={summary.walkInsToday}
+                  description="Staff-created"
                   tone="purple"
                 />
 
@@ -469,6 +541,7 @@ export default function OperationsBoard() {
                   icon={Wrench}
                   label="Maintenance"
                   value={summary.maintenanceToday}
+                  description="Active blocks"
                   tone="slate"
                 />
 
@@ -476,15 +549,18 @@ export default function OperationsBoard() {
                   icon={Clock}
                   label="Total Today"
                   value={summary.totalToday}
-                  tone="brown"
+                  description="All records"
+                  tone="coral"
                 />
               </section>
 
-              <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
                 <OperationsSection
-                  title="Today's Approved Bookings"
-                  description="Paid and approved bookings scheduled for the selected date."
+                  title="Today’s Approved Bookings"
+                  description="Paid and approved facility bookings scheduled for the selected date."
                   emptyText="No approved bookings for this date."
+                  actionLabel="View all bookings"
+                  onAction={() => openManageBookings()}
                 >
                   {approvedToday.map((booking) => (
                     <BookingMiniCard
@@ -499,6 +575,8 @@ export default function OperationsBoard() {
                   title="Pending Payment Verification"
                   description="Payments waiting for staff review."
                   emptyText="No pending payment verifications."
+                  actionLabel="Review payments"
+                  onAction={() => openManageBookings()}
                 >
                   {pendingPayments.map((booking) => (
                     <BookingMiniCard
@@ -509,11 +587,15 @@ export default function OperationsBoard() {
                     />
                   ))}
                 </OperationsSection>
+              </section>
 
+              <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <OperationsSection
                   title="Completion Marking Needed"
-                  description="Past approved bookings that need Completed / No-show / Cancelled Late status."
+                  description="Past approved bookings that still need Completed, No-show, or Cancelled Late status."
                   emptyText="No bookings need completion marking."
+                  actionLabel="Manage completion"
+                  onAction={() => openManageBookings()}
                 >
                   {completionNeeded.map((booking) => (
                     <BookingMiniCard
@@ -529,16 +611,22 @@ export default function OperationsBoard() {
                   title="Active Maintenance Today"
                   description="Facility maintenance blocks for the selected date."
                   emptyText="No active maintenance blocks today."
+                  actionLabel="Availability board"
+                  onAction={openAvailabilityBoard}
                 >
                   {activeMaintenance.map((block) => (
                     <MaintenanceMiniCard key={block.id} block={block} />
                   ))}
                 </OperationsSection>
+              </section>
 
+              <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <OperationsSection
                   title="Walk-in Bookings Today"
                   description="Bookings created directly by staff."
                   emptyText="No walk-in bookings today."
+                  actionLabel="Create walk-in"
+                  onAction={openWalkInBooking}
                 >
                   {walkInsToday.map((booking) => (
                     <BookingMiniCard
@@ -552,8 +640,10 @@ export default function OperationsBoard() {
 
                 <OperationsSection
                   title="All Bookings Today"
-                  description="Complete list of bookings for selected date."
+                  description="Complete list of facility bookings for the selected date."
                   emptyText="No bookings for this date."
+                  actionLabel="Open booking list"
+                  onAction={() => openManageBookings()}
                 >
                   {dayBookings.map((booking) => (
                     <BookingMiniCard
@@ -572,44 +662,68 @@ export default function OperationsBoard() {
   );
 }
 
-function MetricCard({ icon: Icon, label, value, tone }) {
+function MetricCard({ icon: Icon, label, value, description, tone }) {
   const toneClass = {
-    green: "bg-green-50 text-green-700",
-    blue: "bg-blue-50 text-blue-700",
-    orange: "bg-orange-50 text-orange-700",
-    purple: "bg-purple-50 text-purple-700",
+    green: "bg-green-100 text-green-700",
+    blue: "bg-blue-100 text-blue-700",
+    orange: "bg-orange-100 text-orange-700",
+    purple: "bg-purple-100 text-purple-700",
     slate: "bg-slate-100 text-slate-700",
-    brown: "bg-[#F3E4DF] text-[#C97B6C]",
+    coral: "bg-[#F3E4DF] text-[#B86658]",
   }[tone];
 
   return (
-    <div className="rounded-[28px] border border-[#DED8D2] bg-white p-5 shadow-sm">
+    <div className="icb-card icb-card-hover p-5">
       <div className={`inline-flex rounded-2xl p-3 ${toneClass}`}>
         <Icon size={22} />
       </div>
 
-      <h3 className="mt-4 text-3xl font-black text-[#2B2B2B]">{value}</h3>
+      <h3 className="mt-4 text-3xl font-black text-[#0B1F33]">{value}</h3>
 
-      <p className="mt-1 text-sm font-bold text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-black text-[#0B1F33]">{label}</p>
+
+      <p className="mt-1 text-xs font-semibold text-slate-500">
+        {description}
+      </p>
     </div>
   );
 }
 
-function OperationsSection({ title, description, emptyText, children }) {
+function OperationsSection({
+  title,
+  description,
+  emptyText,
+  children,
+  actionLabel,
+  onAction,
+}) {
   const childArray = Array.isArray(children) ? children : [children];
   const hasChildren = childArray.some(Boolean);
 
   return (
-    <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-      <div className="mb-5">
-        <h3 className="text-2xl font-black text-[#2B2B2B]">{title}</h3>
-        <p className="text-sm text-slate-500">{description}</p>
+    <section className="icb-card p-5 sm:p-6">
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="icb-eyebrow">Operations</p>
+
+          <h3 className="icb-section-title mt-2">{title}</h3>
+
+          <p className="icb-section-subtitle">{description}</p>
+        </div>
+
+        {actionLabel && onAction && (
+          <button
+            type="button"
+            onClick={onAction}
+            className="icb-btn-light w-full md:w-auto"
+          >
+            {actionLabel}
+          </button>
+        )}
       </div>
 
       {!hasChildren ? (
-        <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-center text-sm text-slate-500">
-          {emptyText}
-        </div>
+        <EmptyState text={emptyText} />
       ) : (
         <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
           {children}
@@ -630,22 +744,26 @@ function BookingMiniCard({ booking, onClick, highlight }) {
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-2xl border p-4 text-left transition hover:shadow-sm ${
-        highlightClass || "border-[#DED8D2] bg-white hover:bg-[#F5F3F1]"
+      className={`w-full rounded-2xl border p-4 text-left transition hover:border-[#C97B6C]/40 hover:shadow-sm ${
+        highlightClass || "border-[#DED8D2] bg-white hover:bg-[#FBFAF9]"
       }`}
     >
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h4 className="text-lg font-black text-[#2B2B2B]">
+        <div className="min-w-0">
+          <h4 className="safe-text text-lg font-black text-[#0B1F33]">
             {getFacilityName(booking)}
           </h4>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-500">
+            <Clock size={15} />
             {formatTime(booking.start_time)} - {formatTime(booking.end_time)}
           </p>
 
-          <p className="mt-1 text-sm text-slate-600">
-            Customer: <b>{getCustomerName(booking)}</b>
+          <p className="mt-1 text-sm font-semibold text-slate-600">
+            Customer:{" "}
+            <span className="font-black text-[#0B1F33]">
+              {getCustomerName(booking)}
+            </span>
           </p>
 
           <p className="mt-1 text-xs font-semibold text-slate-500">
@@ -654,36 +772,31 @@ function BookingMiniCard({ booking, onClick, highlight }) {
         </div>
 
         <div className="flex flex-wrap gap-2 md:justify-end">
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getStatusClass(
-              booking.status
-            )}`}
-          >
-            {formatStatusLabel(booking.status)}
-          </span>
+          <StatusBadge
+            label={formatStatusLabel(booking.status)}
+            className={getStatusClass(booking.status)}
+          />
 
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-black uppercase ${getPaymentStatusClass(
-              booking.payment_status
-            )}`}
-          >
-            {formatStatusLabel(booking.payment_status)}
-          </span>
+          <StatusBadge
+            label={formatStatusLabel(booking.payment_status)}
+            className={getPaymentStatusClass(booking.payment_status)}
+          />
 
           {booking.is_walk_in && (
-            <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black uppercase text-purple-700">
-              Walk-in
-            </span>
+            <StatusBadge label="Walk-in" className="bg-purple-100 text-purple-700" />
           )}
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
         <MiniDetail label="Total" value={money(getBookingTotal(booking))} />
+
         <MiniDetail label="Paid" value={money(booking.amount_paid || 0)} />
+
         <MiniDetail
           label="Completion"
-          value={formatStatusLabel(
+          value={formatStatusLabel(booking.completion_status || "not_completed")}
+          badgeClass={getCompletionStatusClass(
             booking.completion_status || "not_completed"
           )}
         />
@@ -696,47 +809,78 @@ function MaintenanceMiniCard({ block }) {
   return (
     <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h4 className="text-lg font-black text-[#2B2B2B]">
+        <div className="min-w-0">
+          <h4 className="safe-text text-lg font-black text-[#0B1F33]">
             {block.facilities?.name || "Facility"}
           </h4>
 
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-600">
+            <Clock size={15} />
             {formatTime(block.start_time)} - {formatTime(block.end_time)}
           </p>
 
-          <p className="mt-1 text-sm text-purple-700">
+          <p className="safe-text mt-1 text-sm font-bold text-purple-700">
             {block.reason || "Facility maintenance"}
           </p>
         </div>
 
-        <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black uppercase text-purple-700">
-          {formatStatusLabel(block.status)}
-        </span>
+        <StatusBadge
+          label={formatStatusLabel(block.status)}
+          className="bg-purple-100 text-purple-700"
+        />
       </div>
     </div>
   );
 }
 
-function MiniDetail({ label, value }) {
+function MiniDetail({ label, value, badgeClass }) {
   return (
-    <div className="rounded-2xl bg-white/70 p-3">
-      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+    <div className="rounded-2xl border border-[#DED8D2] bg-white/70 p-3">
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
         {label}
       </p>
 
-      <p className="mt-1 break-words text-sm font-black text-[#2B2B2B]">
-        {value || "-"}
-      </p>
+      {badgeClass ? (
+        <span
+          className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase ${badgeClass}`}
+        >
+          {value || "-"}
+        </span>
+      ) : (
+        <p className="safe-text mt-1 text-sm font-black text-[#0B1F33]">
+          {value || "-"}
+        </p>
+      )}
     </div>
+  );
+}
+
+function StatusBadge({ label, className }) {
+  return (
+    <span
+      className={`rounded-full px-3 py-1 text-xs font-black uppercase ${className}`}
+    >
+      {label}
+    </span>
   );
 }
 
 function HeroStat({ label, value }) {
   return (
-    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white">
-      <p className="text-xs font-black uppercase tracking-widest">{label}</p>
-      <h3 className="mt-1 text-xl font-black">{value}</h3>
+    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white backdrop-blur">
+      <p className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-white/80">
+        {label}
+      </p>
+
+      <h3 className="mt-2 text-xl font-black">{value}</h3>
+    </div>
+  );
+}
+
+function EmptyState({ text }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-8 text-center text-sm font-semibold text-slate-500">
+      {text}
     </div>
   );
 }

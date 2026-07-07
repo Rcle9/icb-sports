@@ -1,4 +1,19 @@
+// src/pages/admin/CommandCenter.jsx
+
 import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Building2,
+  CalendarCheck,
+  Clock,
+  CreditCard,
+  RefreshCw,
+  ShieldCheck,
+  TrendingUp,
+  Wrench,
+} from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -166,7 +181,7 @@ function statusClass(status) {
 
   if (value === "approved") return "bg-green-100 text-green-700";
   if (value === "reserved") return "bg-blue-100 text-blue-700";
-  if (value === "pending") return "bg-yellow-100 text-yellow-700";
+  if (value === "pending") return "bg-amber-100 text-amber-700";
   if (value === "expired") return "bg-orange-100 text-orange-700";
   if (value === "cancelled") return "bg-slate-200 text-slate-700";
   if (value === "rejected") return "bg-red-100 text-red-700";
@@ -178,7 +193,7 @@ function paymentStatusClass(status) {
   const value = normalizePaymentStatus(status);
 
   if (value === "paid") return "bg-green-100 text-green-700";
-  if (value === "pending_verification") return "bg-yellow-100 text-yellow-700";
+  if (value === "pending_verification") return "bg-amber-100 text-amber-700";
   if (value === "rejected_payment") return "bg-red-100 text-red-700";
   if (value === "expired") return "bg-orange-100 text-orange-700";
 
@@ -188,12 +203,15 @@ function paymentStatusClass(status) {
 export default function CommandCenter() {
   const today = getTodayDate();
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [bookings, setBookings] = useState([]);
   const [facilities, setFacilities] = useState([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
   const [activityLogs, setActivityLogs] = useState([]);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const todayBookings = useMemo(() => {
@@ -204,6 +222,10 @@ export default function CommandCenter() {
     return todayBookings.reduce((sum, booking) => sum + getPaidAmount(booking), 0);
   }, [todayBookings]);
 
+  const totalRevenue = useMemo(() => {
+    return bookings.reduce((sum, booking) => sum + getPaidAmount(booking), 0);
+  }, [bookings]);
+
   const pendingPayments = useMemo(() => {
     return bookings.filter(
       (booking) =>
@@ -213,7 +235,8 @@ export default function CommandCenter() {
 
   const activeMaintenanceToday = useMemo(() => {
     return maintenanceBlocks.filter(
-      (block) => block.maintenance_date === today && normalizeStatus(block.status) === "active"
+      (block) =>
+        block.maintenance_date === today && normalizeStatus(block.status) === "active"
     );
   }, [maintenanceBlocks, today]);
 
@@ -264,7 +287,10 @@ export default function CommandCenter() {
       if (currentBooking) {
         const paymentStatus = normalizePaymentStatus(currentBooking.payment_status);
 
-        if (normalizeStatus(currentBooking.status) === "approved" || paymentStatus === "paid") {
+        if (
+          normalizeStatus(currentBooking.status) === "approved" ||
+          paymentStatus === "paid"
+        ) {
           return {
             facility,
             status: "occupied",
@@ -440,31 +466,49 @@ export default function CommandCenter() {
     }
   }
 
+  async function handleRefresh() {
+    try {
+      setRefreshing(true);
+      await loadCommandCenter(false);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
     <div className="page-shell">
-      <Sidebar role="admin" />
+      <Sidebar
+        role="admin"
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Command Center" />
+          <Topbar
+            title="Command Center"
+            subtitle="Live admin monitoring for bookings, revenue, payments, and facility operations."
+            showMenuButton
+            onMenuClick={() => setSidebarOpen(true)}
+          />
 
-          {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          {error && <div className="icb-alert-error mb-5">{error}</div>}
 
           <section className="page-hero mb-6">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <p className="text-sm font-semibold">Premium Admin Dashboard</p>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                  Premium Admin Dashboard
+                </p>
 
-                <h2 className="mt-2 text-3xl font-black">
+                <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
                   InCredoBall Command Center
                 </h2>
 
-                <p className="mt-2 text-sm text-white/90">
-                  Monitor live bookings, revenue, facility availability, payments, and maintenance.
+                <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85 sm:text-base">
+                  Monitor live bookings, revenue, facility availability, payment
+                  verification, maintenance blocks, and recent activity in one
+                  focused admin view.
                 </p>
               </div>
 
@@ -478,16 +522,19 @@ export default function CommandCenter() {
           </section>
 
           {loading ? (
-            <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-              <p className="text-sm text-slate-500">Loading command center...</p>
+            <section className="icb-card p-8">
+              <p className="text-sm font-semibold text-slate-500">
+                Loading command center...
+              </p>
             </section>
           ) : (
             <>
               <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard
                   title="Total Revenue"
-                  value={money(bookings.reduce((sum, booking) => sum + getPaidAmount(booking), 0))}
+                  value={money(totalRevenue)}
                   description="All paid and approved bookings"
+                  icon={<TrendingUp size={22} />}
                   tone="green"
                 />
 
@@ -495,6 +542,7 @@ export default function CommandCenter() {
                   title="Total Bookings"
                   value={bookings.length}
                   description="Online and walk-in bookings"
+                  icon={<CalendarCheck size={22} />}
                   tone="blue"
                 />
 
@@ -502,33 +550,57 @@ export default function CommandCenter() {
                   title="Pending Payments"
                   value={pendingPayments.length}
                   description="Needs staff verification"
-                  tone="yellow"
+                  icon={<CreditCard size={22} />}
+                  tone="amber"
                 />
 
                 <MetricCard
                   title="Active Maintenance"
                   value={maintenanceBlocks.length}
                   description="Current facility blocks"
+                  icon={<Wrench size={22} />}
                   tone="purple"
                 />
               </section>
 
-              <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-                <div className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-                  <div className="mb-5">
-                    <h3 className="text-2xl font-black text-[#2B2B2B]">
-                      Live Facility Availability
+              <section className="icb-card mb-6 p-5 sm:p-6">
+                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                  <div>
+                    <p className="icb-eyebrow">Live Overview</p>
+
+                    <h3 className="icb-section-title mt-2">
+                      Today’s Operations Snapshot
                     </h3>
 
-                    <p className="text-sm text-slate-500">
-                      Current status of all facilities today.
+                    <p className="icb-section-subtitle">
+                      Current system status based on today’s schedule and active
+                      facility records.
                     </p>
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="icb-btn-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshCw
+                      size={17}
+                      className={refreshing ? "animate-spin" : ""}
+                    />
+                    {refreshing ? "Refreshing..." : "Refresh Data"}
+                  </button>
+                </div>
+              </section>
+
+              <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+                <Panel
+                  title="Live Facility Availability"
+                  subtitle="Current status of all facilities today."
+                  icon={<Building2 size={20} />}
+                >
                   {facilityAvailability.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
-                      No facilities found.
-                    </div>
+                    <EmptyState text="No facilities found." />
                   ) : (
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       {facilityAvailability.map((item) => (
@@ -536,41 +608,34 @@ export default function CommandCenter() {
                       ))}
                     </div>
                   )}
-                </div>
+                </Panel>
 
-                <div className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-                  <div className="mb-5">
-                    <h3 className="text-2xl font-black text-[#2B2B2B]">
-                      Upcoming Today
-                    </h3>
-
-                    <p className="text-sm text-slate-500">
-                      Next active bookings for today.
-                    </p>
-                  </div>
-
+                <Panel
+                  title="Upcoming Today"
+                  subtitle="Next active bookings for today."
+                  icon={<Clock size={20} />}
+                >
                   {upcomingToday.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
-                      No upcoming bookings today.
-                    </div>
+                    <EmptyState text="No upcoming bookings today." />
                   ) : (
-                    <div className="space-y-3">
+                    <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
                       {upcomingToday.map((booking) => (
                         <UpcomingBookingCard key={booking.id} booking={booking} />
                       ))}
                     </div>
                   )}
-                </div>
+                </Panel>
               </section>
 
               <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <ChartCard
                   title="Monthly Revenue"
-                  description="Revenue trend from paid bookings"
+                  description="Revenue trend from paid bookings."
+                  icon={<TrendingUp size={20} />}
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={monthlyRevenue}>
-                      <CartesianGrid strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                       <XAxis dataKey="name" />
                       <YAxis />
                       <Tooltip formatter={(value) => money(value)} />
@@ -580,6 +645,8 @@ export default function CommandCenter() {
                         name="Revenue"
                         stroke="#C97B6C"
                         strokeWidth={3}
+                        dot={{ r: 4 }}
+                        activeDot={{ r: 7 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -587,13 +654,14 @@ export default function CommandCenter() {
 
                 <ChartCard
                   title="Booking Source"
-                  description="Online bookings compared with walk-in bookings"
+                  description="Online bookings compared with walk-in bookings."
+                  icon={<BarChart3 size={20} />}
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={bookingSourceSummary}>
-                      <CartesianGrid strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                       <XAxis dataKey="name" />
-                      <YAxis />
+                      <YAxis allowDecimals={false} />
                       <Tooltip />
                       <Bar dataKey="value" name="Bookings" fill="#C97B6C" />
                     </BarChart>
@@ -602,28 +670,30 @@ export default function CommandCenter() {
 
                 <ChartCard
                   title="Booking Status Summary"
-                  description="Overall booking status distribution"
+                  description="Overall booking status distribution."
+                  icon={<ShieldCheck size={20} />}
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={statusSummary}>
-                      <CartesianGrid strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                       <XAxis dataKey="name" />
-                      <YAxis />
+                      <YAxis allowDecimals={false} />
                       <Tooltip />
-                      <Bar dataKey="value" name="Bookings" fill="#2B2B2B" />
+                      <Bar dataKey="value" name="Bookings" fill="#0B1F33" />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartCard>
 
                 <ChartCard
                   title="Top Facilities"
-                  description="Most booked facilities"
+                  description="Most booked facilities."
+                  icon={<Building2 size={20} />}
                 >
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={topFacilities}>
-                      <CartesianGrid strokeDasharray="3 3" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                       <XAxis dataKey="name" />
-                      <YAxis />
+                      <YAxis allowDecimals={false} />
                       <Tooltip />
                       <Bar dataKey="value" name="Bookings" fill="#16A34A" />
                     </BarChart>
@@ -632,11 +702,15 @@ export default function CommandCenter() {
               </section>
 
               <section className="mb-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-                <Panel title="Pending Payment Verifications" subtitle="Bookings waiting for staff review">
+                <Panel
+                  title="Pending Payment Verifications"
+                  subtitle="Bookings waiting for staff review."
+                  icon={<CreditCard size={20} />}
+                >
                   {pendingPayments.length === 0 ? (
                     <EmptyState text="No pending payment verifications." />
                   ) : (
-                    <div className="space-y-3">
+                    <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
                       {pendingPayments.slice(0, 6).map((booking) => (
                         <PaymentReviewCard key={booking.id} booking={booking} />
                       ))}
@@ -644,11 +718,15 @@ export default function CommandCenter() {
                   )}
                 </Panel>
 
-                <Panel title="Active Maintenance Blocks" subtitle="Facilities currently blocked for maintenance">
+                <Panel
+                  title="Active Maintenance Blocks"
+                  subtitle="Facilities currently blocked for maintenance."
+                  icon={<AlertTriangle size={20} />}
+                >
                   {maintenanceBlocks.length === 0 ? (
                     <EmptyState text="No active maintenance blocks." />
                   ) : (
-                    <div className="space-y-3">
+                    <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
                       {maintenanceBlocks.slice(0, 6).map((block) => (
                         <MaintenanceCard key={block.id} block={block} />
                       ))}
@@ -657,17 +735,11 @@ export default function CommandCenter() {
                 </Panel>
               </section>
 
-              <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-                <div className="mb-5">
-                  <h3 className="text-2xl font-black text-[#2B2B2B]">
-                    Recent Activity
-                  </h3>
-
-                  <p className="text-sm text-slate-500">
-                    Latest system actions and audit trail updates.
-                  </p>
-                </div>
-
+              <Panel
+                title="Recent Activity"
+                subtitle="Latest system actions and audit trail updates."
+                icon={<Activity size={20} />}
+              >
                 {activityLogs.length === 0 ? (
                   <EmptyState text="No recent activity logs." />
                 ) : (
@@ -677,7 +749,7 @@ export default function CommandCenter() {
                     ))}
                   </div>
                 )}
-              </section>
+              </Panel>
             </>
           )}
         </div>
@@ -688,70 +760,110 @@ export default function CommandCenter() {
 
 function HeroStat({ label, value }) {
   return (
-    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white">
-      <p className="text-xs font-black uppercase tracking-widest">{label}</p>
-      <h3 className="mt-1 text-xl font-black">{value}</h3>
+    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white backdrop-blur">
+      <p className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-white/80">
+        {label}
+      </p>
+
+      <h3 className="safe-text mt-2 text-xl font-black">{value}</h3>
     </div>
   );
 }
 
-function MetricCard({ title, value, description, tone }) {
+function MetricCard({ title, value, description, icon, tone = "coral" }) {
   const toneClass = {
-    green: "bg-green-50 text-green-700",
-    blue: "bg-blue-50 text-blue-700",
-    yellow: "bg-yellow-50 text-yellow-700",
-    purple: "bg-purple-50 text-purple-700",
+    coral: "bg-[#F3E4DF] text-[#B86658]",
+    green: "bg-green-100 text-green-700",
+    blue: "bg-blue-100 text-blue-700",
+    amber: "bg-amber-100 text-amber-700",
+    purple: "bg-purple-100 text-purple-700",
+    red: "bg-red-100 text-red-700",
   }[tone];
 
   return (
-    <div className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-      <div className={`inline-flex rounded-2xl px-3 py-1 text-xs font-black uppercase ${toneClass}`}>
-        {title}
+    <div className="icb-card icb-card-hover p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-500">{title}</p>
+
+          <h3 className="safe-text mt-3 text-3xl font-black text-[#0B1F33]">
+            {value}
+          </h3>
+
+          <p className="mt-2 text-xs font-semibold text-slate-500">
+            {description}
+          </p>
+        </div>
+
+        <div
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${toneClass}`}
+        >
+          {icon}
+        </div>
       </div>
-
-      <h3 className="mt-4 break-words text-3xl font-black text-[#2B2B2B]">
-        {value}
-      </h3>
-
-      <p className="mt-2 text-sm text-slate-500">{description}</p>
     </div>
   );
 }
 
 function FacilityStatusCard({ item }) {
   const statusClass = {
-    available: "border-green-500 bg-green-50 text-green-700",
-    occupied: "border-slate-500 bg-slate-100 text-slate-700",
-    reserved: "border-yellow-500 bg-yellow-50 text-yellow-700",
-    maintenance: "border-purple-500 bg-purple-50 text-purple-700",
+    available: "border-green-200 bg-green-50 text-green-700",
+    occupied: "border-slate-300 bg-slate-100 text-slate-700",
+    reserved: "border-amber-200 bg-amber-50 text-amber-700",
+    maintenance: "border-purple-200 bg-purple-50 text-purple-700",
+  }[item.status];
+
+  const badgeClass = {
+    available: "bg-green-100 text-green-700",
+    occupied: "bg-slate-200 text-slate-700",
+    reserved: "bg-amber-100 text-amber-700",
+    maintenance: "bg-purple-100 text-purple-700",
   }[item.status];
 
   return (
-    <div className={`rounded-2xl border p-5 ${statusClass}`}>
-      <p className="text-lg font-black">{item.facility.name}</p>
-      <p className="mt-2 text-sm font-black">{item.label}</p>
-      <p className="mt-1 text-sm font-semibold opacity-80">{item.detail}</p>
+    <div
+      className={`rounded-2xl border p-5 transition hover:shadow-sm ${statusClass}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="safe-text text-lg font-black">{item.facility.name}</p>
+
+          <p className="mt-2 text-sm font-semibold opacity-80">{item.detail}</p>
+        </div>
+
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-black uppercase ${badgeClass}`}
+        >
+          {item.label}
+        </span>
+      </div>
     </div>
   );
 }
 
 function UpcomingBookingCard({ booking }) {
   return (
-    <div className="rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] p-4">
+    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4 transition hover:border-[#C97B6C]/40 hover:bg-[#FBFAF9]">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-black text-[#2B2B2B]">{getFacilityName(booking)}</p>
+        <div className="min-w-0">
+          <p className="safe-text font-black text-[#0B1F33]">
+            {getFacilityName(booking)}
+          </p>
 
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm font-semibold text-slate-600">
             {formatTime(booking.start_time)} - {formatTime(booking.end_time)}
           </p>
 
-          <p className="mt-1 text-sm text-slate-500">
-            Customer: <b>{getCustomerName(booking)}</b>
+          <p className="safe-text mt-1 text-sm font-semibold text-slate-500">
+            Customer: <b className="text-[#0B1F33]">{getCustomerName(booking)}</b>
           </p>
         </div>
 
-        <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${statusClass(booking.status)}`}>
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-black uppercase ${statusClass(
+            booking.status
+          )}`}
+        >
           {formatStatusLabel(booking.status)}
         </span>
       </div>
@@ -761,20 +873,26 @@ function UpcomingBookingCard({ booking }) {
 
 function PaymentReviewCard({ booking }) {
   return (
-    <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
-      <p className="font-black text-[#2B2B2B]">{getFacilityName(booking)}</p>
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 transition hover:shadow-sm">
+      <p className="safe-text font-black text-[#0B1F33]">
+        {getFacilityName(booking)}
+      </p>
 
-      <p className="mt-1 text-sm text-slate-600">
+      <p className="mt-1 text-sm font-semibold text-slate-600">
         {formatDate(booking.booking_date)} • {formatTime(booking.start_time)} -{" "}
         {formatTime(booking.end_time)}
       </p>
 
-      <p className="mt-1 text-sm text-slate-500">
-        Customer: <b>{getCustomerName(booking)}</b>
+      <p className="safe-text mt-1 text-sm font-semibold text-slate-500">
+        Customer: <b className="text-[#0B1F33]">{getCustomerName(booking)}</b>
       </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${paymentStatusClass(booking.payment_status)}`}>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-black uppercase ${paymentStatusClass(
+            booking.payment_status
+          )}`}
+        >
           {formatStatusLabel(booking.payment_status)}
         </span>
 
@@ -788,17 +906,17 @@ function PaymentReviewCard({ booking }) {
 
 function MaintenanceCard({ block }) {
   return (
-    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
-      <p className="font-black text-[#2B2B2B]">
+    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4 transition hover:shadow-sm">
+      <p className="safe-text font-black text-[#0B1F33]">
         {block.facilities?.name || "Facility"}
       </p>
 
-      <p className="mt-1 text-sm text-slate-600">
+      <p className="mt-1 text-sm font-semibold text-slate-600">
         {formatDate(block.maintenance_date)} • {formatTime(block.start_time)} -{" "}
         {formatTime(block.end_time)}
       </p>
 
-      <p className="mt-1 text-sm font-semibold text-purple-700">
+      <p className="safe-text mt-1 text-sm font-black text-purple-700">
         {block.reason || "Facility maintenance"}
       </p>
     </div>
@@ -809,23 +927,23 @@ function ActivityLogCard({ log }) {
   const action = log.action || log.action_type || "system_event";
 
   return (
-    <div className="rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] p-4">
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="font-black text-[#2B2B2B]">
+    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4 transition hover:border-[#C97B6C]/40 hover:bg-[#FBFAF9]">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <p className="safe-text font-black text-[#0B1F33]">
             {formatStatusLabel(action)}
           </p>
 
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="safe-text mt-1 text-sm font-semibold text-slate-600">
             {log.description || "System activity recorded."}
           </p>
 
-          <p className="mt-1 text-xs font-semibold text-slate-500">
+          <p className="safe-text mt-1 text-xs font-semibold text-slate-500">
             Actor: {log.profiles?.full_name || "System"}
           </p>
         </div>
 
-        <p className="text-xs font-bold text-slate-500">
+        <p className="shrink-0 text-xs font-bold text-slate-500">
           {formatDateTime(log.created_at)}
         </p>
       </div>
@@ -833,12 +951,21 @@ function ActivityLogCard({ log }) {
   );
 }
 
-function ChartCard({ title, description, children }) {
+function ChartCard({ title, description, icon, children }) {
   return (
-    <div className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-      <div className="mb-5">
-        <h3 className="text-2xl font-black text-[#2B2B2B]">{title}</h3>
-        <p className="text-sm text-slate-500">{description}</p>
+    <div className="icb-card p-5 sm:p-6">
+      <div className="mb-5 flex items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658]">
+          {icon}
+        </span>
+
+        <div>
+          <h3 className="text-2xl font-black text-[#0B1F33]">{title}</h3>
+
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            {description}
+          </p>
+        </div>
       </div>
 
       {children}
@@ -846,12 +973,19 @@ function ChartCard({ title, description, children }) {
   );
 }
 
-function Panel({ title, subtitle, children }) {
+function Panel({ title, subtitle, icon, children }) {
   return (
-    <div className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-      <div className="mb-5">
-        <h3 className="text-2xl font-black text-[#2B2B2B]">{title}</h3>
-        <p className="text-sm text-slate-500">{subtitle}</p>
+    <div className="icb-card p-5 sm:p-6">
+      <div className="mb-5 flex items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658]">
+          {icon}
+        </span>
+
+        <div>
+          <h3 className="text-2xl font-black text-[#0B1F33]">{title}</h3>
+
+          <p className="mt-1 text-sm font-semibold text-slate-500">{subtitle}</p>
+        </div>
       </div>
 
       {children}
@@ -861,7 +995,7 @@ function Panel({ title, subtitle, children }) {
 
 function EmptyState({ text }) {
   return (
-    <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
+    <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
       {text}
     </div>
   );

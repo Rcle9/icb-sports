@@ -1,9 +1,13 @@
+// src/pages/staff/AvailabilityBoard.jsx
+
 import { useEffect, useMemo, useState } from "react";
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  Clock,
   RefreshCw,
+  SearchCheck,
   Wrench,
 } from "lucide-react";
 import Sidebar from "../../components/layout/Sidebar";
@@ -192,7 +196,8 @@ function getSlotState({ booking, maintenanceBlock, selectedDate, slot }) {
     return {
       label: "Maintenance",
       description: maintenanceBlock.reason || "Unavailable",
-      className: "border-purple-500 bg-purple-100 text-purple-800",
+      className: "border-purple-500 bg-purple-100 text-purple-800 hover:bg-purple-200",
+      badgeClass: "bg-purple-100 text-purple-800",
     };
   }
 
@@ -201,18 +206,20 @@ function getSlotState({ booking, maintenanceBlock, selectedDate, slot }) {
     const paymentStatus = normalizePaymentStatus(booking.payment_status);
 
     if (status === "approved" && paymentStatus === "paid") {
-  return {
-    label: "Booked",
-    description: getCustomerName(booking),
-    className: "border-slate-400 bg-slate-200 text-slate-700",
-  };
-}
+      return {
+        label: "Booked",
+        description: getCustomerName(booking),
+        className: "border-slate-400 bg-slate-200 text-slate-700 hover:bg-slate-300",
+        badgeClass: "bg-slate-200 text-slate-700",
+      };
+    }
 
     if (paymentStatus === "pending_verification") {
       return {
         label: "Payment Review",
         description: getCustomerName(booking),
-        className: "border-blue-500 bg-blue-100 text-blue-800",
+        className: "border-blue-500 bg-blue-100 text-blue-800 hover:bg-blue-200",
+        badgeClass: "bg-blue-100 text-blue-800",
       };
     }
 
@@ -223,14 +230,16 @@ function getSlotState({ booking, maintenanceBlock, selectedDate, slot }) {
         label: "Reserved",
         description:
           minutesLeft !== null ? `${minutesLeft} min left` : getCustomerName(booking),
-        className: "border-yellow-500 bg-yellow-100 text-yellow-800",
+        className: "border-yellow-500 bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
+        badgeClass: "bg-yellow-100 text-yellow-800",
       };
     }
 
     return {
       label: formatStatusLabel(status),
       description: getCustomerName(booking),
-      className: "border-slate-400 bg-slate-100 text-slate-700",
+      className: "border-slate-400 bg-slate-100 text-slate-700 hover:bg-slate-200",
+      badgeClass: "bg-slate-100 text-slate-700",
     };
   }
 
@@ -239,14 +248,16 @@ function getSlotState({ booking, maintenanceBlock, selectedDate, slot }) {
       label: "Past Time",
       description: "Unavailable",
       className: "border-slate-300 bg-slate-200 text-slate-500",
+      badgeClass: "bg-slate-200 text-slate-600",
     };
   }
 
   return {
-  label: "Open",
-  description: "Available",
-  className: "border-green-500 bg-green-100 text-green-800 hover:bg-green-200",
-};
+    label: "Open",
+    description: "Available",
+    className: "border-green-500 bg-green-100 text-green-800 hover:bg-green-200",
+    badgeClass: "bg-green-100 text-green-800",
+  };
 }
 
 export default function AvailabilityBoard() {
@@ -254,6 +265,8 @@ export default function AvailabilityBoard() {
 
   const sidebarRole =
     String(profile?.role || "").toLowerCase() === "admin" ? "admin" : "staff";
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const [selectedSportFilter, setSelectedSportFilter] = useState("all");
@@ -264,6 +277,7 @@ export default function AvailabilityBoard() {
   const [selectedSlot, setSelectedSlot] = useState(null);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const slots = useMemo(() => generateSlots(), []);
@@ -441,6 +455,15 @@ export default function AvailabilityBoard() {
     }
   }
 
+  async function handleRefresh() {
+    try {
+      setRefreshing(true);
+      await loadBoard(false);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   function getBookingForSlot(facilityId, slot) {
     return dayBookings.find((booking) => {
       if (!isBlockingBooking(booking)) return false;
@@ -514,52 +537,67 @@ export default function AvailabilityBoard() {
 
   return (
     <div className="page-shell">
-      <Sidebar role={sidebarRole} />
+      <Sidebar
+        role={sidebarRole}
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Availability Board" />
+          <Topbar
+            title="Availability Board"
+            subtitle="Live facility schedule monitoring for staff operations."
+            showMenuButton
+            onMenuClick={() => setSidebarOpen(true)}
+          />
 
-          {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          {error && <div className="icb-alert-error mb-5">{error}</div>}
 
           <section className="page-hero mb-6">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <p className="text-sm font-semibold">Live Facility Monitoring</p>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                  Live Facility Monitoring
+                </p>
 
-                <h2 className="mt-2 text-3xl font-black">
+                <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
                   Facility Availability Board
                 </h2>
 
-                <p className="mt-2 text-sm text-white/90">
-                  View open, reserved, booked, payment review, and maintenance slots in real time.
+                <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85 sm:text-base">
+                  View open slots, reserved sessions, booked schedules, payment
+                  reviews, past time slots, and maintenance blocks in real time.
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-                <HeroStat label="Open" value={summary.open} />
-                <HeroStat label="Reserved" value={summary.reserved} />
-                <HeroStat label="Review" value={summary.review} />
-                <HeroStat label="Booked" value={summary.booked} />
-                <HeroStat label="Maintenance" value={summary.maintenance} />
-                <HeroStat label="Past" value={summary.past} />
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+                <HeroStat label="Open" value={summary.open} tone="green" />
+                <HeroStat label="Reserved" value={summary.reserved} tone="amber" />
+                <HeroStat label="Review" value={summary.review} tone="blue" />
+                <HeroStat label="Booked" value={summary.booked} tone="slate" />
+                <HeroStat
+                  label="Maintenance"
+                  value={summary.maintenance}
+                  tone="purple"
+                />
+                <HeroStat label="Past" value={summary.past} tone="muted" />
               </div>
             </div>
           </section>
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <section className="icb-card mb-6 p-5 sm:p-6">
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                <p className="icb-eyebrow">Board Controls</p>
+
+                <h3 className="icb-section-title mt-2">
                   {formatDate(selectedDate)}
                 </h3>
 
-                <p className="text-sm text-slate-500">
-                  Select a date and sport type to check facility availability.
+                <p className="icb-section-subtitle">
+                  Select a date and sport type to check each facility’s time slot
+                  availability.
                 </p>
               </div>
 
@@ -567,7 +605,8 @@ export default function AvailabilityBoard() {
                 <button
                   type="button"
                   onClick={goPreviousDay}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold hover:bg-[#F5F3F1]"
+                  className="icb-btn-light"
+                  aria-label="Previous day"
                 >
                   <ChevronLeft size={18} />
                 </button>
@@ -575,87 +614,115 @@ export default function AvailabilityBoard() {
                 <div className="relative">
                   <Calendar
                     size={18}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
                   />
 
                   <input
                     type="date"
                     value={selectedDate}
                     onChange={(event) => handleDateChange(event.target.value)}
-                    className="rounded-2xl border border-[#DED8D2] px-11 py-3 font-bold outline-none focus:border-[#C97B6C]"
+                    className="icb-input w-auto min-w-[190px] pl-11"
                   />
                 </div>
 
                 <button
                   type="button"
                   onClick={goNextDay}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold hover:bg-[#F5F3F1]"
+                  className="icb-btn-light"
+                  aria-label="Next day"
                 >
                   <ChevronRight size={18} />
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => loadBoard()}
-                  className="rounded-2xl bg-[#C97B6C] px-5 py-3 text-sm font-bold text-white hover:bg-[#B87463]"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  className="icb-btn-accent disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span className="inline-flex items-center gap-2">
-                    <RefreshCw size={16} />
-                    Refresh
-                  </span>
+                  <RefreshCw
+                    size={17}
+                    className={refreshing ? "animate-spin" : ""}
+                  />
+                  {refreshing ? "Refreshing..." : "Refresh"}
                 </button>
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-4 text-xs font-bold text-slate-600">
+            <div className="mt-6 rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-4">
+              <p className="mb-4 flex items-center gap-2 text-sm font-black text-[#0B1F33]">
+                <SearchCheck size={17} />
+                Sport Filter
+              </p>
+
+              <div className="flex flex-wrap gap-3">
+                {SPORT_FILTERS.map((sport) => (
+                  <button
+                    key={sport.value}
+                    type="button"
+                    onClick={() => handleSportFilterChange(sport.value)}
+                    className={
+                      selectedSportFilter === sport.value
+                        ? "icb-btn-accent"
+                        : "icb-btn-light"
+                    }
+                  >
+                    {sport.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-4 text-xs font-bold text-slate-600">
               <Legend color="bg-green-100 border-green-500" label="Open" />
               <Legend color="bg-yellow-100 border-yellow-500" label="Reserved" />
               <Legend color="bg-blue-100 border-blue-500" label="Payment Review" />
-              <Legend color="bg-green-100 border-green-600" label="Booked / Paid" />
+              <Legend color="bg-slate-200 border-slate-400" label="Booked / Paid" />
               <Legend color="bg-purple-100 border-purple-500" label="Maintenance" />
               <Legend color="bg-slate-200 border-slate-300" label="Past Time" />
             </div>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              {SPORT_FILTERS.map((sport) => (
-                <button
-                  key={sport.value}
-                  type="button"
-                  onClick={() => handleSportFilterChange(sport.value)}
-                  className={`rounded-2xl px-5 py-3 text-sm font-bold transition ${
-                    selectedSportFilter === sport.value
-                      ? "bg-[#C97B6C] text-white"
-                      : "border border-[#DED8D2] text-slate-600 hover:bg-[#F5F3F1]"
-                  }`}
-                >
-                  {sport.label}
-                </button>
-              ))}
-            </div>
           </section>
 
-          <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            {loading ? (
-              <p className="text-sm text-slate-500">Loading availability board...</p>
-            ) : filteredFacilities.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#DED8D2] p-8 text-center text-sm text-slate-500">
-                No facilities found for this sport type.
+          <section className="icb-card p-5 sm:p-6">
+            <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="icb-eyebrow">Schedule Grid</p>
+
+                <h3 className="icb-section-title mt-2">Facility Time Slots</h3>
+
+                <p className="icb-section-subtitle">
+                  Click any slot to view its details, booking information, or
+                  maintenance reason.
+                </p>
               </div>
+
+              <div className="rounded-2xl bg-[#F3E4DF] px-4 py-3 text-sm font-black text-[#B86658]">
+                {filteredFacilities.length} facility
+                {filteredFacilities.length === 1 ? "" : "ies"} shown
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-8 text-sm font-semibold text-slate-500">
+                Loading availability board...
+              </div>
+            ) : filteredFacilities.length === 0 ? (
+              <EmptyState text="No facilities found for this sport type." />
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
+              <div className="calendar-scroll overflow-x-auto rounded-2xl border border-[#DED8D2]">
                 <table className="w-full min-w-[1100px] border-collapse text-sm">
                   <thead>
-                    <tr className="bg-slate-100">
-                      <th className="w-[160px] border border-[#DED8D2] px-4 py-4 text-left text-[#2B2B2B]">
+                    <tr className="bg-[#F5F3F1]">
+                      <th className="w-[160px] border border-[#DED8D2] px-4 py-4 text-left text-[#0B1F33]">
                         Time
                       </th>
 
                       {filteredFacilities.map((facility) => (
                         <th
                           key={facility.id}
-                          className="border border-[#DED8D2] px-4 py-4 text-center text-[#2B2B2B]"
+                          className="border border-[#DED8D2] px-4 py-4 text-center text-[#0B1F33]"
                         >
-                          <div className="font-black">{facility.name}</div>
+                          <div className="safe-text font-black">{facility.name}</div>
 
                           <div className="mt-1 text-xs font-black text-[#C97B6C]">
                             {money(getFacilityRate(facility))}/hr
@@ -668,8 +735,11 @@ export default function AvailabilityBoard() {
                   <tbody>
                     {slots.map((slot) => (
                       <tr key={slot.label}>
-                        <td className="border border-[#DED8D2] px-4 py-4 font-bold text-[#2B2B2B]">
-                          {slot.label}
+                        <td className="border border-[#DED8D2] bg-white px-4 py-4 font-black text-[#0B1F33]">
+                          <div className="flex items-center gap-2">
+                            <Clock size={15} className="text-[#C97B6C]" />
+                            {slot.label}
+                          </div>
                         </td>
 
                         {filteredFacilities.map((facility) => {
@@ -689,12 +759,12 @@ export default function AvailabilityBoard() {
                           return (
                             <td
                               key={`${facility.id}-${slot.index}`}
-                              className="border border-[#DED8D2] p-1"
+                              className="border border-[#DED8D2] bg-white p-1"
                             >
                               <button
                                 type="button"
                                 onClick={() => openSlotDetails(facility, slot)}
-                                className={`min-h-[78px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${state.className}`}
+                                className={`min-h-[82px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${state.className}`}
                               >
                                 {state.label}
                                 <br />
@@ -737,33 +807,29 @@ function SlotDetailsModal({ data, onClose }) {
   const { facility, slot, booking, maintenanceBlock, state } = data;
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45 px-4 py-6">
+      <div className="icb-card max-h-[92vh] w-full max-w-2xl overflow-y-auto p-5 shadow-2xl sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
-              Slot Details
-            </p>
+            <p className="icb-eyebrow">Slot Details</p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
+            <h2 className="mt-2 text-2xl font-black text-[#0B1F33]">
               {facility.name}
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">{slot.label}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-500">
+              {slot.label}
+            </p>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1]"
-          >
+          <button type="button" onClick={onClose} className="icb-btn-light">
             Close
           </button>
         </div>
 
         <div className="mt-5">
           <span
-            className={`rounded-full border px-4 py-2 text-xs font-black uppercase ${state.className}`}
+            className={`inline-flex rounded-full px-4 py-2 text-xs font-black uppercase ${state.badgeClass}`}
           >
             {state.label}
           </span>
@@ -823,11 +889,11 @@ function SlotDetailsModal({ data, onClose }) {
 function DetailItem({ label, value }) {
   return (
     <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
-      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
         {label}
       </p>
 
-      <p className="mt-2 break-words text-sm font-black text-[#2B2B2B]">
+      <p className="safe-text mt-2 text-sm font-black text-[#0B1F33]">
         {value || "-"}
       </p>
     </div>
@@ -843,11 +909,32 @@ function Legend({ color, label }) {
   );
 }
 
-function HeroStat({ label, value }) {
+function HeroStat({ label, value, tone = "navy" }) {
+  const toneClasses = {
+    navy: "bg-white/15 text-white",
+    green: "bg-green-500/20 text-white",
+    amber: "bg-yellow-500/20 text-white",
+    blue: "bg-blue-500/20 text-white",
+    slate: "bg-white/15 text-white",
+    purple: "bg-purple-500/20 text-white",
+    muted: "bg-white/10 text-white",
+  };
+
   return (
-    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white">
-      <p className="text-xs font-black uppercase tracking-widest">{label}</p>
-      <h3 className="mt-1 text-2xl font-black">{value}</h3>
+    <div className={`rounded-2xl px-4 py-3 ${toneClasses[tone] || toneClasses.navy}`}>
+      <p className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-white/80">
+        {label}
+      </p>
+
+      <h3 className="mt-2 text-2xl font-black">{value}</h3>
+    </div>
+  );
+}
+
+function EmptyState({ text }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-8 text-center text-sm font-semibold text-slate-500">
+      {text}
     </div>
   );
 }

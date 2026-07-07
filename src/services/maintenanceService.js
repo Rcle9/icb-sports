@@ -1,115 +1,83 @@
-import { supabase } from "./supabaseClient";
-import { createNotification } from "./notificationService";
-import { createActivityLog } from "./activityLogService";
+// src/services/maintenanceService.js
 
-function cleanText(value) {
+import { supabase } from "./supabaseClient";
+import {
+  createAdminNotification,
+  createStaffNotification,
+} from "./notificationService";
+
+function cleanString(value) {
   return String(value || "").trim();
 }
 
-function formatStatus(status) {
-  return String(status || "pending").replaceAll("_", " ");
+function normalizeStatus(status) {
+  const value = String(status || "pending").toLowerCase();
+
+  if (value === "completed") return "completed";
+  if (value === "in_progress") return "in_progress";
+  if (value === "cancelled") return "cancelled";
+
+  return "pending";
 }
 
-async function safeCreateNotification(payload) {
-  try {
-    await createNotification({
-      user_id: payload.user_id,
-      target_role: payload.target_role || null,
-      title: payload.title || "Notification",
-      message: payload.message || "",
-      type: payload.type || "general",
-      reference_id: payload.reference_id || null,
-      booking_id: payload.booking_id || null,
-    });
-  } catch (err) {
-    console.error("Maintenance notification error:", err.message);
-  }
+function normalizePriority(priority) {
+  const value = String(priority || "medium").toLowerCase();
+
+  if (value === "low") return "low";
+  if (value === "high") return "high";
+  if (value === "urgent") return "urgent";
+
+  return "medium";
 }
 
-async function notifyAdminsAboutMaintenance(request) {
-  try {
-    const { data: adminProfiles, error } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("role", "admin");
-
-    if (error) throw error;
-
-    if (!adminProfiles?.length) return;
-
-    await Promise.all(
-      adminProfiles.map((admin) =>
-        safeCreateNotification({
-          user_id: admin.id,
-          target_role: "admin",
-          title: "New Maintenance Request",
-          message:
-            "A new maintenance request was submitted and may need admin attention.",
-          type: "maintenance_admin",
-          reference_id: request.id,
-        })
-      )
-    );
-  } catch (err) {
-    console.error("Notify admins maintenance error:", err.message);
-  }
-}
-
-async function notifyRequesterAboutMaintenanceUpdate(request, status) {
-  if (!request?.requested_by) return;
-
-  await safeCreateNotification({
-    user_id: request.requested_by,
-    target_role: "staff",
-    title: "Maintenance Update",
-    message: `Your request is now ${formatStatus(status)}.`,
-    type: "maintenance",
-    reference_id: request.id,
-  });
-}
-
-export async function createMaintenanceRequest(payload) {
-  const cleanPayload = {
-    ...payload,
-    status: payload.status || "pending",
-    replacement_requested: Boolean(payload.replacement_requested),
+function buildMaintenanceMetadata(item = {}) {
+  return {
+    maintenance_id: item.id || null,
+    facility_id: item.facility_id || null,
+    facility_name:
+      item.facilities?.name || item.facility_name || item.facility || null,
+    title: item.title || item.issue_title || null,
+    description: item.description || item.issue_description || "",
+    priority: item.priority || "medium",
+    status: item.status || "pending",
+    scheduled_date: item.scheduled_date || item.date || null,
+    start_time: item.start_time || null,
+    end_time: item.end_time || null,
+    created_by: item.created_by || null,
+    assigned_to: item.assigned_to || null,
+    completed_at: item.completed_at || null,
   };
-
-  const { data, error } = await supabase
-    .from("maintenance_requests")
-    .insert([cleanPayload])
-    .select("*")
-    .single();
-
-  if (error) throw error;
-
-  await createActivityLog({
-    action: "maintenance_created",
-    module: "maintenance",
-    description: `Created maintenance request for ${
-      data.item_name || data.request_type || "maintenance item"
-    }.`,
-    reference_id: data.id,
-    metadata: {
-      maintenance_id: data.id,
-      requested_by: data.requested_by || null,
-      item_name: data.item_name || "",
-      request_type: data.request_type || "",
-      priority: data.priority || "",
-      status: data.status || "pending",
-      replacement_requested: Boolean(data.replacement_requested),
-    },
-  });
-
-  await notifyAdminsAboutMaintenance(data);
-
-  return data;
 }
 
-export async function getMaintenanceRequests() {
+async function safeNotify(fn) {
+  try {
+    await fn();
+  } catch (error) {
+    console.error("Maintenance notification error:", error?.message || error);
+  }
+}
+
+export async function getMaintenanceRecords() {
   const { data, error } = await supabase
-    .from("maintenance_requests")
-    .select("*")
+    .from("maintenance")
+    .select(
+      `
+      *,
+      facilities (*),
+      creator:created_by (
+        id,
+        full_name,
+        email,
+        role
+      ),
+      assignee:assigned_to (
+        id,
+        full_name,
+        email,
+        role
+      )
+    `
+    )
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -117,149 +85,403 @@ export async function getMaintenanceRequests() {
   return data || [];
 }
 
-export async function getMaintenanceRequestById(requestId) {
-  if (!requestId) throw new Error("Missing maintenance request ID.");
+export async function getActiveMaintenanceRecords() {
+  const { data, error } = await supabase
+    .from("maintenance")
+    .select(
+      `
+      *,
+      facilities (*),
+      creator:created_by (
+        id,
+        full_name,
+        email,
+        role
+      ),
+      assignee:assigned_to (
+        id,
+        full_name,
+        email,
+        role
+      )
+    `
+    )
+    .in("status", ["pending", "in_progress"])
+    .order("scheduled_date", { ascending: true });
+
+  if (error) throw error;
+
+  return data || [];
+}
+
+export async function getMaintenanceById(id) {
+  if (!id) return null;
 
   const { data, error } = await supabase
-    .from("maintenance_requests")
-    .select("*")
-    .eq("id", requestId)
+    .from("maintenance")
+    .select(
+      `
+      *,
+      facilities (*),
+      creator:created_by (
+        id,
+        full_name,
+        email,
+        role
+      ),
+      assignee:assigned_to (
+        id,
+        full_name,
+        email,
+        role
+      )
+    `
+    )
+    .eq("id", id)
     .maybeSingle();
 
   if (error) throw error;
-  if (!data) throw new Error("Maintenance request not found.");
 
-  return data;
+  return data || null;
 }
 
-export async function updateMaintenanceStatus(
-  requestId,
-  status,
-  updatedBy,
-  replacementRequested = false
-) {
-  if (!requestId) throw new Error("Missing maintenance request ID.");
-  if (!status) throw new Error("Missing maintenance status.");
-
-  const beforeItem = await getMaintenanceRequestById(requestId);
-
-  const updatePayload = {
-    status,
-    updated_by: updatedBy || null,
-    replacement_requested: Boolean(replacementRequested),
-  };
-
-  const { data, error } = await supabase
-    .from("maintenance_requests")
-    .update(updatePayload)
-    .eq("id", requestId)
-    .select("*")
-    .single();
-
-  if (error) throw error;
-
-  await notifyRequesterAboutMaintenanceUpdate(data, status);
-
-  await createActivityLog({
-    action:
-      status === "completed"
-        ? "maintenance_completed"
-        : "maintenance_status_updated",
-    module: "maintenance",
-    description: `Updated maintenance request for ${
-      data.item_name || data.request_type || "maintenance item"
-    } from ${formatStatus(beforeItem.status)} to ${formatStatus(data.status)}.`,
-    reference_id: data.id,
-    metadata: {
-      maintenance_id: data.id,
-      updated_by: updatedBy || null,
-      item_name: data.item_name || "",
-      request_type: data.request_type || "",
-      priority: data.priority || "",
-      before_status: beforeItem.status || "",
-      after_status: data.status || "",
-      before_replacement_requested: Boolean(beforeItem.replacement_requested),
-      after_replacement_requested: Boolean(data.replacement_requested),
-    },
-  });
-
-  return data;
-}
-
-export async function updateMaintenanceRequest(requestId, payload = {}) {
-  if (!requestId) throw new Error("Missing maintenance request ID.");
-
-  const beforeItem = await getMaintenanceRequestById(requestId);
-
+export async function createMaintenanceRecord(payload = {}) {
   const cleanPayload = {
-    ...payload,
+    facility_id: payload.facility_id || null,
+    title: cleanString(payload.title || payload.issue_title),
+    description: cleanString(payload.description || payload.issue_description),
+    priority: normalizePriority(payload.priority),
+    status: normalizeStatus(payload.status || "pending"),
+    scheduled_date: payload.scheduled_date || payload.date || null,
+    start_time: payload.start_time || null,
+    end_time: payload.end_time || null,
+    created_by: payload.created_by || null,
+    assigned_to: payload.assigned_to || null,
+    notes: cleanString(payload.notes),
   };
 
-  if (Object.prototype.hasOwnProperty.call(cleanPayload, "replacement_requested")) {
-    cleanPayload.replacement_requested = Boolean(cleanPayload.replacement_requested);
+  if (!cleanPayload.facility_id) {
+    throw new Error("Facility is required.");
+  }
+
+  if (!cleanPayload.title) {
+    throw new Error("Maintenance title is required.");
   }
 
   const { data, error } = await supabase
-    .from("maintenance_requests")
-    .update(cleanPayload)
-    .eq("id", requestId)
-    .select("*")
+    .from("maintenance")
+    .insert([cleanPayload])
+    .select(
+      `
+      *,
+      facilities (*),
+      creator:created_by (
+        id,
+        full_name,
+        email,
+        role
+      ),
+      assignee:assigned_to (
+        id,
+        full_name,
+        email,
+        role
+      )
+    `
+    )
     .single();
 
   if (error) throw error;
 
-  await createActivityLog({
-    action: "maintenance_updated",
-    module: "maintenance",
-    description: `Updated maintenance request for ${
-      data.item_name || data.request_type || "maintenance item"
-    }.`,
-    reference_id: data.id,
-    metadata: {
-      maintenance_id: data.id,
-      item_name: data.item_name || "",
-      request_type: data.request_type || "",
-      priority_before: beforeItem.priority || "",
-      priority_after: data.priority || "",
-      status_before: beforeItem.status || "",
-      status_after: data.status || "",
-      replacement_requested_before: Boolean(beforeItem.replacement_requested),
-      replacement_requested_after: Boolean(data.replacement_requested),
-    },
+  const metadata = buildMaintenanceMetadata(data);
+
+  await safeNotify(async () => {
+    await createStaffNotification({
+      title: "Maintenance Scheduled",
+      message: `${data.title} was added for ${
+        data.facilities?.name || "a facility"
+      }.`,
+      type: "maintenance_added",
+      referenceId: data.id,
+      referenceType: "maintenance",
+      actionUrl: "/staff/maintenance",
+      metadata,
+    });
+  });
+
+  await safeNotify(async () => {
+    await createAdminNotification({
+      title: "Maintenance Scheduled",
+      message: `${data.title} was added for ${
+        data.facilities?.name || "a facility"
+      }.`,
+      type: "maintenance_added",
+      referenceId: data.id,
+      referenceType: "maintenance",
+      actionUrl: "/staff/maintenance",
+      metadata,
+    });
   });
 
   return data;
 }
 
-export async function deleteMaintenanceRequest(requestId) {
-  if (!requestId) throw new Error("Missing maintenance request ID.");
+export async function updateMaintenanceRecord(id, payload = {}) {
+  if (!id) {
+    throw new Error("Maintenance ID is required.");
+  }
 
-  const beforeItem = await getMaintenanceRequestById(requestId);
+  const cleanPayload = {
+    ...payload,
+    updated_at: new Date().toISOString(),
+  };
 
-  const { error } = await supabase
-    .from("maintenance_requests")
-    .delete()
-    .eq("id", requestId);
+  if (payload.title !== undefined || payload.issue_title !== undefined) {
+    cleanPayload.title = cleanString(payload.title || payload.issue_title);
+    delete cleanPayload.issue_title;
+  }
+
+  if (
+    payload.description !== undefined ||
+    payload.issue_description !== undefined
+  ) {
+    cleanPayload.description = cleanString(
+      payload.description || payload.issue_description
+    );
+    delete cleanPayload.issue_description;
+  }
+
+  if (payload.notes !== undefined) {
+    cleanPayload.notes = cleanString(payload.notes);
+  }
+
+  if (payload.priority !== undefined) {
+    cleanPayload.priority = normalizePriority(payload.priority);
+  }
+
+  if (payload.date !== undefined && payload.scheduled_date === undefined) {
+    cleanPayload.scheduled_date = payload.date;
+    delete cleanPayload.date;
+  }
+
+  if (payload.status !== undefined) {
+    cleanPayload.status = normalizeStatus(payload.status);
+
+    if (cleanPayload.status === "completed") {
+      cleanPayload.completed_at = new Date().toISOString();
+    }
+
+    if (cleanPayload.status !== "completed") {
+      cleanPayload.completed_at = null;
+    }
+  }
+
+  Object.keys(cleanPayload).forEach((key) => {
+    if (cleanPayload[key] === undefined) {
+      delete cleanPayload[key];
+    }
+  });
+
+  const { data, error } = await supabase
+    .from("maintenance")
+    .update(cleanPayload)
+    .eq("id", id)
+    .select(
+      `
+      *,
+      facilities (*),
+      creator:created_by (
+        id,
+        full_name,
+        email,
+        role
+      ),
+      assignee:assigned_to (
+        id,
+        full_name,
+        email,
+        role
+      )
+    `
+    )
+    .single();
 
   if (error) throw error;
 
-  await createActivityLog({
-    action: "maintenance_deleted",
-    module: "maintenance",
-    description: `Deleted maintenance request for ${
-      beforeItem.item_name || beforeItem.request_type || "maintenance item"
-    }.`,
-    reference_id: beforeItem.id,
-    metadata: {
-      maintenance_id: beforeItem.id,
-      requested_by: beforeItem.requested_by || null,
-      item_name: beforeItem.item_name || "",
-      request_type: beforeItem.request_type || "",
-      priority: beforeItem.priority || "",
-      status: beforeItem.status || "",
-      replacement_requested: Boolean(beforeItem.replacement_requested),
-    },
+  const metadata = buildMaintenanceMetadata(data);
+
+  await safeNotify(async () => {
+    await createStaffNotification({
+      title: "Maintenance Updated",
+      message: `${data.title} status is now ${formatMaintenanceStatus(
+        data.status
+      )}.`,
+      type: "maintenance_update",
+      referenceId: data.id,
+      referenceType: "maintenance",
+      actionUrl: "/staff/maintenance",
+      metadata,
+    });
   });
 
+  await safeNotify(async () => {
+    await createAdminNotification({
+      title: "Maintenance Updated",
+      message: `${data.title} status is now ${formatMaintenanceStatus(
+        data.status
+      )}.`,
+      type: "maintenance_update",
+      referenceId: data.id,
+      referenceType: "maintenance",
+      actionUrl: "/staff/maintenance",
+      metadata,
+    });
+  });
+
+  return data;
+}
+
+export async function updateMaintenanceStatus(id, status, notes = "") {
+  return updateMaintenanceRecord(id, {
+    status,
+    notes,
+  });
+}
+
+export async function completeMaintenanceRecord(id, notes = "") {
+  return updateMaintenanceRecord(id, {
+    status: "completed",
+    notes,
+  });
+}
+
+export async function cancelMaintenanceRecord(id, notes = "") {
+  return updateMaintenanceRecord(id, {
+    status: "cancelled",
+    notes,
+  });
+}
+
+export async function deleteMaintenanceRecord(id) {
+  if (!id) {
+    throw new Error("Maintenance ID is required.");
+  }
+
+  const record = await getMaintenanceById(id);
+
+  const { error } = await supabase.from("maintenance").delete().eq("id", id);
+
+  if (error) throw error;
+
+  if (record) {
+    const metadata = buildMaintenanceMetadata(record);
+
+    await safeNotify(async () => {
+      await createStaffNotification({
+        title: "Maintenance Deleted",
+        message: `${record.title} was removed from maintenance records.`,
+        type: "maintenance_deleted",
+        referenceId: record.id,
+        referenceType: "maintenance",
+        actionUrl: "/staff/maintenance",
+        metadata,
+      });
+    });
+
+    await safeNotify(async () => {
+      await createAdminNotification({
+        title: "Maintenance Deleted",
+        message: `${record.title} was removed from maintenance records.`,
+        type: "maintenance_deleted",
+        referenceId: record.id,
+        referenceType: "maintenance",
+        actionUrl: "/staff/maintenance",
+        metadata,
+      });
+    });
+  }
+
   return true;
+}
+
+export function formatMaintenanceStatus(status) {
+  const value = normalizeStatus(status);
+
+  if (value === "completed") return "Completed";
+  if (value === "in_progress") return "In Progress";
+  if (value === "cancelled") return "Cancelled";
+
+  return "Pending";
+}
+
+export function formatMaintenancePriority(priority) {
+  const value = normalizePriority(priority);
+
+  if (value === "low") return "Low";
+  if (value === "high") return "High";
+  if (value === "urgent") return "Urgent";
+
+  return "Medium";
+}
+
+export function getMaintenanceStatusClass(status) {
+  const value = normalizeStatus(status);
+
+  if (value === "completed") return "bg-green-100 text-green-700";
+  if (value === "in_progress") return "bg-blue-100 text-blue-700";
+  if (value === "cancelled") return "bg-red-100 text-red-700";
+
+  return "bg-amber-100 text-amber-700";
+}
+
+export function getMaintenancePriorityClass(priority) {
+  const value = normalizePriority(priority);
+
+  if (value === "low") return "bg-slate-100 text-slate-700";
+  if (value === "high") return "bg-orange-100 text-orange-700";
+  if (value === "urgent") return "bg-red-100 text-red-700";
+
+  return "bg-blue-100 text-blue-700";
+}
+
+export function isFacilityUnderMaintenance(maintenanceRecords = [], facilityId) {
+  if (!facilityId) return false;
+
+  return maintenanceRecords.some((record) => {
+    const status = normalizeStatus(record.status);
+
+    return (
+      String(record.facility_id) === String(facilityId) &&
+      ["pending", "in_progress"].includes(status)
+    );
+  });
+}
+
+/* Backward-compatible exports for your current Maintenance.jsx */
+export async function getMaintenanceRequests() {
+  return getMaintenanceRecords();
+}
+
+export async function getMaintenanceRequestById(id) {
+  return getMaintenanceById(id);
+}
+
+export async function createMaintenanceRequest(payload = {}) {
+  return createMaintenanceRecord(payload);
+}
+
+export async function updateMaintenanceRequest(id, payload = {}) {
+  return updateMaintenanceRecord(id, payload);
+}
+
+export async function deleteMaintenanceRequest(id) {
+  return deleteMaintenanceRecord(id);
+}
+
+export async function completeMaintenanceRequest(id, notes = "") {
+  return completeMaintenanceRecord(id, notes);
+}
+
+export async function cancelMaintenanceRequest(id, notes = "") {
+  return cancelMaintenanceRecord(id, notes);
 }

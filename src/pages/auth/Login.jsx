@@ -1,30 +1,23 @@
+// src/pages/auth/Login.jsx
+
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Mail, Lock, LogIn } from "lucide-react";
+import {
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Loader2,
+  LockKeyhole,
+  LogIn,
+  Mail,
+  ShieldCheck,
+  Sparkles,
+  Trophy,
+  UserPlus,
+} from "lucide-react";
 import { signInUser, signInWithGoogle } from "../../services/authService";
-
-function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        fill="#4285F4"
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.15v2.84C3.96 20.53 7.68 23 12 23z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.15C1.42 8.52 1 10.21 1 12s.42 3.48 1.15 4.94l3.69-2.84z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 5.37c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.68 1 3.96 3.47 2.15 7.06l3.69 2.84C6.71 7.3 9.14 5.37 12 5.37z"
-      />
-    </svg>
-  );
-}
+import logo from "../../assets/ICBLOGO.jpg";
+import heroImage from "../../assets/landing/hero.jpg";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -34,6 +27,7 @@ export default function Login() {
     password: "",
   });
 
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
@@ -50,16 +44,23 @@ export default function Login() {
   async function handleSubmit(event) {
     event.preventDefault();
 
+    if (!form.email.trim() || !form.password.trim()) {
+      setError("Please enter your email and password.");
+      return;
+    }
+
     try {
       setError("");
       setLoading(true);
 
-      await signInUser(form);
+      await signInUser(form.email.trim(), form.password);
 
-      navigate("/dashboard", { replace: true });
+      navigate("/home", { replace: true });
     } catch (err) {
-      console.error(err);
-      setError(err.message || "Login failed.");
+      setError(
+        err.message ||
+          "Unable to log in. Please check your email and password."
+      );
     } finally {
       setLoading(false);
     }
@@ -72,158 +73,284 @@ export default function Login() {
 
       await signInWithGoogle();
     } catch (err) {
-      console.error(err);
-      setError(err.message || "Google sign in failed.");
+      setError(err.message || "Google login failed. Please try again.");
       setGoogleLoading(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#F5F3F1] px-4 py-10">
-      <div className="grid w-full max-w-6xl overflow-hidden rounded-[36px] border border-[#DED8D2] bg-white shadow-[0_20px_60px_rgba(11,31,51,0.12)] lg:grid-cols-[1fr_0.9fr]">
-        <section className="relative hidden overflow-hidden bg-[#0B1F33] p-10 text-white lg:flex lg:flex-col lg:justify-between">
-          <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-[#C97B6C]/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-24 -left-20 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
+    <main className="relative grid min-h-screen overflow-hidden bg-[#F5F3F1] text-[#0B1F33] lg:grid-cols-[1.05fr_0.95fr]">
+      <section className="relative hidden min-h-screen overflow-hidden bg-[#0B1F33] text-white lg:block">
+        <img
+          src={heroImage}
+          alt="InCredoBall Sports"
+          className="absolute inset-0 h-full w-full object-cover opacity-35"
+        />
 
-          <div className="relative">
-            <p className="text-sm font-black uppercase tracking-[0.25em] text-[#E8A093]">
-              InCredoBall
-            </p>
+        <div className="absolute inset-0 bg-gradient-to-r from-[#0B1F33] via-[#0B1F33]/92 to-[#0B1F33]/45" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(201,123,108,0.35),transparent_30%),radial-gradient(circle_at_80%_70%,rgba(255,255,255,0.13),transparent_25%)]" />
 
-            <h1 className="mt-5 max-w-xl text-5xl font-black leading-tight">
-              Sports facility management made simple.
-            </h1>
+        <div className="absolute inset-0 opacity-[0.08]">
+          <div className="absolute left-[-130px] top-16 h-[420px] w-[420px] rounded-full border-[28px] border-white" />
+          <div className="absolute bottom-[-160px] right-[-150px] h-[520px] w-[520px] rounded-full border-[34px] border-white" />
+          <div className="absolute left-[52%] top-0 h-full w-px bg-white" />
+        </div>
 
-            <p className="mt-5 max-w-lg text-base font-semibold leading-7 text-white/75">
-              Book facilities, track reservations, upload payment proof, and receive
-              real-time updates from one secure portal.
-            </p>
-          </div>
+        <div className="relative flex min-h-screen flex-col justify-between p-10 xl:p-14">
+          <Link to="/" className="flex w-fit items-center gap-3">
+            <img
+              src={logo}
+              alt="InCredoBall"
+              className="h-14 w-14 rounded-2xl border border-white/10 bg-white object-cover shadow-lg"
+            />
 
-          <div className="relative grid grid-cols-2 gap-4">
-            <InfoBox title="Facility Booking" text="Reserve exact courts and tables." />
-            <InfoBox title="Payment Tracking" text="Upload proof for verification." />
-            <InfoBox title="Notifications" text="Receive booking updates." />
-            <InfoBox title="Secure Access" text="Login with email or Google." />
-          </div>
-        </section>
-
-        <section className="p-6 sm:p-8 lg:p-10">
-          <div className="mx-auto w-full max-w-md">
-            <div className="mb-8">
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-[#C97B6C]">
-                Welcome Back
-              </p>
-
-              <h2 className="mt-3 text-4xl font-black text-[#0B1F33]">
-                Sign in
-              </h2>
-
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-                Access your InCredoBall Sports account.
+            <div>
+              <h1 className="text-2xl font-black">InCredoBall</h1>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                Sports & Recreation
               </p>
             </div>
+          </Link>
 
-            {error && (
-              <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-                {error}
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.22em] text-[#E8A093] backdrop-blur">
+              <Sparkles size={15} />
+              Welcome Back
+            </div>
+
+            <h2 className="mt-7 text-6xl font-black leading-[0.98] tracking-tight xl:text-7xl">
+              Log in.
+              <span className="block text-[#E8A093]">Book faster.</span>
+              Play sooner.
+            </h2>
+
+            <p className="mt-6 max-w-2xl text-lg font-semibold leading-8 text-white/75">
+              Access your InCredoBall account to book facilities, check your
+              reservations, view notifications, and manage your sports schedule.
+            </p>
+
+            <div className="mt-8 grid max-w-2xl grid-cols-3 gap-4">
+              <HeroStat value="Live" label="Booking" />
+              <HeroStat value="Staff" label="Approval" />
+              <HeroStat value="Sports" label="Facility" />
+            </div>
+          </div>
+
+          <div className="grid max-w-3xl grid-cols-3 gap-4">
+            <FeatureCard icon={Trophy} title="Book" text="Reserve facilities" />
+            <FeatureCard icon={ShieldCheck} title="Track" text="View status" />
+            <FeatureCard icon={UserPlus} title="Play" text="Enjoy your game" />
+          </div>
+        </div>
+      </section>
+
+      <section className="relative flex min-h-screen items-center justify-center px-5 py-10 sm:px-6">
+        <div className="absolute -left-32 -top-32 h-80 w-80 rounded-full bg-[#C97B6C]/15 blur-3xl" />
+        <div className="absolute -bottom-36 -right-36 h-96 w-96 rounded-full bg-[#0B1F33]/10 blur-3xl" />
+
+        <div className="relative w-full max-w-[520px]">
+          <div className="mb-8 flex items-center justify-between gap-4 lg:hidden">
+            <Link to="/" className="flex min-w-0 items-center gap-3">
+              <img
+                src={logo}
+                alt="InCredoBall"
+                className="h-12 w-12 rounded-2xl border border-[#DED8D2] bg-white object-cover shadow-sm"
+              />
+
+              <div className="min-w-0">
+                <h1 className="truncate text-xl font-black text-[#0B1F33]">
+                  InCredoBall
+                </h1>
+
+                <p className="truncate text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+                  Sports & Recreation
+                </p>
               </div>
-            )}
+            </Link>
 
-            <button
-              type="button"
-              onClick={handleGoogleLogin}
-              disabled={googleLoading || loading}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-[#DED8D2] bg-white px-5 py-3.5 text-sm font-black text-[#0B1F33] transition hover:bg-[#F3E4DF] disabled:cursor-not-allowed disabled:opacity-60"
+            <Link
+              to="/"
+              className="rounded-2xl border border-[#DED8D2] bg-white px-4 py-2 text-sm font-black text-[#0B1F33] shadow-sm transition hover:bg-[#FFF8F6]"
             >
-              <GoogleIcon />
-              {googleLoading ? "Opening Google..." : "Continue with Google"}
-            </button>
+              Home
+            </Link>
+          </div>
 
-            <div className="my-6 flex items-center gap-4">
-              <div className="h-px flex-1 bg-[#DED8D2]" />
-              <span className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-                or
-              </span>
-              <div className="h-px flex-1 bg-[#DED8D2]" />
+          <div className="overflow-hidden rounded-[34px] border border-[#DED8D2] bg-white shadow-[0_24px_70px_rgba(15,23,42,0.10)]">
+            <div className="relative overflow-hidden bg-[#0B1F33] p-7 text-white sm:p-8">
+              <div className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#C97B6C]/25 blur-3xl" />
+              <div className="absolute -bottom-20 -left-20 h-44 w-44 rounded-full bg-white/10 blur-3xl" />
+
+              <div className="relative">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                  <LogIn size={15} />
+                  Account Login
+                </div>
+
+                <h2 className="mt-5 text-4xl font-black tracking-tight">
+                  Welcome back
+                </h2>
+
+                <p className="mt-2 text-sm font-semibold leading-7 text-white/70">
+                  Sign in to continue to your InCredoBall dashboard.
+                </p>
+              </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <FormField icon={Mail}>
-                <input
-                  type="email"
-                  name="email"
-                  placeholder="Email address"
-                  value={form.email}
-                  onChange={handleChange}
-                  className="w-full bg-transparent py-3 pl-11 pr-4 text-sm font-semibold text-[#0B1F33] outline-none placeholder:text-slate-400"
-                  required
-                />
-              </FormField>
+            <form onSubmit={handleSubmit} className="p-7 sm:p-8">
+              {error && (
+                <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold leading-6 text-red-700">
+                  {error}
+                </div>
+              )}
 
-              <FormField icon={Lock}>
-                <input
-                  type="password"
-                  name="password"
-                  placeholder="Password"
-                  value={form.password}
-                  onChange={handleChange}
-                  className="w-full bg-transparent py-3 pl-11 pr-4 text-sm font-semibold text-[#0B1F33] outline-none placeholder:text-slate-400"
-                  required
-                />
-              </FormField>
+              <div>
+                <label className="text-sm font-black text-[#0B1F33]">
+                  Email Address
+                </label>
+
+                <div className="mt-2 flex items-center gap-3 rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] px-4 py-3 transition focus-within:border-[#C97B6C] focus-within:bg-white">
+                  <Mail size={19} className="shrink-0 text-[#C97B6C]" />
+
+                  <input
+                    type="email"
+                    name="email"
+                    value={form.email}
+                    onChange={handleChange}
+                    placeholder="Enter your email"
+                    className="w-full bg-transparent text-sm font-bold text-[#0B1F33] outline-none placeholder:text-slate-400"
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-sm font-black text-[#0B1F33]">
+                    Password
+                  </label>
+
+                  <Link
+                    to="/forgot-password"
+                    className="text-sm font-black text-[#C97B6C] transition hover:text-[#B86658]"
+                  >
+                    Forgot?
+                  </Link>
+                </div>
+
+                <div className="mt-2 flex items-center gap-3 rounded-2xl border border-[#DED8D2] bg-[#F5F3F1] px-4 py-3 transition focus-within:border-[#C97B6C] focus-within:bg-white">
+                  <LockKeyhole size={19} className="shrink-0 text-[#C97B6C]" />
+
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    name="password"
+                    value={form.password}
+                    onChange={handleChange}
+                    placeholder="Enter your password"
+                    className="w-full bg-transparent text-sm font-bold text-[#0B1F33] outline-none placeholder:text-slate-400"
+                    autoComplete="current-password"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="shrink-0 text-slate-400 transition hover:text-[#C97B6C]"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+                  </button>
+                </div>
+              </div>
 
               <button
                 type="submit"
                 disabled={loading || googleLoading}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#C97B6C] px-5 py-4 text-sm font-black text-white transition hover:bg-[#B86658] disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#C97B6C] px-6 py-4 text-sm font-black text-white shadow-[0_14px_30px_rgba(201,123,108,0.25)] transition hover:bg-[#B86658] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <LogIn size={18} />
-                {loading ? "Signing in..." : "Sign in"}
+                {loading ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    Sign In
+                    <ArrowRight size={18} />
+                  </>
+                )}
               </button>
+
+              <div className="my-6 flex items-center gap-3">
+                <div className="h-px flex-1 bg-[#DED8D2]" />
+                <span className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
+                  or
+                </span>
+                <div className="h-px flex-1 bg-[#DED8D2]" />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={loading || googleLoading}
+                className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-[#DED8D2] bg-white px-6 py-4 text-sm font-black text-[#0B1F33] shadow-sm transition hover:bg-[#FFF8F6] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {googleLoading ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    Redirecting...
+                  </>
+                ) : (
+                  <>
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#F5F3F1] text-xs font-black">
+                      G
+                    </span>
+                    Continue with Google
+                  </>
+                )}
+              </button>
+
+              <p className="mt-7 text-center text-sm font-semibold text-slate-500">
+                Do not have an account?{" "}
+                <Link
+                  to="/register"
+                  className="font-black text-[#C97B6C] transition hover:text-[#B86658]"
+                >
+                  Create one
+                </Link>
+              </p>
             </form>
-
-            <div className="mt-6 flex flex-col gap-3 text-sm font-bold sm:flex-row sm:items-center sm:justify-between">
-              <Link to="/forgot-password" className="text-[#C97B6C] hover:underline">
-                Forgot password?
-              </Link>
-
-              <Link to="/register" className="text-[#0B1F33] hover:text-[#C97B6C]">
-                Create account
-              </Link>
-            </div>
-
-            <Link
-              to="/"
-              className="mt-8 inline-flex text-sm font-bold text-slate-500 hover:text-[#C97B6C]"
-            >
-              Back to website
-            </Link>
           </div>
-        </section>
-      </div>
+
+          <p className="mt-6 text-center text-xs font-semibold leading-6 text-slate-500">
+            By signing in, you can access facility booking, booking history,
+            notifications, and profile settings.
+          </p>
+        </div>
+      </section>
     </main>
   );
 }
 
-function FormField({ icon: Icon, children }) {
+function HeroStat({ value, label }) {
   return (
-    <div className="relative rounded-2xl border border-[#DED8D2] bg-white transition focus-within:border-[#C97B6C] focus-within:ring-4 focus-within:ring-[#C97B6C]/10">
-      <Icon
-        size={18}
-        className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-      />
+    <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-center backdrop-blur">
+      <p className="text-2xl font-black text-[#E8A093]">{value}</p>
 
-      {children}
+      <p className="mt-1 text-xs font-bold text-white/60">{label}</p>
     </div>
   );
 }
 
-function InfoBox({ title, text }) {
+function FeatureCard({ icon: Icon, title, text }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/10 p-5 backdrop-blur">
-      <h3 className="font-black text-white">{title}</h3>
-      <p className="mt-2 text-sm font-semibold leading-5 text-white/65">{text}</p>
+    <div className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur">
+      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#C97B6C] text-white">
+        <Icon size={20} />
+      </div>
+
+      <h3 className="mt-4 text-lg font-black">{title}</h3>
+
+      <p className="mt-1 text-sm font-semibold text-white/60">{text}</p>
     </div>
   );
 }

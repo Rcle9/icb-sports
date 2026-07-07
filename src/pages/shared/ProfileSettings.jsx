@@ -1,7 +1,10 @@
+// src/pages/shared/ProfileSettings.jsx
+
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarCheck,
   CheckCircle2,
+  Lock,
   Mail,
   RefreshCw,
   Save,
@@ -222,8 +225,8 @@ export default function ProfileSettings() {
                 </h2>
 
                 <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85">
-                  Keep your name and account details updated so your bookings,
-                  receipts, and activity records are easier to identify.
+                  You can update your display name only. Your email address is
+                  locked because it is used for login and account identification.
                 </p>
               </div>
 
@@ -305,7 +308,7 @@ export default function ProfileSettings() {
                     </h3>
 
                     <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Update the basic information shown across the system.
+                      Only your full name can be edited by the user.
                     </p>
                   </div>
 
@@ -345,15 +348,31 @@ export default function ProfileSettings() {
                   <div>
                     <label className="icb-label">Email Address</label>
 
-                    <input
-                      type="text"
-                      value={user?.email || ""}
-                      readOnly
-                      className="icb-input bg-slate-50 text-slate-500"
-                    />
+                    <div className="relative">
+                      <Mail
+                        size={17}
+                        className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+
+                      <input
+                        type="email"
+                        value={user?.email || ""}
+                        disabled
+                        readOnly
+                        aria-disabled="true"
+                        tabIndex={-1}
+                        className="icb-input cursor-not-allowed bg-slate-100 pl-11 pr-12 text-slate-500 opacity-80"
+                      />
+
+                      <Lock
+                        size={17}
+                        className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+                    </div>
 
                     <p className="mt-2 text-xs font-semibold text-slate-500">
-                      Your email is managed by your login account.
+                      Email editing is disabled. This email is used for login and
+                      cannot be changed by the user.
                     </p>
                   </div>
 
@@ -364,7 +383,8 @@ export default function ProfileSettings() {
                       type="text"
                       value={roleLabel}
                       readOnly
-                      className="icb-input bg-slate-50 text-slate-500"
+                      disabled
+                      className="icb-input cursor-not-allowed bg-slate-100 text-slate-500 opacity-80"
                     />
 
                     <p className="mt-2 text-xs font-semibold text-slate-500">
@@ -412,9 +432,9 @@ export default function ProfileSettings() {
                 />
 
                 <InfoCard
-                  icon={<Mail size={22} />}
-                  title="Email Identity"
-                  description="Your email is used for login and account identification."
+                  icon={<Lock size={22} />}
+                  title="Locked Email"
+                  description="Your email is protected and cannot be edited from profile settings."
                 />
               </div>
             </section>

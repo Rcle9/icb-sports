@@ -1,18 +1,65 @@
-import { createContext, useContext, useMemo, useState } from "react";
+// src/context/SidebarContext.jsx
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 const SidebarContext = createContext(null);
 
 export function SidebarProvider({ children }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
+  const openSidebar = useCallback(() => {
+    setMobileSidebarOpen(true);
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    setMobileSidebarOpen(false);
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setMobileSidebarOpen((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        closeSidebar();
+      }
+    }
+
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [closeSidebar]);
+
+  useEffect(() => {
+    if (mobileSidebarOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileSidebarOpen]);
+
   const value = useMemo(
     () => ({
       mobileSidebarOpen,
-      openSidebar: () => setMobileSidebarOpen(true),
-      closeSidebar: () => setMobileSidebarOpen(false),
-      toggleSidebar: () => setMobileSidebarOpen((prev) => !prev),
+      openSidebar,
+      closeSidebar,
+      toggleSidebar,
     }),
-    [mobileSidebarOpen]
+    [mobileSidebarOpen, openSidebar, closeSidebar, toggleSidebar]
   );
 
   return (

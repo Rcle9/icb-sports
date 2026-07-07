@@ -1172,6 +1172,35 @@ export default function Booking() {
                 </div>
               </div>
             )}
+            <div className="mt-6 rounded-[24px] border border-[#DED8D2] bg-[#FBFAF9] p-5">
+  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div>
+      <p className="text-sm font-black text-[#0B1F33]">
+        Booking Notes
+      </p>
+
+      <p className="mt-1 text-sm font-semibold text-slate-500">
+        Add optional notes for staff, such as special requests or reminders.
+      </p>
+    </div>
+
+    <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">
+      Reservation timer: {reservationMinutes} minute(s)
+    </div>
+  </div>
+
+  <textarea
+    name="notes"
+    value={form.notes}
+    onChange={handleChange}
+    placeholder="Example: I will arrive 10 minutes early."
+    className="mt-4 min-h-[110px] w-full rounded-2xl border border-[#DED8D2] bg-white px-4 py-3 text-sm font-semibold outline-none transition focus:border-[#C97B6C]"
+  />
+
+  <p className="mt-2 text-xs font-semibold text-slate-500">
+    After confirming your reservation, upload your payment proof immediately in My Bookings.
+  </p>
+</div>
 
             <div className="mt-6 flex flex-col gap-4 rounded-[24px] border border-[#DED8D2] bg-[#FBFAF9] p-5 md:flex-row md:items-center md:justify-between">
               <div>
@@ -1204,7 +1233,7 @@ export default function Booking() {
                 className="icb-btn-accent"
               >
                 <ReceiptText size={18} />
-                Review Reservation
+                Review and Reserve
               </button>
             </div>
           </section>

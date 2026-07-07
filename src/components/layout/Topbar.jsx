@@ -1,3 +1,5 @@
+// src/components/layout/Topbar.jsx
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -27,8 +29,17 @@ function formatDateTime(value) {
   }
 }
 
-function formatRole(role) {
+function normalizeRole(role) {
   const value = String(role || "user").toLowerCase();
+
+  if (value === "admin") return "admin";
+  if (value === "staff") return "staff";
+
+  return "user";
+}
+
+function formatRole(role) {
+  const value = normalizeRole(role);
 
   if (value === "admin") return "Admin";
   if (value === "staff") return "Staff";
@@ -37,7 +48,7 @@ function formatRole(role) {
 }
 
 function getRoleHome(role) {
-  const value = String(role || "user").toLowerCase();
+  const value = normalizeRole(role);
 
   if (value === "admin") return "/admin/dashboard";
   if (value === "staff") return "/staff/dashboard";
@@ -45,8 +56,26 @@ function getRoleHome(role) {
   return "/dashboard";
 }
 
+function getRoleProfilePath(role) {
+  const value = normalizeRole(role);
+
+  if (value === "admin") return "/admin/profile";
+  if (value === "staff") return "/staff/profile";
+
+  return "/user/profile";
+}
+
+function getRoleNotificationsPath(role) {
+  const value = normalizeRole(role);
+
+  if (value === "admin") return "/notifications";
+  if (value === "staff") return "/notifications";
+
+  return "/notifications";
+}
+
 function getRoleSubtitle(role) {
-  const value = String(role || "user").toLowerCase();
+  const value = normalizeRole(role);
 
   if (value === "admin") return "Administrative control center";
   if (value === "staff") return "Facility operations workspace";
@@ -79,14 +108,19 @@ function getGreeting() {
   return "Good evening";
 }
 
-function getNotificationActionPath(notification) {
+function getNotificationActionPath(notification, role) {
   const referenceId = notification?.reference_id;
   const referenceType = String(notification?.reference_type || "").toLowerCase();
   const type = String(notification?.type || "").toLowerCase();
+  const currentRole = normalizeRole(role);
 
   if (notification?.action_url) return notification.action_url;
 
   if (referenceId && referenceType === "bookings") {
+    if (currentRole === "admin" || currentRole === "staff") {
+      return `/staff/manage-bookings?highlight=${referenceId}`;
+    }
+
     if (
       type === "booking_reserved" ||
       type === "payment_rejected" ||
@@ -98,20 +132,31 @@ function getNotificationActionPath(notification) {
     return `/my-bookings?highlight=${referenceId}`;
   }
 
-  return "/notifications";
+  return getRoleNotificationsPath(currentRole);
 }
 
-export default function Topbar({ title = "Dashboard", subtitle = "" }) {
+export default function Topbar({
+  title = "Dashboard",
+  subtitle = "",
+  onMenuClick,
+}) {
   const navigate = useNavigate();
   const dropdownRef = useRef(null);
 
   const { user, profile } = useAuth();
-  const { openSidebar } = useSidebar();
+  const { openSidebar, toggleSidebar } = useSidebar();
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [recentNotifications, setRecentNotifications] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
+
+  const role = normalizeRole(profile?.role);
+  const roleLabel = formatRole(role);
+  const roleHome = getRoleHome(role);
+  const profilePath = getRoleProfilePath(role);
+  const notificationsPath = getRoleNotificationsPath(role);
+  const finalSubtitle = subtitle || getRoleSubtitle(role);
 
   const displayName = useMemo(() => {
     return (
@@ -123,35 +168,33 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
     );
   }, [profile, user]);
 
-  const roleLabel = formatRole(profile?.role);
-  const roleHome = getRoleHome(profile?.role);
-
-  const finalSubtitle = subtitle || getRoleSubtitle(profile?.role);
-
   useEffect(() => {
     if (!user?.id) return;
 
     loadUnreadCount();
     loadRecentNotifications();
-  }, [user?.id]);
+  }, [user?.id, role]);
 
   useEffect(() => {
     if (!user?.id) return;
 
     const channel = supabase
-      .channel(`topbar-notifications-${user.id}-${Date.now()}`)
+      .channel(`topbar-notifications-${user.id}-${role}-${Date.now()}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "notifications",
-          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          setRecentNotifications((prev) => [payload.new, ...prev].slice(0, 5));
+          const notification = payload.new;
 
-          if (!payload.new?.is_read) {
+          if (!isNotificationForCurrentUser(notification)) return;
+
+          setRecentNotifications((prev) => [notification, ...prev].slice(0, 5));
+
+          if (!notification?.is_read) {
             setUnreadCount((prev) => prev + 1);
           }
         }
@@ -162,9 +205,12 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
           event: "UPDATE",
           schema: "public",
           table: "notifications",
-          filter: `user_id=eq.${user.id}`,
         },
-        () => {
+        (payload) => {
+          const notification = payload.new;
+
+          if (!isNotificationForCurrentUser(notification)) return;
+
           loadUnreadCount();
           loadRecentNotifications(false);
         }
@@ -175,9 +221,12 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
           event: "DELETE",
           schema: "public",
           table: "notifications",
-          filter: `user_id=eq.${user.id}`,
         },
-        () => {
+        (payload) => {
+          const notification = payload.old;
+
+          if (!isNotificationForCurrentUser(notification)) return;
+
           loadUnreadCount();
           loadRecentNotifications(false);
         }
@@ -187,7 +236,7 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id]);
+  }, [user?.id, role]);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -203,18 +252,54 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
     };
   }, []);
 
+  function isNotificationForCurrentUser(notification) {
+    if (!notification || !user?.id) return false;
+
+    const notificationUserId = notification.user_id;
+    const notificationRole = String(notification.role || "").toLowerCase();
+
+    if (notificationUserId && String(notificationUserId) === String(user.id)) {
+      return true;
+    }
+
+    if ((role === "admin" || role === "staff") && notificationRole === role) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function handleMenuClick() {
+    if (typeof openSidebar === "function") {
+      openSidebar();
+    } else if (typeof toggleSidebar === "function") {
+      toggleSidebar();
+    }
+
+    if (typeof onMenuClick === "function") {
+      onMenuClick();
+    }
+  }
+
   async function loadUnreadCount() {
     try {
       if (!user?.id) return;
 
-      const { count, error } = await supabase
+      let query = supabase
         .from("notifications")
         .select("id", {
           count: "exact",
           head: true,
         })
-        .eq("user_id", user.id)
         .eq("is_read", false);
+
+      if (role === "admin" || role === "staff") {
+        query = query.or(`user_id.eq.${user.id},role.eq.${role}`);
+      } else {
+        query = query.eq("user_id", user.id);
+      }
+
+      const { count, error } = await query;
 
       if (error) throw error;
 
@@ -230,14 +315,21 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
 
       if (showLoading) setLoadingPreview(true);
 
-      const { data, error } = await supabase
+      let query = supabase
         .from("notifications")
         .select("*")
-        .eq("user_id", user.id)
         .order("created_at", {
           ascending: false,
         })
         .limit(5);
+
+      if (role === "admin" || role === "staff") {
+        query = query.or(`user_id.eq.${user.id},role.eq.${role}`);
+      } else {
+        query = query.eq("user_id", user.id);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -250,13 +342,14 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
   }
 
   async function markNotificationAsRead(notificationId) {
+    if (!notificationId || !user?.id) return;
+
     const { error } = await supabase
       .from("notifications")
       .update({
         is_read: true,
       })
-      .eq("id", notificationId)
-      .eq("user_id", user.id);
+      .eq("id", notificationId);
 
     if (error) throw error;
   }
@@ -278,11 +371,11 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
       }
 
       setDropdownOpen(false);
-      navigate(getNotificationActionPath(notification));
+      navigate(getNotificationActionPath(notification, role));
     } catch (error) {
       console.error("Failed to open notification:", error.message);
       setDropdownOpen(false);
-      navigate("/notifications");
+      navigate(notificationsPath);
     }
   }
 
@@ -298,11 +391,11 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
               type="button"
-              onClick={openSidebar}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658] lg:hidden"
+              onClick={handleMenuClick}
+              className="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#DED8D2] bg-[#F3E4DF] text-[#B86658] shadow-sm transition active:scale-95 hover:bg-[#C97B6C] hover:text-white lg:hidden"
               aria-label="Open menu"
             >
-              <Menu size={22} />
+              <Menu size={23} />
             </button>
 
             <div className="min-w-0">
@@ -328,7 +421,7 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
 
           <div className="flex shrink-0 items-center gap-3" ref={dropdownRef}>
             <Link
-              to="/profile-settings"
+              to={profilePath}
               className="hidden items-center gap-3 rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] px-3 py-2 transition hover:bg-[#F3E4DF] md:flex"
             >
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#0B1F33] text-sm font-black text-white">
@@ -406,7 +499,7 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
                         </p>
 
                         <p className="mt-1 text-xs font-semibold text-slate-500">
-                          Booking and payment updates will appear here.
+                          Booking and system updates will appear here.
                         </p>
                       </div>
                     ) : (
@@ -458,7 +551,7 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
 
                   <div className="border-t border-[#DED8D2] bg-[#FBFAF9] px-5 py-4">
                     <Link
-                      to="/notifications"
+                      to={notificationsPath}
                       onClick={() => setDropdownOpen(false)}
                       className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#C97B6C] px-4 py-3 text-sm font-black text-white transition hover:bg-[#B86658]"
                     >
@@ -472,7 +565,7 @@ export default function Topbar({ title = "Dashboard", subtitle = "" }) {
 
             <button
               type="button"
-              onClick={() => navigate("/profile-settings")}
+              onClick={() => navigate(profilePath)}
               className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#DED8D2] bg-[#0B1F33] text-white transition hover:bg-[#102A43] md:hidden"
               title="Profile"
             >

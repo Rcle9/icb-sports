@@ -1,3 +1,5 @@
+// src/pages/user/MyBookings.jsx
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -23,6 +25,10 @@ import {
   expireBookingReservation,
   submitPaymentProof,
 } from "../../services/bookingService";
+import {
+  getPaymentSettings,
+  getEnabledPaymentMethods,
+} from "../../services/paymentSettingsService";
 import { useAuth } from "../../context/AuthContext";
 
 function money(value) {
@@ -299,6 +305,9 @@ export default function MyBookings() {
   const [paymentFile, setPaymentFile] = useState(null);
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
+  const [paymentSettings, setPaymentSettings] = useState(null);
+  const [paymentMethods, setPaymentMethods] = useState([]);
+
   const allBookings = useMemo(() => {
     return facilityBookings
       .map((booking) => ({
@@ -373,6 +382,10 @@ export default function MyBookings() {
   useEffect(() => {
     if (user?.id) loadBookings();
   }, [user?.id]);
+
+  useEffect(() => {
+    loadPaymentSettings();
+  }, []);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -453,6 +466,16 @@ export default function MyBookings() {
     return possibleIds.includes(String(highlightedId));
   }
 
+  async function loadPaymentSettings() {
+    try {
+      const settings = await getPaymentSettings();
+      setPaymentSettings(settings);
+      setPaymentMethods(getEnabledPaymentMethods(settings));
+    } catch (err) {
+      console.error("Failed to load payment settings:", err);
+    }
+  }
+
   async function autoExpireBookings(bookings) {
     if (expiringRef.current) return false;
 
@@ -523,6 +546,7 @@ export default function MyBookings() {
   async function handleRefresh() {
     setRefreshing(true);
     await loadBookings(false);
+    await loadPaymentSettings();
   }
 
   function openDetailsModal(booking) {
@@ -558,9 +582,11 @@ export default function MyBookings() {
   }
 
   function openPaymentModal(booking) {
+    const defaultMethod = paymentMethods?.[0]?.label || "GCash";
+
     setSelectedPaymentBooking(booking);
     setPaymentAmount(String(getFinalTotal(booking)));
-    setPaymentMethod("GCash");
+    setPaymentMethod(defaultMethod);
     setPaymentReference("");
     setPaymentNotes("");
     setPaymentFile(null);
@@ -568,10 +594,12 @@ export default function MyBookings() {
   }
 
   function closePaymentModal() {
+    const defaultMethod = paymentMethods?.[0]?.label || "GCash";
+
     setPaymentModal(false);
     setSelectedPaymentBooking(null);
     setPaymentAmount("");
-    setPaymentMethod("GCash");
+    setPaymentMethod(defaultMethod);
     setPaymentReference("");
     setPaymentNotes("");
     setPaymentFile(null);
@@ -866,6 +894,8 @@ export default function MyBookings() {
               file={paymentFile}
               setFile={setPaymentFile}
               submitting={submittingPayment}
+              paymentSettings={paymentSettings}
+              paymentMethods={paymentMethods}
               onClose={closePaymentModal}
               onConfirm={handleSubmitPayment}
             />
@@ -1253,15 +1283,43 @@ function PaymentProofModal({
   file,
   setFile,
   submitting,
+  paymentSettings,
+  paymentMethods = [],
   onClose,
   onConfirm,
 }) {
   const paymentStatus = normalizePaymentStatus(booking.payment_status);
 
+  const enabledMethods =
+    paymentMethods.length > 0
+      ? paymentMethods
+      : [
+          {
+            value: "gcash",
+            label: "GCash",
+          },
+          {
+            value: "bank",
+            label: "Bank Transfer",
+          },
+          {
+            value: "cash",
+            label: "Cash",
+          },
+        ];
+
+  useEffect(() => {
+    if (!method && enabledMethods.length > 0) {
+      setMethod(enabledMethods[0].label);
+    }
+  }, [method, enabledMethods, setMethod]);
+
   return (
     <ModalShell title="Upload Payment Proof" onClose={onClose}>
       <div className="rounded-2xl bg-[#F5F3F1] p-4">
-        <p className="text-sm font-black text-[#0B1F33]">{booking.display_title}</p>
+        <p className="text-sm font-black text-[#0B1F33]">
+          {booking.display_title}
+        </p>
 
         <p className="mt-1 text-sm font-semibold text-slate-600">
           {formatDate(booking.booking_date)} • {formatTime(booking.start_time)} -{" "}
@@ -1271,19 +1329,87 @@ function PaymentProofModal({
         <p className="mt-3 text-2xl font-black text-[#C97B6C]">
           Total: {money(getFinalTotal(booking))}
         </p>
+
+        {paymentSettings?.payment_instructions && (
+          <p className="mt-3 rounded-2xl bg-white px-4 py-3 text-sm font-semibold leading-6 text-slate-600">
+            {paymentSettings.payment_instructions}
+          </p>
+        )}
       </div>
 
-      {paymentStatus === "rejected_payment" && booking.payment_rejection_reason && (
-        <ReasonBox
-          title="Previous Payment Rejection Reason"
-          value={booking.payment_rejection_reason}
-          tone="red"
-        />
-      )}
+      {paymentStatus === "rejected_payment" &&
+        booking.payment_rejection_reason && (
+          <ReasonBox
+            title="Previous Payment Rejection Reason"
+            value={booking.payment_rejection_reason}
+            tone="red"
+          />
+        )}
+
+      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {enabledMethods.map((item) => (
+          <div
+            key={item.value}
+            className="rounded-2xl border border-[#DED8D2] bg-white p-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-black text-[#0B1F33]">
+                  {item.label}
+                </p>
+
+                {item.value === "gcash" && (
+                  <div className="mt-2 space-y-1 text-sm font-semibold text-slate-600">
+                    <p>Name: {item.name || "-"}</p>
+                    <p>Number: {item.number || "-"}</p>
+                  </div>
+                )}
+
+                {item.value === "bank" && (
+                  <div className="mt-2 space-y-1 text-sm font-semibold text-slate-600">
+                    <p>Bank: {item.bank_name || "-"}</p>
+                    <p>Account Name: {item.account_name || "-"}</p>
+                    <p>Account Number: {item.account_number || "-"}</p>
+                  </div>
+                )}
+
+                {item.value === "cash" && (
+                  <p className="mt-2 text-sm font-semibold text-slate-600">
+                    Pay directly at the facility counter.
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMethod(item.label)}
+                className={`rounded-xl px-3 py-2 text-xs font-black transition ${
+                  method === item.label
+                    ? "bg-[#C97B6C] text-white"
+                    : "bg-[#F5F3F1] text-[#0B1F33] hover:bg-[#EFE8E3]"
+                }`}
+              >
+                {method === item.label ? "Selected" : "Use"}
+              </button>
+            </div>
+
+            {item.qr_url && (
+              <div className="mt-4 rounded-2xl bg-[#F5F3F1] p-3">
+                <img
+                  src={item.qr_url}
+                  alt={`${item.label} QR Code`}
+                  className="mx-auto h-56 w-56 rounded-xl object-contain"
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
 
       <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
         <div>
           <label className="icb-label">Amount Paid</label>
+
           <input
             type="number"
             min="0"
@@ -1295,21 +1421,25 @@ function PaymentProofModal({
 
         <div>
           <label className="icb-label">Payment Method</label>
+
           <select
             value={method}
             onChange={(event) => setMethod(event.target.value)}
             className="icb-select"
           >
-            <option value="GCash">GCash</option>
-            <option value="Maya">Maya</option>
-            <option value="Bank Transfer">Bank Transfer</option>
-            <option value="Cash">Cash</option>
+            {enabledMethods.map((item) => (
+              <option key={item.value} value={item.label}>
+                {item.label}
+              </option>
+            ))}
+
             <option value="Other">Other</option>
           </select>
         </div>
 
         <div className="md:col-span-2">
           <label className="icb-label">Payment Reference Number</label>
+
           <input
             value={reference}
             onChange={(event) => setReference(event.target.value)}
@@ -1320,6 +1450,7 @@ function PaymentProofModal({
 
         <div className="md:col-span-2">
           <label className="icb-label">Upload Screenshot / Proof</label>
+
           <input
             type="file"
             accept="image/*,.pdf"
@@ -1328,12 +1459,15 @@ function PaymentProofModal({
           />
 
           <p className="mt-2 text-xs font-semibold text-slate-500">
-            {file ? `Selected: ${file.name}` : "Upload a clear payment proof image."}
+            {file
+              ? `Selected: ${file.name}`
+              : "Upload a clear payment proof image."}
           </p>
         </div>
 
         <div className="md:col-span-2">
           <label className="icb-label">Notes</label>
+
           <textarea
             value={notes}
             onChange={(event) => setNotes(event.target.value)}

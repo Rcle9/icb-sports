@@ -1,7 +1,7 @@
-// src/pages/user/Notifications.jsx
+// src/pages/shared/RoleNotifications.jsx
 
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Bell,
   CheckCheck,
@@ -41,6 +41,73 @@ function formatLabel(value) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function getMetadataValue(metadata, key) {
+  if (!metadata || typeof metadata !== "object") return "-";
+  return metadata[key] ?? "-";
+}
+
+function getReferenceId(notification) {
+  const metadata = notification?.metadata || {};
+
+  return (
+    notification?.reference_id ||
+    metadata.booking_id ||
+    metadata.bookingId ||
+    metadata.reference_id ||
+    metadata.id ||
+    ""
+  );
+}
+
+function isBookingNotification(notification) {
+  const referenceType = String(notification?.reference_type || "").toLowerCase();
+  const type = String(notification?.type || "").toLowerCase();
+
+  return (
+    referenceType === "bookings" ||
+    referenceType === "booking" ||
+    type.includes("booking") ||
+    type.includes("payment") ||
+    type.includes("reservation") ||
+    type.includes("receipt")
+  );
+}
+
+function getActionUrl(notification, fallbackPath) {
+  if (notification?.action_url) return notification.action_url;
+
+  const referenceId = getReferenceId(notification);
+
+  if (referenceId && isBookingNotification(notification)) {
+    return `${fallbackPath}?highlight=${referenceId}`;
+  }
+
+  return fallbackPath;
+}
+
+function getNotificationPreview(notification) {
+  const metadata = notification?.metadata || {};
+
+  const facility =
+    metadata.facility_name ||
+    metadata.facility ||
+    metadata.facilityName ||
+    "";
+
+  const bookingDate =
+    metadata.booking_date ||
+    metadata.date ||
+    metadata.bookingDate ||
+    "";
+
+  const time =
+    metadata.start_time && metadata.end_time
+      ? `${metadata.start_time} - ${metadata.end_time}`
+      : "";
+
+  return [facility, bookingDate, time].filter(Boolean).join(" • ");
+}
+
 function getNotificationTone(type) {
   const value = String(type || "").toLowerCase();
 
@@ -52,6 +119,7 @@ function getNotificationTone(type) {
       "receipt_issued",
       "booking_completed",
       "completed",
+      "approved",
     ].includes(value)
   ) {
     return {
@@ -69,6 +137,7 @@ function getNotificationTone(type) {
       "payment_uploaded",
       "booking_created",
       "new_booking",
+      "booking_request",
       "booking_update",
       "payment_pending",
       "payment_submitted",
@@ -110,6 +179,7 @@ function getNotificationTone(type) {
       "maintenance_added",
       "maintenance_cancelled",
       "facility_maintenance",
+      "maintenance",
     ].includes(value)
   ) {
     return {
@@ -130,92 +200,17 @@ function getNotificationTone(type) {
   };
 }
 
-function getMetadataValue(metadata, key) {
-  if (!metadata || typeof metadata !== "object") return "-";
-  return metadata[key] ?? "-";
-}
-
-function getReferenceId(notification) {
-  const metadata = notification?.metadata || {};
-
-  return (
-    notification?.reference_id ||
-    metadata.booking_id ||
-    metadata.bookingId ||
-    metadata.reference_id ||
-    metadata.id ||
-    ""
-  );
-}
-
-function getActionUrl(notification) {
-  if (notification?.action_url) return notification.action_url;
-
-  const referenceId = getReferenceId(notification);
-  const referenceType = String(notification?.reference_type || "").toLowerCase();
-  const type = String(notification?.type || "").toLowerCase();
-
-  const isBookingReference =
-    referenceType === "bookings" ||
-    referenceType === "booking" ||
-    type.includes("booking") ||
-    type.includes("payment") ||
-    type.includes("reservation") ||
-    type.includes("receipt");
-
-  if (referenceId && isBookingReference) {
-    if (
-      [
-        "booking_reserved",
-        "payment_rejected",
-        "reservation_expired",
-        "booking_expired",
-        "payment_pending",
-      ].includes(type)
-    ) {
-      return `/my-bookings?highlight=${referenceId}&pay=1`;
-    }
-
-    return `/my-bookings?highlight=${referenceId}`;
-  }
-
-  return "/my-bookings";
-}
-
-function getTimelineUrl(notification) {
-  const referenceId = getReferenceId(notification);
-
-  if (referenceId) {
-    return `/booking-timeline?highlight=${referenceId}`;
-  }
-
-  return "/booking-timeline";
-}
-
-function getNotificationPreview(notification) {
-  const metadata = notification?.metadata || {};
-
-  const facility =
-    metadata.facility_name ||
-    metadata.facility ||
-    metadata.facilityName ||
-    "";
-
-  const bookingDate =
-    metadata.booking_date ||
-    metadata.date ||
-    metadata.bookingDate ||
-    "";
-
-  const time =
-    metadata.start_time && metadata.end_time
-      ? `${metadata.start_time} - ${metadata.end_time}`
-      : "";
-
-  return [facility, bookingDate, time].filter(Boolean).join(" • ");
-}
-
-export default function Notifications() {
+export default function RoleNotifications({
+  role = "staff",
+  title = "Notifications",
+  subtitle = "Notification center",
+  heroEyebrow = "Notification Center",
+  heroTitle = "Stay updated.",
+  heroDescription = "View important system notifications and alerts.",
+  defaultActionPath = "/staff/manage-bookings",
+  defaultTimelinePath = "/staff/manage-bookings",
+  bookingActionPath = "/staff/manage-bookings",
+}) {
   const navigate = useNavigate();
   const { user, profile, loading: authLoading } = useAuth();
 
@@ -265,6 +260,7 @@ export default function Notifications() {
         item.type,
         item.reference_type,
         item.reference_id,
+        item.role,
         JSON.stringify(item.metadata || {}),
       ]
         .join(" ")
@@ -279,23 +275,22 @@ export default function Notifications() {
   }, [notifications, readFilter, typeFilter, search]);
 
   useEffect(() => {
-    if (!user?.id) return;
-
+    if (!user?.id && !role) return;
     loadNotifications();
-  }, [user?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, role]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id && !role) return;
 
     const channel = supabase
-      .channel(`user-notifications-${user.id}-${Date.now()}`)
+      .channel(`${role}-notifications-${user?.id || "role"}-${Date.now()}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "notifications",
-          filter: `user_id=eq.${user.id}`,
         },
         () => {
           loadNotifications(false);
@@ -306,21 +301,32 @@ export default function Notifications() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, role]);
 
   async function loadNotifications(showLoading = true) {
     try {
-      if (!user?.id) return;
-
       if (showLoading) setLoading(true);
 
       setError("");
 
-      const { data, error } = await supabase
+      let query = supabase
         .from("notifications")
         .select("*")
-        .eq("user_id", user.id)
         .order("created_at", { ascending: false });
+
+      const safeUserId =
+        user?.id || "00000000-0000-0000-0000-000000000000";
+
+      if (role === "admin") {
+        query = query.or(`role.eq.admin,user_id.eq.${safeUserId}`);
+      } else if (role === "staff") {
+        query = query.or(`role.eq.staff,user_id.eq.${safeUserId}`);
+      } else {
+        query = query.eq("user_id", safeUserId);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -339,8 +345,7 @@ export default function Notifications() {
       .update({
         is_read: true,
       })
-      .eq("id", notificationId)
-      .eq("user_id", user.id);
+      .eq("id", notificationId);
 
     if (error) throw error;
   }
@@ -397,19 +402,22 @@ export default function Notifications() {
 
   async function handleMarkAllAsRead() {
     try {
-      if (!user?.id) return;
-
       setProcessing("mark-all");
       setError("");
       setMessage("");
+
+      const ids = notifications
+        .filter((item) => !item.is_read)
+        .map((item) => item.id);
+
+      if (ids.length === 0) return;
 
       const { error } = await supabase
         .from("notifications")
         .update({
           is_read: true,
         })
-        .eq("user_id", user.id)
-        .eq("is_read", false);
+        .in("id", ids);
 
       if (error) throw error;
 
@@ -439,8 +447,6 @@ export default function Notifications() {
     if (!confirmed) return;
 
     try {
-      if (!user?.id) return;
-
       setProcessing(notification.id);
       setError("");
       setMessage("");
@@ -448,8 +454,7 @@ export default function Notifications() {
       const { error } = await supabase
         .from("notifications")
         .delete()
-        .eq("id", notification.id)
-        .eq("user_id", user.id);
+        .eq("id", notification.id);
 
       if (error) throw error;
 
@@ -476,17 +481,20 @@ export default function Notifications() {
     if (!confirmed) return;
 
     try {
-      if (!user?.id) return;
-
       setProcessing("clear-read");
       setError("");
       setMessage("");
 
+      const ids = notifications
+        .filter((item) => item.is_read)
+        .map((item) => item.id);
+
+      if (ids.length === 0) return;
+
       const { error } = await supabase
         .from("notifications")
         .delete()
-        .eq("user_id", user.id)
-        .eq("is_read", true);
+        .in("id", ids);
 
       if (error) throw error;
 
@@ -519,7 +527,11 @@ export default function Notifications() {
         );
       }
 
-      navigate(getActionUrl(notification));
+      const fallback = isBookingNotification(notification)
+        ? bookingActionPath
+        : defaultActionPath;
+
+      navigate(getActionUrl(notification, fallback));
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to open related page.");
@@ -540,10 +552,16 @@ export default function Notifications() {
         );
       }
 
-      navigate(getTimelineUrl(notification));
+      const referenceId = getReferenceId(notification);
+
+      if (referenceId) {
+        navigate(`${defaultTimelinePath}?highlight=${referenceId}`);
+      } else {
+        navigate(defaultTimelinePath);
+      }
     } catch (err) {
       console.error(err);
-      setError(err.message || "Failed to open booking timeline.");
+      setError(err.message || "Failed to open timeline.");
     }
   }
 
@@ -556,11 +574,11 @@ export default function Notifications() {
   if (authLoading || loading) {
     return (
       <div className="page-shell">
-        <Sidebar role="user" />
+        <Sidebar role={role} />
 
         <main className="page-main">
           <div className="page-container">
-            <Topbar title="Notifications" subtitle="Customer notification center" />
+            <Topbar title={title} subtitle={subtitle} />
 
             <div className="icb-card p-8 text-sm font-semibold text-slate-500">
               Loading notifications...
@@ -573,11 +591,11 @@ export default function Notifications() {
 
   return (
     <div className="page-shell">
-      <Sidebar role="user" />
+      <Sidebar role={role} />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Notifications" subtitle="Customer notification center" />
+          <Topbar title={title} subtitle={subtitle} />
 
           {error && <div className="icb-alert-error mb-5">{error}</div>}
 
@@ -587,16 +605,15 @@ export default function Notifications() {
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
-                  Notification Center
+                  {heroEyebrow}
                 </p>
 
                 <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
-                  Stay updated with your bookings.
+                  {heroTitle}
                 </h2>
 
                 <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85">
-                  View booking updates, payment verification results, receipts,
-                  rejected payment notices, and reservation reminders.
+                  {heroDescription}
                 </p>
               </div>
 
@@ -644,7 +661,8 @@ export default function Notifications() {
                 </h3>
 
                 <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Search and filter your booking and payment alerts.
+                  Search and filter booking, payment, maintenance, and system
+                  alerts.
                 </p>
               </div>
 
@@ -744,11 +762,11 @@ export default function Notifications() {
                   <p className="icb-eyebrow">Inbox</p>
 
                   <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
-                    Your notifications
+                    Notifications
                   </h3>
 
                   <p className="mt-1 text-sm font-semibold text-slate-500">
-                    Click a notification to view its details.
+                    Click a notification to view complete details.
                   </p>
                 </div>
 
@@ -768,8 +786,8 @@ export default function Notifications() {
                   </h3>
 
                   <p className="mx-auto mt-2 max-w-lg text-sm font-semibold text-slate-500">
-                    Booking and payment notifications will appear here once
-                    there are updates from the system.
+                    Notifications will appear here once there are updates from
+                    the system.
                   </p>
                 </div>
               ) : (
@@ -879,6 +897,12 @@ function NotificationCard({
               )}
 
               <Badge className={tone.badge}>{formatLabel(notification.type)}</Badge>
+
+              {notification.role && (
+                <Badge className="bg-slate-100 text-slate-700">
+                  {notification.role}
+                </Badge>
+              )}
             </div>
 
             <h4 className="text-lg font-black text-[#0B1F33]">
@@ -890,9 +914,7 @@ function NotificationCard({
             </p>
 
             {preview && (
-              <p className="mt-2 text-xs font-bold text-[#C97B6C]">
-                {preview}
-              </p>
+              <p className="mt-2 text-xs font-bold text-[#C97B6C]">{preview}</p>
             )}
 
             <p className="mt-3 flex items-center gap-2 text-xs font-bold text-slate-400">
@@ -919,7 +941,7 @@ function NotificationCard({
             disabled={processing}
             className="icb-btn-light"
           >
-            Timeline
+            Related Page
           </button>
 
           {!notification.is_read && (
@@ -1005,6 +1027,7 @@ function NotificationDetailsPanel({
           value={notification.reference_type || "-"}
         />
         <DetailItem label="Reference ID" value={getReferenceId(notification) || "-"} />
+        <DetailItem label="Role" value={notification.role || "-"} />
         <DetailItem
           label="Facility"
           value={getMetadataValue(metadata, "facility_name")}
@@ -1029,7 +1052,7 @@ function NotificationDetailsPanel({
           label="Receipt Number"
           value={getMetadataValue(metadata, "receipt_number")}
         />
-        <DetailItem label="User Role" value={profile?.role || "user"} />
+        <DetailItem label="Current User Role" value={profile?.role || "-"} />
       </div>
 
       <div className="mt-5 rounded-2xl bg-slate-50 p-4">
@@ -1048,7 +1071,7 @@ function NotificationDetailsPanel({
           className="icb-btn-accent"
         >
           <ExternalLink size={18} />
-          Open Related Booking
+          Open Related Page
         </button>
 
         <button
@@ -1057,7 +1080,7 @@ function NotificationDetailsPanel({
           disabled={processing}
           className="icb-btn-light"
         >
-          View Booking Timeline
+          View Booking Management
         </button>
 
         <button

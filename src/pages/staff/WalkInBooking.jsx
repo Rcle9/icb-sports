@@ -1,4 +1,19 @@
+// src/pages/staff/WalkInBooking.jsx
+
 import { useEffect, useMemo, useState } from "react";
+import {
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  CreditCard,
+  FileText,
+  RefreshCw,
+  SearchCheck,
+  UserRound,
+  Wallet,
+} from "lucide-react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
@@ -185,9 +200,9 @@ function getBlockedClass(booking) {
   const status = normalizeStatus(booking?.status);
   const paymentStatus = normalizePaymentStatus(booking?.payment_status);
 
- if (status === "approved" && paymentStatus === "paid") {
-  return "border-slate-400 bg-slate-200 text-slate-700";
-}
+  if (status === "approved" && paymentStatus === "paid") {
+    return "border-slate-400 bg-slate-200 text-slate-700";
+  }
 
   if (status === "reserved" && paymentStatus === "pending_verification") {
     return "border-yellow-500 bg-yellow-100 text-yellow-800";
@@ -209,7 +224,10 @@ function getSlotKey(facilityId, slot) {
 }
 
 function groupSelectedSlots(selectedSlots, facilities) {
-  const facilityMap = new Map(facilities.map((facility) => [String(facility.id), facility]));
+  const facilityMap = new Map(
+    facilities.map((facility) => [String(facility.id), facility])
+  );
+
   const grouped = new Map();
 
   selectedSlots.forEach((item) => {
@@ -234,7 +252,8 @@ function groupSelectedSlots(selectedSlots, facilities) {
 
     sortedItems.forEach((item) => {
       const lastGroup = bookingGroups[bookingGroups.length - 1];
-      const sameFacility = String(lastGroup?.facility_id) === String(item.facility_id);
+      const sameFacility =
+        String(lastGroup?.facility_id) === String(item.facility_id);
       const continuous = lastGroup?.end_time === item.slot.start_time;
 
       if (lastGroup && sameFacility && continuous) {
@@ -243,7 +262,10 @@ function groupSelectedSlots(selectedSlots, facilities) {
         lastGroup.label = `${formatTime(lastGroup.start_time)} - ${formatTime(
           lastGroup.end_time
         )}`;
-        lastGroup.total_hours = hoursBetween(lastGroup.start_time, lastGroup.end_time);
+        lastGroup.total_hours = hoursBetween(
+          lastGroup.start_time,
+          lastGroup.end_time
+        );
         lastGroup.total_amount = lastGroup.total_hours * lastGroup.rate_per_hour;
       } else {
         const rate = getFacilityRate(facility);
@@ -269,6 +291,8 @@ function groupSelectedSlots(selectedSlots, facilities) {
 export default function WalkInBooking() {
   const { user } = useAuth();
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [facilities, setFacilities] = useState([]);
   const [bookingsForDate, setBookingsForDate] = useState([]);
   const [maintenanceBlocks, setMaintenanceBlocks] = useState([]);
@@ -291,6 +315,7 @@ export default function WalkInBooking() {
   const [loading, setLoading] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -327,6 +352,44 @@ export default function WalkInBooking() {
       total_groups: selectedGroups.length,
     };
   }, [selectedGroups, selectedSlots]);
+
+  const boardSummary = useMemo(() => {
+    let open = 0;
+    let selected = 0;
+    let blocked = 0;
+    let maintenance = 0;
+    let past = 0;
+
+    filteredFacilities.forEach((facility) => {
+      slots.forEach((slot) => {
+        const pastSlot = isPastSlot(form.booking_date, slot);
+        const maintenanceBlock = getMaintenanceBlock(facility.id, slot);
+        const blockingBooking = getBlockingBooking(facility.id, slot);
+        const selectedSlot = isSlotSelected(facility.id, slot);
+
+        if (selectedSlot) selected += 1;
+        else if (pastSlot) past += 1;
+        else if (maintenanceBlock) maintenance += 1;
+        else if (blockingBooking) blocked += 1;
+        else open += 1;
+      });
+    });
+
+    return {
+      open,
+      selected,
+      blocked,
+      maintenance,
+      past,
+    };
+  }, [
+    filteredFacilities,
+    slots,
+    form.booking_date,
+    selectedSlots,
+    bookingsForDate,
+    maintenanceBlocks,
+  ]);
 
   useEffect(() => {
     loadInitialData();
@@ -448,6 +511,16 @@ export default function WalkInBooking() {
       setMaintenanceBlocks(data || []);
     } catch (err) {
       console.error("Failed to load maintenance blocks:", err);
+    }
+  }
+
+  async function handleRefresh() {
+    try {
+      setRefreshing(true);
+      await loadScheduleForDate(false);
+      await loadMaintenanceBlocksForDate(false);
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -653,7 +726,9 @@ export default function WalkInBooking() {
           : Number(form.amount_paid || 0);
 
       if (amountPaid < selectedSummary.total_amount) {
-        throw new Error("Amount paid must be equal to or greater than the total amount.");
+        throw new Error(
+          "Amount paid must be equal to or greater than the total amount."
+        );
       }
 
       const savedBookings = [];
@@ -717,10 +792,9 @@ export default function WalkInBooking() {
 
     date.setDate(date.getDate() - 1);
 
-    const nextValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(date.getDate()).padStart(2, "0")}`;
+    const nextValue = `${date.getFullYear()}-${String(
+      date.getMonth() + 1
+    ).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
     if (nextValue < getTodayDate()) return;
 
@@ -738,10 +812,9 @@ export default function WalkInBooking() {
 
     date.setDate(date.getDate() + 1);
 
-    const nextValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(date.getDate()).padStart(2, "0")}`;
+    const nextValue = `${date.getFullYear()}-${String(
+      date.getMonth() + 1
+    ).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
     setForm((prev) => ({
       ...prev,
@@ -753,59 +826,120 @@ export default function WalkInBooking() {
 
   return (
     <div className="page-shell">
-      <Sidebar role="staff" />
+      <Sidebar
+        role="staff"
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Walk-in Booking" />
+          <Topbar
+            title="Walk-in Booking"
+            subtitle="Create approved facility bookings for on-site customers."
+            showMenuButton
+            onMenuClick={() => setSidebarOpen(true)}
+          />
 
-          {error && (
-            <div className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          {error && <div className="icb-alert-error mb-5">{error}</div>}
 
-          {message && (
-            <div className="mb-4 rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-700">
-              {message}
-            </div>
-          )}
+          {message && <div className="icb-alert-success mb-5">{message}</div>}
 
           <section className="page-hero mb-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
-                <p className="text-sm font-semibold">Staff Walk-in Booking</p>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                  Staff Walk-in Booking
+                </p>
 
-                <h2 className="mt-2 text-3xl font-black">
+                <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
                   Create approved bookings for walk-in customers.
                 </h2>
 
-                <p className="mt-2 text-sm text-white/90">
-                  Select available slots across exact courts or tables, record customer details,
-                  and mark payment as received.
+                <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85 sm:text-base">
+                  Select available facility slots, record customer details, and
+                  create paid booking records directly from the staff portal.
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-white/15 px-5 py-4 text-white">
-                <p className="text-xs font-black uppercase tracking-widest">
-                  Selected Slots
-                </p>
-                <h3 className="mt-1 text-2xl font-black">
-                  {selectedSummary.total_slots}
-                </h3>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <HeroStat label="Selected" value={selectedSummary.total_slots} />
+                <HeroStat label="Groups" value={selectedSummary.total_groups} />
+                <HeroStat
+                  label="Total Hours"
+                  value={selectedSummary.total_hours}
+                />
+                <HeroStat
+                  label="Total Amount"
+                  value={money(selectedSummary.total_amount)}
+                />
               </div>
             </div>
           </section>
 
-          <section className="mb-6 rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="mb-5">
-              <h3 className="text-2xl font-black text-[#2B2B2B]">
-                Customer and Payment Details
-              </h3>
+          <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <MetricCard
+              label="Open Slots"
+              value={boardSummary.open}
+              icon={<CheckCircle2 size={22} />}
+              tone="green"
+            />
 
-              <p className="text-sm text-slate-500">
-                Walk-in bookings are automatically approved and paid.
-              </p>
+            <MetricCard
+              label="Selected Slots"
+              value={boardSummary.selected}
+              icon={<CalendarDays size={22} />}
+              tone="coral"
+            />
+
+            <MetricCard
+              label="Booked / Reserved"
+              value={boardSummary.blocked}
+              icon={<Clock size={22} />}
+              tone="blue"
+            />
+
+            <MetricCard
+              label="Maintenance"
+              value={boardSummary.maintenance}
+              icon={<FileText size={22} />}
+              tone="purple"
+            />
+
+            <MetricCard
+              label="Past Time"
+              value={boardSummary.past}
+              icon={<Clock size={22} />}
+              tone="slate"
+            />
+          </section>
+
+          <section className="icb-card mb-6 p-5 sm:p-6">
+            <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="icb-eyebrow">Customer Details</p>
+
+                <h3 className="icb-section-title mt-2">
+                  Customer and Payment Information
+                </h3>
+
+                <p className="icb-section-subtitle">
+                  Walk-in bookings are automatically marked as approved and paid.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="icb-btn-light w-full disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+              >
+                <RefreshCw
+                  size={17}
+                  className={refreshing ? "animate-spin" : ""}
+                />
+                {refreshing ? "Refreshing..." : "Refresh Schedule"}
+              </button>
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -815,6 +949,7 @@ export default function WalkInBooking() {
                 value={form.customer_name}
                 onChange={handleChange}
                 placeholder="Enter customer name"
+                icon={<UserRound size={18} />}
               />
 
               <InputField
@@ -823,6 +958,7 @@ export default function WalkInBooking() {
                 value={form.contact_number}
                 onChange={handleChange}
                 placeholder="Optional contact number"
+                icon={<UserRound size={18} />}
               />
 
               <FilterSelect
@@ -850,6 +986,7 @@ export default function WalkInBooking() {
                 value={form.payment_reference}
                 onChange={handleChange}
                 placeholder="Optional for cash"
+                icon={<CreditCard size={18} />}
               />
 
               <InputField
@@ -859,76 +996,100 @@ export default function WalkInBooking() {
                 value={form.amount_paid}
                 onChange={handleChange}
                 placeholder={String(selectedSummary.total_amount || 0)}
+                icon={<Wallet size={18} />}
               />
 
               <div className="lg:col-span-3">
-                <label className="mb-2 block text-sm font-semibold">Notes</label>
+                <label className="icb-label">Notes</label>
 
                 <textarea
                   name="notes"
                   value={form.notes}
                   onChange={handleChange}
                   placeholder="Optional notes"
-                  className="min-h-[90px] w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
+                  className="icb-textarea"
                 />
               </div>
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-[#DED8D2] bg-white p-6 shadow-sm">
-            <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <section className="icb-card p-5 sm:p-6">
+            <div className="mb-6 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <h3 className="text-2xl font-black text-[#2B2B2B]">
+                <p className="icb-eyebrow">Schedule Selection</p>
+
+                <h3 className="icb-section-title mt-2">
                   Select Walk-in Schedule
                 </h3>
 
-                <p className="text-sm text-slate-500">
-                  Choose one or more available slots. Each court/table is shown as a separate column.
+                <p className="icb-section-subtitle">
+                  Choose one or more available slots. Each court or table is
+                  shown as a separate column.
                 </p>
 
-                <h4 className="mt-4 text-xl font-black text-[#2B2B2B]">
+                <h4 className="mt-5 text-xl font-black text-[#0B1F33]">
                   {formatDate(form.booking_date)}
                 </h4>
 
-                <div className="mt-3 flex flex-wrap gap-4 text-xs font-semibold text-slate-600">
+                <div className="mt-4 flex flex-wrap gap-4 text-xs font-bold text-slate-600">
                   <Legend color="bg-green-100 border-green-500" label="Open" />
-                  <Legend color="bg-[#F3E4DF] border-[#C97B6C]" label="Selected" />
+                  <Legend
+                    color="bg-[#F3E4DF] border-[#C97B6C]"
+                    label="Selected"
+                  />
                   <Legend color="bg-blue-100 border-blue-500" label="Reserved" />
                   <Legend
                     color="bg-yellow-100 border-yellow-500"
                     label="Payment Review"
                   />
-                  <Legend color="bg-green-100 border-green-600" label="Booked/Paid" />
-                  <Legend color="bg-purple-100 border-purple-500" label="Maintenance" />
-                  <Legend color="bg-slate-200 border-slate-400" label="Past Time" />
+                  <Legend
+                    color="bg-slate-200 border-slate-400"
+                    label="Booked / Paid"
+                  />
+                  <Legend
+                    color="bg-purple-100 border-purple-500"
+                    label="Maintenance"
+                  />
+                  <Legend
+                    color="bg-slate-200 border-slate-400"
+                    label="Past Time"
+                  />
                 </div>
 
-                <div className="mt-5 flex flex-wrap gap-3">
-                  {SPORT_FILTERS.map((sport) => (
-                    <button
-                      key={sport.value}
-                      type="button"
-                      onClick={() => handleSportFilterChange(sport.value)}
-                      className={`rounded-2xl px-5 py-3 text-sm font-bold transition ${
-                        selectedSportFilter === sport.value
-                          ? "bg-[#C97B6C] text-white"
-                          : "border border-[#DED8D2] text-slate-600 hover:bg-[#F5F3F1]"
-                      }`}
-                    >
-                      {sport.label}
-                    </button>
-                  ))}
+                <div className="mt-5 rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-4">
+                  <p className="mb-4 flex items-center gap-2 text-sm font-black text-[#0B1F33]">
+                    <SearchCheck size={17} />
+                    Sport Filter
+                  </p>
+
+                  <div className="flex flex-wrap gap-3">
+                    {SPORT_FILTERS.map((sport) => (
+                      <button
+                        key={sport.value}
+                        type="button"
+                        onClick={() => handleSportFilterChange(sport.value)}
+                        className={
+                          selectedSportFilter === sport.value
+                            ? "icb-btn-accent"
+                            : "icb-btn-light"
+                        }
+                      >
+                        {sport.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={goToPreviousDate}
                   disabled={form.booking_date <= getTodayDate()}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-black hover:bg-[#F5F3F1] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="icb-btn-light disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Previous date"
                 >
-                  ‹
+                  <ChevronLeft size={18} />
                 </button>
 
                 <input
@@ -937,40 +1098,44 @@ export default function WalkInBooking() {
                   value={form.booking_date}
                   min={getTodayDate()}
                   onChange={handleChange}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
+                  className="icb-input w-auto min-w-[190px]"
                 />
 
                 <button
                   type="button"
                   onClick={goToNextDate}
-                  className="rounded-2xl border border-[#DED8D2] px-4 py-3 font-black hover:bg-[#F5F3F1]"
+                  className="icb-btn-light"
+                  aria-label="Next date"
                 >
-                  ›
+                  <ChevronRight size={18} />
                 </button>
               </div>
             </div>
 
             {loading ? (
-              <p className="text-sm text-slate-500">Loading walk-in booking...</p>
-            ) : filteredFacilities.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#DED8D2] p-6 text-sm text-slate-500">
-                No facilities found for this sport type.
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-8 text-sm font-semibold text-slate-500">
+                Loading walk-in booking...
               </div>
+            ) : filteredFacilities.length === 0 ? (
+              <EmptyState text="No facilities found for this sport type." />
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-[#DED8D2]">
+              <div className="calendar-scroll overflow-x-auto rounded-2xl border border-[#DED8D2]">
                 <table className="w-full min-w-[1100px] border-collapse text-sm">
                   <thead>
-                    <tr className="bg-slate-100">
-                      <th className="w-[160px] border border-[#DED8D2] px-4 py-4 text-left text-[#2B2B2B]">
+                    <tr className="bg-[#F5F3F1]">
+                      <th className="w-[160px] border border-[#DED8D2] px-4 py-4 text-left text-[#0B1F33]">
                         Time
                       </th>
 
                       {filteredFacilities.map((facility) => (
                         <th
                           key={facility.id}
-                          className="border border-[#DED8D2] px-4 py-4 text-center text-[#2B2B2B]"
+                          className="border border-[#DED8D2] px-4 py-4 text-center text-[#0B1F33]"
                         >
-                          <div className="font-black">{facility.name}</div>
+                          <div className="safe-text font-black">
+                            {facility.name}
+                          </div>
+
                           <div className="mt-1 text-xs font-black text-[#C97B6C]">
                             {money(getFacilityRate(facility))}/hr
                           </div>
@@ -982,14 +1147,23 @@ export default function WalkInBooking() {
                   <tbody>
                     {slots.map((slot) => (
                       <tr key={slot.label}>
-                        <td className="border border-[#DED8D2] px-4 py-4 font-bold text-[#2B2B2B]">
-                          {slot.label}
+                        <td className="border border-[#DED8D2] bg-white px-4 py-4 font-black text-[#0B1F33]">
+                          <div className="flex items-center gap-2">
+                            <Clock size={15} className="text-[#C97B6C]" />
+                            {slot.label}
+                          </div>
                         </td>
 
                         {filteredFacilities.map((facility) => {
                           const pastSlot = isPastSlot(form.booking_date, slot);
-                          const maintenanceBlock = getMaintenanceBlock(facility.id, slot);
-                          const blockingBooking = getBlockingBooking(facility.id, slot);
+                          const maintenanceBlock = getMaintenanceBlock(
+                            facility.id,
+                            slot
+                          );
+                          const blockingBooking = getBlockingBooking(
+                            facility.id,
+                            slot
+                          );
                           const selected = isSlotSelected(facility.id, slot);
 
                           const blocked =
@@ -1000,21 +1174,23 @@ export default function WalkInBooking() {
                           return (
                             <td
                               key={`${facility.id}-${slot.index}`}
-                              className="border border-[#DED8D2] p-1"
+                              className="border border-[#DED8D2] bg-white p-1"
                             >
                               <button
                                 type="button"
                                 disabled={blocked || loadingSchedule}
                                 onClick={() => handleSlotSelect(facility, slot)}
-                                className={`min-h-[70px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${
+                                className={`min-h-[78px] w-full rounded-xl border px-3 py-2 text-center text-xs font-black transition ${
                                   blocked
                                     ? pastSlot
                                       ? "cursor-not-allowed border-slate-400 bg-slate-200 text-slate-600"
                                       : maintenanceBlock
                                       ? "cursor-not-allowed border-purple-500 bg-purple-100 text-purple-800"
-                                      : `cursor-not-allowed ${getBlockedClass(blockingBooking)}`
+                                      : `cursor-not-allowed ${getBlockedClass(
+                                          blockingBooking
+                                        )}`
                                     : selected
-                                    ? "border-[#C97B6C] bg-[#F3E4DF] text-[#C97B6C] ring-2 ring-[#C97B6C]/25"
+                                    ? "border-[#C97B6C] bg-[#F3E4DF] text-[#B86658] ring-2 ring-[#C97B6C]/25"
                                     : "border-green-500 bg-green-100 text-green-700 hover:bg-green-200"
                                 }`}
                               >
@@ -1022,7 +1198,9 @@ export default function WalkInBooking() {
                                   <>
                                     Unavailable
                                     <br />
-                                    <span className="text-xs font-bold">Past Time</span>
+                                    <span className="text-xs font-bold">
+                                      Past Time
+                                    </span>
                                   </>
                                 ) : maintenanceBlock ? (
                                   <>
@@ -1034,7 +1212,8 @@ export default function WalkInBooking() {
                                   </>
                                 ) : blockingBooking ? (
                                   <>
-                                    {normalizeStatus(blockingBooking.status) === "approved"
+                                    {normalizeStatus(blockingBooking.status) ===
+                                    "approved"
                                       ? "Booked"
                                       : formatStatusLabel(blockingBooking.status)}
                                     <br />
@@ -1043,7 +1222,9 @@ export default function WalkInBooking() {
                                     </span>
                                     <br />
                                     <span className="text-xs font-bold">
-                                      {formatStatusLabel(blockingBooking.payment_status)}
+                                      {formatStatusLabel(
+                                        blockingBooking.payment_status
+                                      )}
                                     </span>
                                   </>
                                 ) : selected ? (
@@ -1062,48 +1243,57 @@ export default function WalkInBooking() {
               </div>
             )}
 
-            <div className="mt-6 flex flex-col gap-4 rounded-2xl bg-[#F5F3F1] p-5 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-sm font-black text-[#2B2B2B]">
-                  Walk-in Booking Summary
-                </p>
+            <div className="mt-6 rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-5">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <p className="icb-eyebrow">Booking Summary</p>
 
-                {selectedGroups.length === 0 ? (
-                  <p className="mt-1 text-sm text-slate-500">
-                    No time slot selected yet.
-                  </p>
-                ) : (
-                  <div className="mt-2 space-y-2 text-sm text-slate-600">
-                    {selectedGroups.slice(0, 5).map((group, index) => (
-                      <p key={`${group.facility_id}-${group.start_time}-${index}`}>
-                        {group.facility?.name || "Facility"} • {group.label} •{" "}
-                        {group.total_hours} hour(s) •{" "}
-                        <b>{money(group.total_amount)}</b>
-                      </p>
-                    ))}
+                  <h3 className="mt-2 text-xl font-black text-[#0B1F33]">
+                    Walk-in Booking Summary
+                  </h3>
 
-                    {selectedGroups.length > 5 && (
-                      <p className="text-xs font-bold text-slate-500">
-                        +{selectedGroups.length - 5} more selected booking group(s)
-                      </p>
-                    )}
-
-                    <p className="pt-1 font-black text-[#2B2B2B]">
-                      Total: {selectedSummary.total_hours} hour(s) •{" "}
-                      {money(selectedSummary.total_amount)}
+                  {selectedGroups.length === 0 ? (
+                    <p className="mt-2 text-sm font-semibold text-slate-500">
+                      No time slot selected yet.
                     </p>
-                  </div>
-                )}
-              </div>
+                  ) : (
+                    <div className="mt-4 space-y-2 text-sm font-semibold text-slate-600">
+                      {selectedGroups.slice(0, 5).map((group, index) => (
+                        <p key={`${group.facility_id}-${group.start_time}-${index}`}>
+                          <span className="font-black text-[#0B1F33]">
+                            {group.facility?.name || "Facility"}
+                          </span>{" "}
+                          • {group.label} • {group.total_hours} hour(s) •{" "}
+                          <b className="text-[#B86658]">
+                            {money(group.total_amount)}
+                          </b>
+                        </p>
+                      ))}
 
-              <button
-                type="button"
-                onClick={openConfirmModal}
-                disabled={selectedSlots.length === 0}
-                className="rounded-2xl bg-[#C97B6C] px-6 py-4 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Review Walk-in Booking
-              </button>
+                      {selectedGroups.length > 5 && (
+                        <p className="text-xs font-bold text-slate-500">
+                          +{selectedGroups.length - 5} more selected booking
+                          group(s)
+                        </p>
+                      )}
+
+                      <p className="pt-2 text-base font-black text-[#0B1F33]">
+                        Total: {selectedSummary.total_hours} hour(s) •{" "}
+                        {money(selectedSummary.total_amount)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={openConfirmModal}
+                  disabled={selectedSlots.length === 0}
+                  className="icb-btn-accent disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Review Walk-in Booking
+                </button>
+              </div>
             </div>
           </section>
 
@@ -1132,20 +1322,19 @@ function ConfirmWalkInModal({
   onConfirm,
 }) {
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/45 px-4 py-6">
+      <div className="icb-card max-h-[92vh] w-full max-w-4xl overflow-y-auto p-5 shadow-2xl sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
-              Confirm Walk-in Booking
-            </p>
+            <p className="icb-eyebrow">Confirm Walk-in Booking</p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#2B2B2B]">
+            <h2 className="mt-2 text-2xl font-black text-[#0B1F33]">
               Review before creating booking
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Multiple selected slots may create multiple approved and paid booking records.
+            <p className="mt-2 text-sm font-semibold text-slate-500">
+              Multiple selected slots may create multiple approved and paid
+              booking records.
             </p>
           </div>
 
@@ -1153,7 +1342,7 @@ function ConfirmWalkInModal({
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
+            className="icb-btn-light disabled:opacity-60"
           >
             Close
           </button>
@@ -1169,7 +1358,10 @@ function ConfirmWalkInModal({
           />
           <ConfirmItem label="Payment Method" value={form.payment_method} />
           <ConfirmItem label="Reference" value={form.payment_reference || "-"} />
-          <ConfirmItem label="Total Hours" value={`${summary.total_hours} hour(s)`} />
+          <ConfirmItem
+            label="Total Hours"
+            value={`${summary.total_hours} hour(s)`}
+          />
           <ConfirmItem label="Total Amount" value={money(summary.total_amount)} />
           <ConfirmItem
             label="Amount Paid"
@@ -1180,7 +1372,7 @@ function ConfirmWalkInModal({
 
         <div className="mt-6 rounded-2xl border border-[#DED8D2]">
           <div className="border-b border-[#DED8D2] px-4 py-3">
-            <h3 className="font-black text-[#2B2B2B]">Selected Schedule</h3>
+            <h3 className="font-black text-[#0B1F33]">Selected Schedule</h3>
           </div>
 
           <div className="max-h-[260px] overflow-y-auto p-4">
@@ -1188,17 +1380,19 @@ function ConfirmWalkInModal({
               {groups.map((group, index) => (
                 <div
                   key={`${group.facility_id}-${group.start_time}-${index}`}
-                  className="rounded-2xl bg-[#F5F3F1] p-4 text-sm"
+                  className="rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-4 text-sm"
                 >
-                  <p className="font-black text-[#2B2B2B]">
+                  <p className="safe-text font-black text-[#0B1F33]">
                     {group.facility?.name || "Facility"}
                   </p>
-                  <p className="mt-1 text-slate-600">
+
+                  <p className="mt-1 font-semibold text-slate-600">
                     {group.label} • {group.total_hours} hour(s)
                   </p>
-                  <p className="mt-1 text-slate-600">
+
+                  <p className="mt-1 font-semibold text-slate-600">
                     Rate: <b>{money(group.rate_per_hour)}/hr</b> • Total:{" "}
-                    <b>{money(group.total_amount)}</b>
+                    <b className="text-[#B86658]">{money(group.total_amount)}</b>
                   </p>
                 </div>
               ))}
@@ -1206,7 +1400,7 @@ function ConfirmWalkInModal({
           </div>
         </div>
 
-        <div className="mt-5 rounded-2xl bg-green-50 px-4 py-4 text-sm font-semibold text-green-700">
+        <div className="icb-alert-success mt-5">
           This walk-in booking will be automatically marked as approved and paid.
         </div>
 
@@ -1215,7 +1409,7 @@ function ConfirmWalkInModal({
             type="button"
             onClick={onClose}
             disabled={submitting}
-            className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
+            className="icb-btn-light disabled:opacity-60"
           >
             Edit
           </button>
@@ -1224,7 +1418,7 @@ function ConfirmWalkInModal({
             type="button"
             onClick={onConfirm}
             disabled={submitting}
-            className="rounded-2xl bg-[#C97B6C] px-6 py-3 font-bold text-white hover:bg-[#B87463] disabled:cursor-not-allowed disabled:opacity-60"
+            className="icb-btn-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "Creating..." : "Create Walk-in Booking"}
           </button>
@@ -1241,19 +1435,28 @@ function InputField({
   onChange,
   placeholder = "",
   type = "text",
+  icon,
 }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-semibold">{label}</label>
+      <label className="icb-label">{label}</label>
 
-      <input
-        type={type}
-        name={name}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-      />
+      <div className="relative">
+        {icon && (
+          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+            {icon}
+          </span>
+        )}
+
+        <input
+          type={type}
+          name={name}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          className={`icb-input ${icon ? "pl-11" : ""}`}
+        />
+      </div>
     </div>
   );
 }
@@ -1261,14 +1464,9 @@ function InputField({
 function FilterSelect({ label, name, value, onChange, options }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-semibold">{label}</label>
+      <label className="icb-label">{label}</label>
 
-      <select
-        name={name}
-        value={value}
-        onChange={onChange}
-        className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-      >
+      <select name={name} value={value} onChange={onChange} className="icb-select">
         {options.map((option) => (
           <option key={String(option.value)} value={option.value}>
             {option.label}
@@ -1282,11 +1480,11 @@ function FilterSelect({ label, name, value, onChange, options }) {
 function ConfirmItem({ label, value }) {
   return (
     <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
-      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">
         {label}
       </p>
 
-      <p className="mt-2 break-words text-sm font-black text-[#2B2B2B]">
+      <p className="safe-text mt-2 text-sm font-black text-[#0B1F33]">
         {value || "-"}
       </p>
     </div>
@@ -1299,5 +1497,55 @@ function Legend({ color, label }) {
       <span className={`h-4 w-4 rounded border ${color}`}></span>
       {label}
     </span>
+  );
+}
+
+function MetricCard({ label, value, icon, tone = "coral" }) {
+  const toneClasses = {
+    coral: "bg-[#F3E4DF] text-[#B86658]",
+    green: "bg-green-100 text-green-700",
+    blue: "bg-blue-100 text-blue-700",
+    purple: "bg-purple-100 text-purple-700",
+    slate: "bg-slate-100 text-slate-700",
+  };
+
+  return (
+    <div className="icb-card icb-card-hover p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-bold text-slate-500">{label}</p>
+
+          <h3 className="mt-3 text-3xl font-black text-[#0B1F33]">{value}</h3>
+        </div>
+
+        <div
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
+            toneClasses[tone] || toneClasses.coral
+          }`}
+        >
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroStat({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-white/15 px-4 py-3 text-white backdrop-blur">
+      <p className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-white/80">
+        {label}
+      </p>
+
+      <h3 className="mt-2 text-xl font-black">{value}</h3>
+    </div>
+  );
+}
+
+function EmptyState({ text }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-8 text-center text-sm font-semibold text-slate-500">
+      {text}
+    </div>
   );
 }
