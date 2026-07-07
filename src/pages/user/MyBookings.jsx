@@ -1,32 +1,43 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   CalendarClock,
-  CheckCircle,
+  CheckCircle2,
   Clock,
   CreditCard,
+  Eye,
   FileImage,
   Printer,
-  Receipt,
+  ReceiptText,
   RefreshCw,
+  Search,
   Upload,
+  X,
   XCircle,
 } from "lucide-react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
 import { supabase } from "../../services/supabaseClient";
+import {
+  cancelBooking,
+  expireBookingReservation,
+  submitPaymentProof,
+} from "../../services/bookingService";
 import { useAuth } from "../../context/AuthContext";
-import { getPaymentSettings } from "../../services/paymentSettingsService";
+
+function money(value) {
+  return `₱${Number(value || 0).toLocaleString()}`;
+}
 
 function cleanTime(time) {
   if (!time) return "";
   return String(time).slice(0, 5);
 }
 
-function formatTime(time) {
-  if (!time) return "-";
+function formatTime(time24) {
+  if (!time24) return "-";
 
-  const [h, m] = cleanTime(time).split(":");
+  const [h, m] = cleanTime(time24).split(":");
   let hour = Number(h);
   const suffix = hour >= 12 ? "PM" : "AM";
 
@@ -36,6 +47,20 @@ function formatTime(time) {
 }
 
 function formatDate(value) {
+  if (!value) return "-";
+
+  try {
+    return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return value;
+  }
+}
+
+function formatLongDate(value) {
   if (!value) return "-";
 
   try {
@@ -54,252 +79,310 @@ function formatDateTime(value) {
   if (!value) return "-";
 
   try {
-    return new Date(value).toLocaleString();
+    return new Date(value).toLocaleString(undefined, {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
     return value;
   }
 }
 
-function money(value) {
-  return `₱${Number(value || 0).toLocaleString()}`;
-}
-
 function normalizeStatus(status) {
-  return String(status || "").toLowerCase();
+  return String(status || "reserved").toLowerCase();
 }
 
 function normalizePaymentStatus(status) {
   return String(status || "unpaid").toLowerCase();
 }
 
-function normalizeCompletionStatus(status) {
-  return String(status || "not_completed").toLowerCase();
-}
-
 function formatStatusLabel(status) {
   return String(status || "-").replaceAll("_", " ");
 }
 
-function getFacilityName(booking) {
-  return booking?.facilities?.name || "Facility";
-}
-
-function getBookingTotal(booking) {
-  const totalHours = Number(booking?.total_hours || 0);
-  const ratePerHour = Number(booking?.rate_per_hour || 0);
-  const computed = totalHours * ratePerHour;
-
-  return Number(booking?.total_amount || 0) || computed;
-}
-
-function getReservationMinutesLeft(booking) {
+function getReservedMinutesLeft(booking) {
   if (!booking?.reservation_expires_at) return null;
 
   const expiresAt = new Date(booking.reservation_expires_at).getTime();
+  const now = Date.now();
+  const diff = expiresAt - now;
 
   if (Number.isNaN(expiresAt)) return null;
-
-  const diff = expiresAt - Date.now();
-
   if (diff <= 0) return 0;
 
   return Math.ceil(diff / 60000);
 }
 
-function canCancelBooking(booking) {
+function isExpiredReservedBooking(booking) {
   const status = normalizeStatus(booking?.status);
   const paymentStatus = normalizePaymentStatus(booking?.payment_status);
+  const minutesLeft = getReservedMinutesLeft(booking);
 
   return (
-    ["reserved", "pending"].includes(status) &&
-    ["unpaid", "rejected_payment"].includes(paymentStatus)
+    status === "reserved" &&
+    ["unpaid", "rejected_payment"].includes(paymentStatus) &&
+    minutesLeft !== null &&
+    minutesLeft <= 0
   );
 }
 
-function canPayBooking(booking) {
-  const status = normalizeStatus(booking?.status);
-  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
-
-  return (
-    ["reserved", "pending"].includes(status) &&
-    ["unpaid", "rejected_payment"].includes(paymentStatus)
-  );
-}
-
-function canViewReceipt(booking) {
-  const status = normalizeStatus(booking?.status);
-  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
-
-  return paymentStatus === "paid" || status === "approved" || booking?.receipt_number;
-}
-
-function getStatusClass(status) {
+function statusClass(status) {
   const value = normalizeStatus(status);
 
-  if (value === "approved") return "icb-badge icb-badge-success";
-  if (value === "reserved") return "icb-badge icb-badge-info";
-  if (value === "pending") return "icb-badge icb-badge-warning";
-  if (value === "cancelled") return "icb-badge icb-badge-muted";
-  if (value === "expired") return "icb-badge icb-badge-warning";
-  if (value === "rejected") return "icb-badge icb-badge-danger";
+  if (value === "approved") return "bg-green-100 text-green-700";
+  if (value === "reserved") return "bg-blue-100 text-blue-700";
+  if (value === "pending") return "bg-amber-100 text-amber-700";
+  if (value === "rejected") return "bg-red-100 text-red-700";
+  if (value === "cancelled") return "bg-slate-200 text-slate-700";
+  if (value === "expired") return "bg-orange-100 text-orange-700";
+  if (value === "completed") return "bg-purple-100 text-purple-700";
 
-  return "icb-badge icb-badge-muted";
+  return "bg-slate-100 text-slate-700";
 }
 
-function getPaymentStatusClass(status) {
+function paymentStatusClass(status) {
   const value = normalizePaymentStatus(status);
 
-  if (value === "paid") return "icb-badge icb-badge-success";
-  if (value === "pending_verification") return "icb-badge icb-badge-info";
-  if (value === "unpaid") return "icb-badge icb-badge-warning";
-  if (value === "rejected_payment") return "icb-badge icb-badge-danger";
-  if (value === "expired") return "icb-badge icb-badge-warning";
+  if (value === "paid") return "bg-green-100 text-green-700";
+  if (value === "pending_verification") return "bg-blue-100 text-blue-700";
+  if (value === "rejected_payment") return "bg-red-100 text-red-700";
+  if (value === "expired") return "bg-orange-100 text-orange-700";
+  if (value === "refunded") return "bg-purple-100 text-purple-700";
 
-  return "icb-badge icb-badge-muted";
+  return "bg-slate-100 text-slate-700";
 }
 
-function getCompletionStatusClass(status) {
-  const value = normalizeCompletionStatus(status);
+function statusMessage(booking) {
+  const status = normalizeStatus(booking.status);
+  const paymentStatus = normalizePaymentStatus(booking.payment_status);
+  const minutesLeft = getReservedMinutesLeft(booking);
 
-  if (value === "completed") return "icb-badge icb-badge-success";
-  if (value === "no_show") return "icb-badge icb-badge-warning";
-  if (value === "cancelled_late") return "icb-badge icb-badge-danger";
+  if (status === "reserved" && paymentStatus === "unpaid") {
+    if (minutesLeft !== null && minutesLeft > 0) {
+      return `Your slot is reserved. Upload your payment proof within ${minutesLeft} minute(s).`;
+    }
 
-  return "icb-badge icb-badge-muted";
+    return "Your reservation is expiring. Please refresh if it does not update.";
+  }
+
+  if (status === "reserved" && paymentStatus === "pending_verification") {
+    return "Your payment proof has been submitted. Please wait for staff verification.";
+  }
+
+  if (status === "reserved" && paymentStatus === "rejected_payment") {
+    if (minutesLeft !== null && minutesLeft > 0) {
+      return `Your payment proof was rejected. Upload a valid proof again within ${minutesLeft} minute(s).`;
+    }
+
+    return "Your reservation expired after the rejected payment proof.";
+  }
+
+  if (status === "approved" && paymentStatus === "paid") {
+    return "Your payment has been verified and your booking is approved.";
+  }
+
+  if (status === "approved") {
+    return "Your booking has been approved. You can now view or print your booking receipt.";
+  }
+
+  if (status === "rejected") {
+    return "Your booking request was rejected. Check the reason below if provided.";
+  }
+
+  if (status === "cancelled") {
+    return "This booking request was cancelled.";
+  }
+
+  if (status === "expired") {
+    return "This reservation expired because payment proof was not submitted on time.";
+  }
+
+  if (status === "completed") {
+    return "This booking session has been completed.";
+  }
+
+  return "Your booking request is waiting for review.";
 }
 
-function formatCompletionStatus(status) {
-  const value = normalizeCompletionStatus(status);
+function getFinalTotal(booking) {
+  const totalHours = Number(booking.total_hours || 0);
+  const ratePerHour = Number(booking.rate_per_hour || 0);
+  const computedTotal = totalHours * ratePerHour;
 
-  if (value === "completed") return "Completed";
-  if (value === "no_show") return "No-show";
-  if (value === "cancelled_late") return "Cancelled Late";
-
-  return "Not Completed";
+  return Number(booking.display_total || booking.total_amount || 0) || computedTotal;
 }
 
-function getOverallStep(booking) {
-  const status = normalizeStatus(booking?.status);
-  const paymentStatus = normalizePaymentStatus(booking?.payment_status);
-  const completionStatus = normalizeCompletionStatus(booking?.completion_status);
+function getRatePerHour(booking) {
+  return Number(booking.display_rate || booking.rate_per_hour || 0);
+}
 
-  if (status === "cancelled") return "Cancelled";
-  if (status === "expired" || paymentStatus === "expired") return "Expired";
-  if (paymentStatus === "rejected_payment") return "Payment Rejected";
-  if (completionStatus !== "not_completed") return formatCompletionStatus(completionStatus);
-  if (status === "approved" && paymentStatus === "paid") return "Approved";
-  if (paymentStatus === "pending_verification") return "Payment Review";
-  if (status === "reserved") return "Reserved";
+function getTotalHours(booking) {
+  return Number(booking.total_hours || 0);
+}
 
-  return formatStatusLabel(status);
+function getBalance(booking) {
+  const balance = Number(booking.balance_amount || 0);
+
+  if (booking.balance_amount !== null && booking.balance_amount !== undefined) {
+    return balance;
+  }
+
+  return Math.max(getFinalTotal(booking) - Number(booking.amount_paid || 0), 0);
+}
+
+function isReservedPaymentNeeded(booking) {
+  const status = normalizeStatus(booking.status);
+  const paymentStatus = normalizePaymentStatus(booking.payment_status);
+
+  return (
+    status === "reserved" &&
+    ["unpaid", "rejected_payment"].includes(paymentStatus)
+  );
+}
+
+function canCancelBooking(booking) {
+  const status = normalizeStatus(booking.status);
+  const paymentStatus = normalizePaymentStatus(booking.payment_status);
+
+  return (
+    ["reserved", "pending"].includes(status) &&
+    ["unpaid", "rejected_payment"].includes(paymentStatus)
+  );
 }
 
 export default function MyBookings() {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const highlightId = searchParams.get("highlight");
-  const openPay = searchParams.get("pay");
+  const highlightedId =
+    searchParams.get("highlight") ||
+    searchParams.get("booking_id") ||
+    searchParams.get("reference_id");
 
-  const [bookings, setBookings] = useState([]);
-  const [paymentSettings, setPaymentSettings] = useState(null);
+  const shouldOpenPayment = searchParams.get("pay") === "1";
 
-  const [paymentModal, setPaymentModal] = useState(false);
-  const [paymentBooking, setPaymentBooking] = useState(null);
-  const [paymentForm, setPaymentForm] = useState({
-    payment_method: "GCash",
-    payment_reference: "",
-    amount_paid: "",
-    payment_proof_file: null,
-  });
+  const highlightedBookingRef = useRef(null);
+  const autoPaymentOpenedRef = useRef(false);
+  const expiringRef = useRef(false);
 
-  const [receiptModal, setReceiptModal] = useState(false);
-  const [receiptBooking, setReceiptBooking] = useState(null);
+  const [facilityBookings, setFacilityBookings] = useState([]);
 
-  const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const filteredBookings = useMemo(() => {
-    return bookings.filter((booking) => {
-      if (filter === "all") return true;
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
-      if (filter === "active") {
-        return ["reserved", "pending", "approved"].includes(
-          normalizeStatus(booking.status)
+  const [detailsModal, setDetailsModal] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
+
+  const [receiptModal, setReceiptModal] = useState(false);
+  const [selectedReceiptBooking, setSelectedReceiptBooking] = useState(null);
+
+  const [cancelModal, setCancelModal] = useState(false);
+  const [selectedCancelBooking, setSelectedCancelBooking] = useState(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+
+  const [paymentModal, setPaymentModal] = useState(false);
+  const [selectedPaymentBooking, setSelectedPaymentBooking] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("GCash");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
+  const [paymentFile, setPaymentFile] = useState(null);
+  const [submittingPayment, setSubmittingPayment] = useState(false);
+
+  const allBookings = useMemo(() => {
+    return facilityBookings
+      .map((booking) => ({
+        ...booking,
+        booking_source: "facility",
+        display_title: booking.facilities?.name || "Facility Booking",
+        display_type: "Facility Booking",
+        display_rate: booking.rate_per_hour,
+        display_total: booking.total_amount,
+        source_table: "bookings",
+      }))
+      .sort((a, b) => {
+        return (
+          new Date(b.created_at || b.booking_date) -
+          new Date(a.created_at || a.booking_date)
         );
-      }
+      });
+  }, [facilityBookings]);
 
-      if (filter === "payment") {
-        return ["unpaid", "pending_verification", "rejected_payment"].includes(
-          normalizePaymentStatus(booking.payment_status)
-        );
-      }
-
-      if (filter === "completed") {
-        return normalizeCompletionStatus(booking.completion_status) !== "not_completed";
-      }
-
-      if (filter === "cancelled") {
-        return ["cancelled", "expired", "rejected"].includes(
-          normalizeStatus(booking.status)
-        );
-      }
-
-      return true;
-    });
-  }, [bookings, filter]);
-
-  const summary = useMemo(() => {
-    const active = bookings.filter((booking) =>
-      ["reserved", "pending", "approved"].includes(normalizeStatus(booking.status))
-    ).length;
-
-    const paymentReview = bookings.filter(
-      (booking) => normalizePaymentStatus(booking.payment_status) === "pending_verification"
-    ).length;
-
-    const approved = bookings.filter(
-      (booking) =>
-        normalizeStatus(booking.status) === "approved" &&
-        normalizePaymentStatus(booking.payment_status) === "paid"
-    ).length;
-
-    const completed = bookings.filter(
-      (booking) => normalizeCompletionStatus(booking.completion_status) === "completed"
-    ).length;
-
+  const stats = useMemo(() => {
     return {
-      active,
-      paymentReview,
-      approved,
-      completed,
+      total: allBookings.length,
+      reserved: allBookings.filter((b) => normalizeStatus(b.status) === "reserved")
+        .length,
+      pending: allBookings.filter((b) => normalizeStatus(b.status) === "pending")
+        .length,
+      approved: allBookings.filter((b) => normalizeStatus(b.status) === "approved")
+        .length,
+      expired: allBookings.filter((b) => normalizeStatus(b.status) === "expired")
+        .length,
+      cancelled: allBookings.filter((b) => normalizeStatus(b.status) === "cancelled")
+        .length,
     };
-  }, [bookings]);
+  }, [allBookings]);
+
+  const filteredBookings = useMemo(() => {
+    return allBookings.filter((booking) => {
+      const status = normalizeStatus(booking.status);
+
+      const matchesStatus =
+        statusFilter === "all" || status === normalizeStatus(statusFilter);
+
+      const searchText = [
+        booking.display_title,
+        booking.booking_date,
+        booking.start_time,
+        booking.end_time,
+        booking.notes,
+        booking.status,
+        booking.payment_status,
+        booking.payment_reference,
+        booking.rejection_reason,
+        booking.cancellation_reason,
+        booking.payment_rejection_reason,
+        booking.receipt_number,
+        booking.id,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch =
+        search.trim() === "" || searchText.includes(search.toLowerCase());
+
+      return matchesStatus && matchesSearch;
+    });
+  }, [allBookings, search, statusFilter]);
+
+  const paymentNeededCount = useMemo(() => {
+    return allBookings.filter(isReservedPaymentNeeded).length;
+  }, [allBookings]);
+
+  useEffect(() => {
+    if (user?.id) loadBookings();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
 
-    loadPageData();
-
     const channel = supabase
-      .channel(`my-bookings-live-${user.id}-${Date.now()}`)
+      .channel(`my-facility-bookings-live-${user.id}-${Date.now()}`)
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "bookings",
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          loadBookings(false);
-        }
+        { event: "*", schema: "public", table: "bookings" },
+        () => loadBookings(false)
       )
       .subscribe();
 
@@ -309,235 +392,248 @@ export default function MyBookings() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!highlightId || bookings.length === 0) return;
+    const interval = setInterval(() => {
+      if (user?.id) loadBookings(false);
+    }, 30000);
 
-    const selected = bookings.find(
-      (booking) => String(booking.id) === String(highlightId)
+    return () => clearInterval(interval);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!highlightedId || filteredBookings.length === 0) return;
+
+    const selectedBooking = filteredBookings.find((booking) =>
+      bookingMatchesHighlight(booking)
     );
 
-    if (selected && openPay === "1" && canPayBooking(selected)) {
-      openPaymentModal(selected);
+    if (!selectedBooking) return;
+
+    setTimeout(() => {
+      highlightedBookingRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 250);
+  }, [highlightedId, filteredBookings]);
+
+  useEffect(() => {
+    if (autoPaymentOpenedRef.current) return;
+    if (!shouldOpenPayment || !highlightedId || filteredBookings.length === 0) {
+      return;
     }
-  }, [highlightId, openPay, bookings.length]);
 
-  async function loadPageData() {
+    const selectedBooking = filteredBookings.find((booking) =>
+      bookingMatchesHighlight(booking)
+    );
+
+    if (!selectedBooking) return;
+
+    if (isReservedPaymentNeeded(selectedBooking)) {
+      autoPaymentOpenedRef.current = true;
+
+      setTimeout(() => {
+        openPaymentModal(selectedBooking);
+      }, 400);
+    }
+  }, [shouldOpenPayment, highlightedId, filteredBookings]);
+
+  function bookingMatchesHighlight(booking) {
+    if (!highlightedId || !booking) return false;
+
+    const possibleIds = [
+      booking.id,
+      booking.booking_id,
+      booking.reference_id,
+      booking.linked_booking_id,
+      booking.parent_booking_id,
+    ]
+      .filter(Boolean)
+      .map((id) => String(id));
+
+    return possibleIds.includes(String(highlightedId));
+  }
+
+  async function autoExpireBookings(bookings) {
+    if (expiringRef.current) return false;
+
+    const expiredBookings = (bookings || []).filter(isExpiredReservedBooking);
+
+    if (expiredBookings.length === 0) return false;
+
     try {
-      setLoading(true);
-      setError("");
+      expiringRef.current = true;
 
-      await Promise.all([loadBookings(false), loadPaymentSettings()]);
+      await Promise.all(
+        expiredBookings.map((booking) => expireBookingReservation(booking.id))
+      );
+
+      return true;
     } catch (err) {
       console.error(err);
-      setError(err.message || "Failed to load my bookings.");
+      return false;
     } finally {
-      setLoading(false);
+      expiringRef.current = false;
     }
   }
 
   async function loadBookings(showLoading = true) {
     try {
-      if (!user?.id) return;
-
       if (showLoading) setLoading(true);
-
       setError("");
+
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
+
+      if (!currentUser) return;
 
       const { data, error } = await supabase
         .from("bookings")
-        .select(`
-          *,
-          facilities (*)
-        `)
-        .eq("user_id", user.id)
+        .select("*, facilities (*)")
+        .eq("user_id", currentUser.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      setBookings(data || []);
+      const didExpire = await autoExpireBookings(data || []);
+
+      if (didExpire) {
+        const { data: refreshedData, error: refreshedError } = await supabase
+          .from("bookings")
+          .select("*, facilities (*)")
+          .eq("user_id", currentUser.id)
+          .order("created_at", { ascending: false });
+
+        if (refreshedError) throw refreshedError;
+
+        setFacilityBookings(refreshedData || []);
+        return;
+      }
+
+      setFacilityBookings(data || []);
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to load bookings.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
-  async function loadPaymentSettings() {
-    try {
-      const settings = await getPaymentSettings();
-      setPaymentSettings(settings || null);
-    } catch (err) {
-      console.error("Failed to load payment settings:", err);
-      setPaymentSettings(null);
-    }
+  async function handleRefresh() {
+    setRefreshing(true);
+    await loadBookings(false);
+  }
+
+  function openDetailsModal(booking) {
+    setSelectedBooking(booking);
+    setDetailsModal(true);
+  }
+
+  function closeDetailsModal() {
+    setSelectedBooking(null);
+    setDetailsModal(false);
+  }
+
+  function openReceiptModal(booking) {
+    setSelectedReceiptBooking(booking);
+    setReceiptModal(true);
+  }
+
+  function closeReceiptModal() {
+    setSelectedReceiptBooking(null);
+    setReceiptModal(false);
+  }
+
+  function openCancelModal(booking) {
+    setSelectedCancelBooking(booking);
+    setCancelReason("");
+    setCancelModal(true);
+  }
+
+  function closeCancelModal() {
+    setCancelModal(false);
+    setSelectedCancelBooking(null);
+    setCancelReason("");
   }
 
   function openPaymentModal(booking) {
-    setPaymentBooking(booking);
-    setPaymentForm({
-      payment_method: "GCash",
-      payment_reference: "",
-      amount_paid: String(getBookingTotal(booking)),
-      payment_proof_file: null,
-    });
+    setSelectedPaymentBooking(booking);
+    setPaymentAmount(String(getFinalTotal(booking)));
+    setPaymentMethod("GCash");
+    setPaymentReference("");
+    setPaymentNotes("");
+    setPaymentFile(null);
     setPaymentModal(true);
-    setError("");
-    setMessage("");
   }
 
   function closePaymentModal() {
-    if (uploading) return;
-
     setPaymentModal(false);
-    setPaymentBooking(null);
-    setPaymentForm({
-      payment_method: "GCash",
-      payment_reference: "",
-      amount_paid: "",
-      payment_proof_file: null,
-    });
+    setSelectedPaymentBooking(null);
+    setPaymentAmount("");
+    setPaymentMethod("GCash");
+    setPaymentReference("");
+    setPaymentNotes("");
+    setPaymentFile(null);
   }
 
-  function handlePaymentChange(event) {
-    const { name, value, files } = event.target;
+  async function handleCancel() {
+    if (!selectedCancelBooking?.id) return;
 
-    if (name === "payment_proof_file") {
-      setPaymentForm((prev) => ({
-        ...prev,
-        payment_proof_file: files?.[0] || null,
-      }));
-      return;
-    }
-
-    setPaymentForm((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-  }
-
-  async function uploadPaymentProofFile(file, bookingId) {
-    if (!file) return null;
-
-    const extension = file.name.split(".").pop();
-    const fileName = `${user.id}/${bookingId}-${Date.now()}.${extension}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("payment-proofs")
-      .upload(fileName, file, {
-        cacheControl: "3600",
-        upsert: true,
-      });
-
-    if (uploadError) throw uploadError;
-
-    const { data } = supabase.storage
-      .from("payment-proofs")
-      .getPublicUrl(fileName);
-
-    return data?.publicUrl || null;
-  }
-
-  async function handleSubmitPayment() {
     try {
-      if (!paymentBooking?.id) return;
-
-      setUploading(true);
+      setCancelling(true);
       setError("");
       setMessage("");
 
-      if (!paymentForm.payment_method) {
-        throw new Error("Please select a payment method.");
-      }
+      await cancelBooking(selectedCancelBooking.id, cancelReason);
 
-      if (!paymentForm.amount_paid || Number(paymentForm.amount_paid) <= 0) {
-        throw new Error("Please enter the amount paid.");
-      }
+      setMessage("Booking reservation cancelled successfully.");
+      closeCancelModal();
+      closeDetailsModal();
 
-      if (!paymentForm.payment_proof_file) {
-        throw new Error("Please upload your payment proof.");
-      }
-
-      const proofUrl = await uploadPaymentProofFile(
-        paymentForm.payment_proof_file,
-        paymentBooking.id
-      );
-
-      const updatePayload = {
-        payment_status: "pending_verification",
-        payment_method: paymentForm.payment_method,
-        payment_reference: paymentForm.payment_reference || "",
-        amount_paid: Number(paymentForm.amount_paid || 0),
-        payment_date: new Date().toISOString(),
-      };
-
-      if (proofUrl) {
-        updatePayload.payment_proof_url = proofUrl;
-      }
-
-      const { error } = await supabase
-        .from("bookings")
-        .update(updatePayload)
-        .eq("id", paymentBooking.id)
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-
-      setMessage("Payment proof uploaded successfully. Please wait for staff verification.");
-      closePaymentModal();
-      await loadBookings(false);
-    } catch (err) {
-      console.error(err);
-      setError(err.message || "Failed to upload payment proof.");
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function handleCancelBooking(booking) {
-    const confirmed = window.confirm(
-      "Are you sure you want to cancel this booking?"
-    );
-
-    if (!confirmed) return;
-
-    try {
-      setProcessingId(booking.id);
-      setError("");
-      setMessage("");
-
-      const { error } = await supabase
-        .from("bookings")
-        .update({
-          status: "cancelled",
-          facility_approval_status: "cancelled",
-        })
-        .eq("id", booking.id)
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-
-      setMessage("Booking cancelled successfully.");
       await loadBookings(false);
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to cancel booking.");
     } finally {
-      setProcessingId("");
+      setCancelling(false);
     }
   }
 
-  function openReceiptModal(booking) {
-    setReceiptBooking(booking);
-    setReceiptModal(true);
+  async function handleSubmitPayment() {
+    if (!selectedPaymentBooking?.id) return;
+
+    try {
+      setSubmittingPayment(true);
+      setError("");
+      setMessage("");
+
+      await submitPaymentProof(selectedPaymentBooking.id, {
+        amount_paid: Number(paymentAmount || 0),
+        payment_method: paymentMethod,
+        payment_reference: paymentReference,
+        payment_notes: paymentNotes,
+        file: paymentFile,
+      });
+
+      setMessage(
+        "Payment proof submitted successfully. Please wait for staff verification."
+      );
+
+      closePaymentModal();
+      closeDetailsModal();
+      await loadBookings(false);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Failed to submit payment proof.");
+    } finally {
+      setSubmittingPayment(false);
+    }
   }
 
-  function closeReceiptModal() {
-    setReceiptBooking(null);
-    setReceiptModal(false);
-  }
-
-  function openTimeline(booking) {
-    navigate(`/booking-timeline?highlight=${booking.id}`);
+  function resetFilters() {
+    setSearch("");
+    setStatusFilter("all");
   }
 
   return (
@@ -546,107 +642,133 @@ export default function MyBookings() {
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="My Bookings" subtitle="Customer Portal" />
+          <Topbar title="My Bookings" subtitle="Track reservations and payments" />
 
-          {error && (
-            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-              {error}
-            </div>
-          )}
+          {error && <div className="icb-alert-error mb-5">{error}</div>}
 
-          {message && (
-            <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-bold text-green-700">
-              {message}
-            </div>
-          )}
+          {message && <div className="icb-alert-success mb-5">{message}</div>}
 
-          <section className="page-hero icb-fade-up mb-6 overflow-hidden">
-            <div className="relative">
-              <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-[#C97B6C]/25 blur-3xl" />
-              <div className="pointer-events-none absolute -bottom-24 -left-20 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
+          <section className="page-hero mb-6">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
+                  My Booking Requests
+                </p>
 
-              <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.9fr] xl:items-end">
-                <div>
-                  <p className="text-sm font-black uppercase tracking-[0.22em] text-[#E8A093]">
-                    My Booking Center
-                  </p>
+                <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
+                  Track your reservations and payments.
+                </h2>
 
-                  <h2 className="mt-4 max-w-4xl text-3xl font-black leading-tight text-white sm:text-4xl lg:text-5xl">
-                    Manage your reservations and payments.
-                  </h2>
+                <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85">
+                  View booking status, upload payment proof, open receipts, and
+                  cancel eligible reservations. Expired unpaid reservations are
+                  automatically updated when this page loads.
+                </p>
+              </div>
 
-                  <p className="mt-4 max-w-3xl text-sm leading-6 text-white/80 sm:text-base">
-                    Upload payment proof, track approval progress, view receipts,
-                    and monitor your facility booking completion status.
-                  </p>
-
-                  <div className="mt-6 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() => navigate("/booking")}
-                      className="icb-btn-accent"
-                    >
-                      <CalendarClock size={18} />
-                      Book New Facility
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => loadBookings()}
-                      className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-white/15 bg-white/10 px-5 py-3 text-sm font-black text-white transition hover:bg-white/15"
-                    >
-                      <RefreshCw size={18} />
-                      Refresh
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <HeroStat label="Active" value={summary.active} />
-                  <HeroStat label="Payment Review" value={summary.paymentReview} />
-                  <HeroStat label="Approved" value={summary.approved} />
-                  <HeroStat label="Completed" value={summary.completed} />
-                </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <HeroStat label="Reserved" value={stats.reserved} />
+                <HeroStat label="Approved" value={stats.approved} />
+                <HeroStat label="Expired" value={stats.expired} />
+                <HeroStat label="Cancelled" value={stats.cancelled} />
               </div>
             </div>
           </section>
 
+          <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <MiniStat
+              label="Total"
+              value={stats.total}
+              icon={<ReceiptText size={20} />}
+            />
+            <MiniStat
+              label="Needs Payment"
+              value={paymentNeededCount}
+              icon={<CreditCard size={20} />}
+              tone="blue"
+            />
+            <MiniStat
+              label="Pending"
+              value={stats.pending}
+              icon={<Clock size={20} />}
+              tone="amber"
+            />
+            <MiniStat
+              label="Approved"
+              value={stats.approved}
+              icon={<CheckCircle2 size={20} />}
+              tone="green"
+            />
+            <MiniStat
+              label="Cancelled"
+              value={stats.cancelled}
+              icon={<XCircle size={20} />}
+              tone="red"
+            />
+          </section>
+
           <section className="icb-card mb-6 p-5 sm:p-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
-                  Booking Filters
-                </p>
-
+                <p className="icb-eyebrow">Filters</p>
                 <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
-                  Filter reservations
+                  Find a booking
                 </h3>
-
-                <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
-                  Organize your reservations by payment, activity, completion, or cancelled status.
-                </p>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>
-                  All
-                </FilterButton>
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="icb-btn-light"
+              >
+                <RefreshCw
+                  size={17}
+                  className={refreshing ? "animate-spin" : ""}
+                />
+                {refreshing ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
 
-                <FilterButton active={filter === "active"} onClick={() => setFilter("active")}>
-                  Active
-                </FilterButton>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr_auto]">
+              <div>
+                <label className="icb-label flex items-center gap-2">
+                  <Search size={16} />
+                  Search
+                </label>
 
-                <FilterButton active={filter === "payment"} onClick={() => setFilter("payment")}>
-                  Payment
-                </FilterButton>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by facility, date, status, payment, receipt, or booking ID"
+                  className="icb-input"
+                />
+              </div>
 
-                <FilterButton active={filter === "completed"} onClick={() => setFilter("completed")}>
-                  Completed
-                </FilterButton>
+              <div>
+                <label className="icb-label">Status</label>
 
-                <FilterButton active={filter === "cancelled"} onClick={() => setFilter("cancelled")}>
-                  Cancelled / Expired
-                </FilterButton>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="icb-select"
+                >
+                  <option value="all">All</option>
+                  <option value="reserved">Reserved</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="expired">Expired</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+
+              <div className="flex items-end">
+                <button type="button" onClick={resetFilters} className="icb-btn-light">
+                  Reset
+                </button>
               </div>
             </div>
           </section>
@@ -654,82 +776,99 @@ export default function MyBookings() {
           <section className="icb-card p-5 sm:p-6">
             <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
-                  Booking List
-                </p>
+                <p className="icb-eyebrow">Booking Records</p>
 
                 <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
-                  Your facility reservations
+                  All My Bookings
                 </h3>
 
-                <p className="mt-2 text-sm font-semibold leading-5 text-slate-500">
-                  {filteredBookings.length} booking(s) shown.
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Your facility reservations and payment verification status.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => navigate("/booking")}
-                className="icb-btn-accent"
-              >
-                Book New Facility
-              </button>
+              <span className="rounded-2xl bg-[#F3E4DF] px-4 py-2 text-sm font-black text-[#C97B6C]">
+                {filteredBookings.length} shown
+              </span>
             </div>
 
             {loading ? (
               <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
-                Loading your bookings...
+                Loading bookings...
               </div>
             ) : filteredBookings.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-8 text-center">
-                <h3 className="text-2xl font-black text-[#0B1F33]">
-                  No bookings found
-                </h3>
-
-                <p className="mt-2 text-sm font-semibold text-slate-500">
-                  Your bookings will appear here once you reserve a facility.
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => navigate("/booking")}
-                  className="icb-btn-accent mt-5"
-                >
-                  Book a Facility
-                </button>
+              <div className="rounded-2xl border border-dashed border-[#DED8D2] bg-[#FBFAF9] p-6 text-sm font-semibold text-slate-500">
+                No booking requests found.
               </div>
             ) : (
               <div className="space-y-4">
-                {filteredBookings.map((booking) => (
-                  <BookingCard
-                    key={booking.id}
-                    booking={booking}
-                    highlighted={String(booking.id) === String(highlightId)}
-                    processing={processingId === booking.id}
-                    onPay={() => openPaymentModal(booking)}
-                    onCancel={() => handleCancelBooking(booking)}
-                    onReceipt={() => openReceiptModal(booking)}
-                    onTimeline={() => openTimeline(booking)}
-                  />
-                ))}
+                {filteredBookings.map((booking) => {
+                  const status = normalizeStatus(booking.status);
+                  const isHighlighted = bookingMatchesHighlight(booking);
+
+                  return (
+                    <BookingCard
+                      key={`${booking.source_table}-${booking.id}`}
+                      booking={booking}
+                      status={status}
+                      isHighlighted={isHighlighted}
+                      highlightedBookingRef={highlightedBookingRef}
+                      onView={() => openDetailsModal(booking)}
+                      onReceipt={() => openReceiptModal(booking)}
+                      onCancel={() => openCancelModal(booking)}
+                      onPayment={() => openPaymentModal(booking)}
+                    />
+                  );
+                })}
               </div>
             )}
           </section>
 
-          {paymentModal && paymentBooking && (
-            <PaymentModal
-              booking={paymentBooking}
-              form={paymentForm}
-              paymentSettings={paymentSettings}
-              uploading={uploading}
-              onChange={handlePaymentChange}
-              onClose={closePaymentModal}
-              onSubmit={handleSubmitPayment}
+          {detailsModal && selectedBooking && (
+            <BookingDetailsModal
+              booking={selectedBooking}
+              onClose={closeDetailsModal}
+              onReceipt={() => openReceiptModal(selectedBooking)}
+              onCancel={() => openCancelModal(selectedBooking)}
+              onPayment={() => openPaymentModal(selectedBooking)}
             />
           )}
 
-          {receiptModal && receiptBooking && (
-            <ReceiptModal booking={receiptBooking} onClose={closeReceiptModal} />
+          {receiptModal && selectedReceiptBooking && (
+            <ReceiptModal
+              booking={selectedReceiptBooking}
+              onClose={closeReceiptModal}
+            />
+          )}
+
+          {cancelModal && selectedCancelBooking && (
+            <CancelBookingModal
+              booking={selectedCancelBooking}
+              reason={cancelReason}
+              setReason={setCancelReason}
+              cancelling={cancelling}
+              onClose={closeCancelModal}
+              onConfirm={handleCancel}
+            />
+          )}
+
+          {paymentModal && selectedPaymentBooking && (
+            <PaymentProofModal
+              booking={selectedPaymentBooking}
+              amount={paymentAmount}
+              setAmount={setPaymentAmount}
+              method={paymentMethod}
+              setMethod={setPaymentMethod}
+              reference={paymentReference}
+              setReference={setPaymentReference}
+              notes={paymentNotes}
+              setNotes={setPaymentNotes}
+              file={paymentFile}
+              setFile={setPaymentFile}
+              submitting={submittingPayment}
+              onClose={closePaymentModal}
+              onConfirm={handleSubmitPayment}
+            />
           )}
         </div>
       </main>
@@ -739,130 +878,133 @@ export default function MyBookings() {
 
 function BookingCard({
   booking,
-  highlighted,
-  processing,
-  onPay,
-  onCancel,
+  status,
+  isHighlighted,
+  highlightedBookingRef,
+  onView,
   onReceipt,
-  onTimeline,
+  onCancel,
+  onPayment,
 }) {
-  const minutesLeft = getReservationMinutesLeft(booking);
-  const status = normalizeStatus(booking.status);
+  const finalTotal = getFinalTotal(booking);
   const paymentStatus = normalizePaymentStatus(booking.payment_status);
-  const completionStatus = normalizeCompletionStatus(booking.completion_status);
+  const minutesLeft = getReservedMinutesLeft(booking);
+  const canCancel = canCancelBooking(booking);
+  const canViewReceipt = status === "approved" || paymentStatus === "paid";
+  const canUploadPayment = isReservedPaymentNeeded(booking);
 
   return (
     <div
-      className={`rounded-[28px] border bg-white p-5 shadow-[0_10px_28px_rgba(11,31,51,0.05)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(11,31,51,0.09)] ${
-        highlighted
-          ? "border-[#C97B6C] ring-4 ring-[#C97B6C]/10"
-          : "border-[#DED8D2]"
+      ref={isHighlighted ? highlightedBookingRef : null}
+      className={`rounded-[24px] border p-5 transition-all duration-300 ${
+        isHighlighted
+          ? "border-[#C97B6C] bg-[#FFF6F3] shadow-xl ring-4 ring-[#C97B6C]/25"
+          : "border-[#DED8D2] bg-white hover:border-[#C97B6C]/40 hover:bg-[#FBFAF9]"
       }`}
     >
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
-          <div className="mb-3 flex flex-wrap gap-2">
-            <span className={getStatusClass(status)}>
-              {formatStatusLabel(status)}
-            </span>
-
-            <span className={getPaymentStatusClass(paymentStatus)}>
-              {formatStatusLabel(paymentStatus)}
-            </span>
-
-            <span className={getCompletionStatusClass(completionStatus)}>
-              {formatCompletionStatus(completionStatus)}
-            </span>
-
-            {booking.is_walk_in && (
-              <span className="icb-badge icb-badge-purple">
-                Walk-in
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {isHighlighted && (
+              <span className="rounded-full bg-[#C97B6C] px-3 py-1 text-xs font-black uppercase text-white">
+                Selected Notification
               </span>
             )}
+
+            <Badge className="bg-[#F3E4DF] text-[#C97B6C]">
+              {booking.display_type}
+            </Badge>
+
+            <Badge className={statusClass(status)}>
+              {formatStatusLabel(status)}
+            </Badge>
+
+            <Badge className={paymentStatusClass(paymentStatus)}>
+              Payment: {formatStatusLabel(paymentStatus)}
+            </Badge>
+
+            {status === "reserved" &&
+              ["unpaid", "rejected_payment"].includes(paymentStatus) &&
+              minutesLeft !== null &&
+              minutesLeft > 0 && (
+                <Badge className="bg-orange-100 text-orange-700">
+                  {minutesLeft} min left
+                </Badge>
+              )}
           </div>
 
-          <h3 className="text-2xl font-black text-[#0B1F33]">
-            {getFacilityName(booking)}
-          </h3>
+          <h4 className="text-xl font-black text-[#0B1F33]">
+            {booking.display_title}
+          </h4>
 
-          <p className="mt-1 text-sm font-semibold text-slate-500">
+          <p className="mt-2 text-sm font-semibold text-slate-600">
             {formatDate(booking.booking_date)} • {formatTime(booking.start_time)} -{" "}
             {formatTime(booking.end_time)}
           </p>
 
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MiniDetail label="Progress" value={getOverallStep(booking)} />
-            <MiniDetail label="Hours" value={`${booking.total_hours || 0} hour(s)`} />
-            <MiniDetail label="Total" value={money(getBookingTotal(booking))} />
-            <MiniDetail label="Paid" value={money(booking.amount_paid || 0)} />
-            <MiniDetail label="Payment Method" value={booking.payment_method || "-"} />
-            <MiniDetail label="Reference" value={booking.payment_reference || "-"} />
-            <MiniDetail label="Receipt" value={booking.receipt_number || "-"} />
-            <MiniDetail
-              label="Reserved Timer"
-              value={
-                minutesLeft !== null && status === "reserved" && paymentStatus === "unpaid"
-                  ? `${minutesLeft} min left`
-                  : "-"
-              }
-            />
+          <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-600">
+            {statusMessage(booking)}
+          </p>
+
+          {booking.reservation_expires_at && status === "reserved" && (
+            <p className="mt-2 flex items-center gap-2 text-sm font-bold text-orange-600">
+              <Clock size={16} />
+              Reservation expires: {formatDateTime(booking.reservation_expires_at)}
+            </p>
+          )}
+
+          <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+            <PaymentMini label="Total" value={money(finalTotal)} />
+            <PaymentMini label="Paid" value={money(booking.amount_paid)} />
+            <PaymentMini label="Balance" value={money(getBalance(booking))} />
           </div>
 
-          {booking.payment_rejection_reason && paymentStatus === "rejected_payment" && (
-            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-              <b>Payment Rejection Reason:</b> {booking.payment_rejection_reason}
-            </div>
-          )}
-
-          {booking.completion_notes && completionStatus !== "not_completed" && (
-            <div className="mt-4 rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] px-4 py-3 text-sm font-semibold text-slate-700">
-              <b>Completion Notes:</b> {booking.completion_notes}
-            </div>
-          )}
+          {paymentStatus === "rejected_payment" &&
+            booking.payment_rejection_reason && (
+              <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3">
+                <p className="text-sm font-black text-red-700">
+                  Payment Rejection Reason
+                </p>
+                <p className="mt-1 text-sm font-semibold text-red-600">
+                  {booking.payment_rejection_reason}
+                </p>
+              </div>
+            )}
         </div>
 
-        <div className="flex shrink-0 flex-wrap gap-2 xl:w-[230px] xl:flex-col">
-          <button
-            type="button"
-            onClick={onTimeline}
-            className="icb-btn-light"
-          >
-            <CalendarClock size={16} />
-            Timeline
+        <div className="flex flex-wrap gap-2 xl:w-[190px] xl:flex-col xl:items-stretch">
+          <button type="button" onClick={onView} className="icb-btn-light">
+            <Eye size={17} />
+            View
           </button>
 
-          {canPayBooking(booking) && (
-            <button
-              type="button"
-              onClick={onPay}
-              className="icb-btn-accent"
-            >
-              <Upload size={16} />
-              Upload Payment
+          {canUploadPayment && (
+            <button type="button" onClick={onPayment} className="icb-btn-accent">
+              <Upload size={17} />
+              Payment
             </button>
           )}
 
-          {canViewReceipt(booking) && (
-            <button
-              type="button"
-              onClick={onReceipt}
-              className="inline-flex items-center justify-center gap-2 rounded-[18px] border border-green-200 bg-green-50 px-5 py-3 text-sm font-black text-green-700 transition hover:bg-green-100"
-            >
-              <Receipt size={16} />
+          {canViewReceipt && (
+            <button type="button" onClick={onReceipt} className="icb-btn-accent">
+              <ReceiptText size={17} />
               Receipt
             </button>
           )}
 
-          {canCancelBooking(booking) && (
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={processing}
-              className="inline-flex items-center justify-center gap-2 rounded-[18px] bg-red-600 px-5 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <XCircle size={16} />
-              {processing ? "Cancelling..." : "Cancel"}
+          {canCancel ? (
+            <button type="button" onClick={onCancel} className="icb-btn-danger">
+              <XCircle size={17} />
+              Cancel
             </button>
+          ) : (
+            <span className="rounded-2xl bg-slate-50 px-4 py-3 text-center text-sm font-black text-slate-500">
+              {status === "expired"
+                ? "Expired"
+                : status === "cancelled"
+                ? "Cancelled"
+                : "Reviewed"}
+            </span>
           )}
         </div>
       </div>
@@ -870,447 +1012,484 @@ function BookingCard({
   );
 }
 
-function PaymentModal({
-  booking,
-  form,
-  paymentSettings,
-  uploading,
-  onChange,
-  onClose,
-  onSubmit,
-}) {
+function BookingDetailsModal({ booking, onClose, onReceipt, onCancel, onPayment }) {
+  const status = normalizeStatus(booking.status);
+  const paymentStatus = normalizePaymentStatus(booking.payment_status);
+  const canCancel = canCancelBooking(booking);
+  const canUploadPayment = isReservedPaymentNeeded(booking);
+  const canViewReceipt = status === "approved" || paymentStatus === "paid";
+
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#0B1F33]/60 px-4 py-6 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
-              Payment Upload
-            </p>
+    <ModalShell title="Booking Details" onClose={onClose}>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <DetailItem label="Facility" value={booking.display_title} />
+        <DetailItem label="Booking Date" value={formatLongDate(booking.booking_date)} />
+        <DetailItem
+          label="Time"
+          value={`${formatTime(booking.start_time)} - ${formatTime(booking.end_time)}`}
+        />
+        <DetailItem label="Total Hours" value={`${getTotalHours(booking)} hour(s)`} />
+        <DetailItem label="Rate Per Hour" value={money(getRatePerHour(booking))} />
+        <DetailItem label="Total Amount" value={money(getFinalTotal(booking))} />
+        <DetailItem label="Amount Paid" value={money(booking.amount_paid)} />
+        <DetailItem label="Balance" value={money(getBalance(booking))} />
+        <DetailItem label="Booking Status" value={formatStatusLabel(status)} capitalize />
+        <DetailItem
+          label="Payment Status"
+          value={formatStatusLabel(paymentStatus)}
+          capitalize
+        />
+        <DetailItem label="Payment Method" value={booking.payment_method || "-"} />
+        <DetailItem label="Payment Reference" value={booking.payment_reference || "-"} />
+        <DetailItem label="Receipt Number" value={booking.receipt_number || "-"} />
+        <DetailItem
+          label="Reservation Expires"
+          value={formatDateTime(booking.reservation_expires_at)}
+        />
+        <DetailItem label="Booking ID" value={booking.id || "-"} />
+      </div>
 
-            <h2 className="mt-1 text-2xl font-black text-[#0B1F33]">
-              Upload payment proof
-            </h2>
+      {booking.payment_proof_url && (
+        <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+          <p className="text-sm font-black text-[#0B1F33]">Payment Proof</p>
 
-            <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-              Submit your payment proof for staff verification.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={uploading}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
+          <a
+            href={booking.payment_proof_url}
+            target="_blank"
+            rel="noreferrer"
+            className="icb-btn-light mt-3"
           >
-            Close
+            <FileImage size={17} />
+            View Uploaded Screenshot
+          </a>
+        </div>
+      )}
+
+      <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+        <p className="text-sm font-black text-[#0B1F33]">Notes</p>
+        <p className="mt-2 text-sm font-semibold text-slate-600">
+          {booking.notes || "-"}
+        </p>
+      </div>
+
+      {paymentStatus === "rejected_payment" && (
+        <ReasonBox
+          title="Payment Rejection Reason"
+          value={
+            booking.payment_rejection_reason ||
+            "No specific payment rejection reason was provided."
+          }
+          tone="red"
+        />
+      )}
+
+      {status === "rejected" && booking.rejection_reason && (
+        <ReasonBox title="Rejection Reason" value={booking.rejection_reason} tone="red" />
+      )}
+
+      {status === "cancelled" && booking.cancellation_reason && (
+        <ReasonBox
+          title="Cancellation Reason"
+          value={booking.cancellation_reason}
+          tone="slate"
+        />
+      )}
+
+      <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
+        {canCancel && (
+          <button type="button" onClick={onCancel} className="icb-btn-danger">
+            Cancel Reservation
           </button>
-        </div>
+        )}
 
-        <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
-          <PaymentInstructionsBox settings={paymentSettings} />
-
-          <div className="rounded-2xl border border-[#DED8D2] bg-white p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658]">
-                <CreditCard size={20} />
-              </div>
-
-              <div>
-                <h3 className="text-lg font-black text-[#0B1F33]">
-                  Payment Form
-                </h3>
-
-                <p className="text-sm font-semibold text-slate-500">
-                  Fill in your payment details below.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-4">
-              <MiniDetail label="Facility" value={getFacilityName(booking)} />
-              <MiniDetail
-                label="Schedule"
-                value={`${formatDate(booking.booking_date)} • ${formatTime(
-                  booking.start_time
-                )} - ${formatTime(booking.end_time)}`}
-              />
-              <MiniDetail label="Total Amount" value={money(getBookingTotal(booking))} />
-
-              <FormField label="Payment Method">
-                <select
-                  name="payment_method"
-                  value={form.payment_method}
-                  onChange={onChange}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 font-bold outline-none focus:border-[#C97B6C]"
-                >
-                  <option value="GCash">GCash</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                  <option value="Cash">Cash</option>
-                  <option value="Other">Other</option>
-                </select>
-              </FormField>
-
-              <FormField label="Reference Number">
-                <input
-                  name="payment_reference"
-                  value={form.payment_reference}
-                  onChange={onChange}
-                  placeholder="Enter payment reference number"
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-                />
-              </FormField>
-
-              <FormField label="Amount Paid">
-                <input
-                  type="number"
-                  name="amount_paid"
-                  value={form.amount_paid}
-                  onChange={onChange}
-                  placeholder="Enter amount paid"
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none focus:border-[#C97B6C]"
-                />
-              </FormField>
-
-              <FormField label="Payment Proof Screenshot">
-                <input
-                  type="file"
-                  name="payment_proof_file"
-                  accept="image/*,.pdf"
-                  onChange={onChange}
-                  className="w-full rounded-2xl border border-[#DED8D2] px-4 py-3 outline-none file:mr-4 file:rounded-xl file:border-0 file:bg-[#C97B6C] file:px-4 file:py-2 file:font-bold file:text-white"
-                />
-              </FormField>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-semibold leading-6 text-amber-800">
-          Please make sure your uploaded proof clearly shows the reference number,
-          payment amount, and payment date.
-        </div>
-
-        <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={uploading}
-            className="rounded-2xl border border-[#DED8D2] px-6 py-3 font-bold hover:bg-[#F5F3F1] disabled:opacity-60"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={uploading}
-            className="icb-btn-accent"
-          >
+        {canUploadPayment && (
+          <button type="button" onClick={onPayment} className="icb-btn-accent">
             <Upload size={18} />
-            {uploading ? "Uploading..." : "Submit Payment Proof"}
+            Upload Payment
           </button>
-        </div>
+        )}
+
+        {canViewReceipt && (
+          <button type="button" onClick={onReceipt} className="icb-btn-accent">
+            <ReceiptText size={18} />
+            View Receipt
+          </button>
+        )}
       </div>
-    </div>
-  );
-}
-
-function PaymentInstructionsBox({ settings }) {
-  const gcashQr =
-    settings?.gcash_qr_url ||
-    settings?.gcash_qr ||
-    settings?.qr_url ||
-    settings?.payment_qr_url ||
-    "";
-  const bankQr =
-    settings?.bank_qr_url ||
-    settings?.bank_qr ||
-    "";
-
-  return (
-    <div className="rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-5">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#0B1F33] text-white">
-          <FileImage size={20} />
-        </div>
-
-        <div>
-          <h3 className="text-lg font-black text-[#0B1F33]">
-            Payment Instructions
-          </h3>
-
-          <p className="text-sm font-semibold text-slate-500">
-            Pay using the available account details below.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5 space-y-4">
-        <PaymentInfo
-          label="GCash Name"
-          value={settings?.gcash_name || settings?.gcash_account_name || "-"}
-        />
-        <PaymentInfo
-          label="GCash Number"
-          value={settings?.gcash_number || settings?.gcash_account_number || "-"}
-        />
-        <PaymentInfo
-          label="Bank Name"
-          value={settings?.bank_name || "-"}
-        />
-        <PaymentInfo
-          label="Bank Account Name"
-          value={settings?.bank_account_name || "-"}
-        />
-        <PaymentInfo
-          label="Bank Account Number"
-          value={settings?.bank_account_number || "-"}
-        />
-      </div>
-
-      {(gcashQr || bankQr) && (
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-          {gcashQr && <QrBox label="GCash QR" url={gcashQr} />}
-          {bankQr && <QrBox label="Bank QR" url={bankQr} />}
-        </div>
-      )}
-
-      {settings?.payment_instructions && (
-        <div className="mt-5 rounded-2xl bg-white p-4 text-sm font-semibold leading-6 text-slate-600">
-          {settings.payment_instructions}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function QrBox({ label, url }) {
-  return (
-    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
-      <p className="mb-3 text-sm font-black text-[#0B1F33]">{label}</p>
-
-      <img
-        src={url}
-        alt={label}
-        className="mx-auto h-48 w-48 rounded-2xl object-contain"
-      />
-    </div>
+    </ModalShell>
   );
 }
 
 function ReceiptModal({ booking, onClose }) {
-  const printRef = useRef(null);
-
   function handlePrint() {
-    const content = printRef.current?.innerHTML;
-
-    if (!content) return;
-
-    const printWindow = window.open("", "_blank", "width=900,height=700");
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Booking Receipt</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              padding: 32px;
-              color: #222;
-            }
-            .receipt {
-              max-width: 720px;
-              margin: 0 auto;
-              border: 1px solid #ddd;
-              border-radius: 18px;
-              padding: 28px;
-            }
-            .header {
-              text-align: center;
-              border-bottom: 1px solid #ddd;
-              padding-bottom: 16px;
-              margin-bottom: 20px;
-            }
-            .row {
-              display: flex;
-              justify-content: space-between;
-              gap: 24px;
-              border-bottom: 1px solid #eee;
-              padding: 10px 0;
-              font-size: 14px;
-            }
-            .label {
-              font-weight: bold;
-              color: #555;
-            }
-            .value {
-              text-align: right;
-              font-weight: bold;
-            }
-            .total {
-              font-size: 20px;
-              color: #c97b6c;
-            }
-          </style>
-        </head>
-        <body>${content}</body>
-      </html>
-    `);
-
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
+    window.print();
   }
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#0B1F33]/60 px-4 py-6 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
+    <ModalShell title="Booking Receipt" onClose={onClose} maxWidth="max-w-3xl">
+      <div className="rounded-3xl border border-[#DED8D2] bg-white p-6">
+        <div className="flex flex-col gap-4 border-b border-[#DED8D2] pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-sm font-black uppercase tracking-widest text-[#C97B6C]">
-              Official Receipt
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+              InCredoBall Sports
             </p>
 
-            <h2 className="mt-1 text-2xl font-black text-[#0B1F33]">
-              Booking Receipt
+            <h2 className="mt-2 text-2xl font-black text-[#0B1F33]">
+              Official Booking Receipt
             </h2>
+
+            <p className="mt-1 text-sm font-semibold text-slate-500">
+              Receipt No: {booking.receipt_number || booking.id || "-"}
+            </p>
+          </div>
+
+          <Badge className={statusClass(booking.status)}>
+            {formatStatusLabel(booking.status)}
+          </Badge>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <ReceiptLine label="Facility" value={booking.display_title} />
+          <ReceiptLine label="Date" value={formatLongDate(booking.booking_date)} />
+          <ReceiptLine
+            label="Time"
+            value={`${formatTime(booking.start_time)} - ${formatTime(booking.end_time)}`}
+          />
+          <ReceiptLine label="Hours" value={`${getTotalHours(booking)} hour(s)`} />
+          <ReceiptLine label="Rate" value={`${money(getRatePerHour(booking))} / hour`} />
+          <ReceiptLine label="Total" value={money(getFinalTotal(booking))} />
+          <ReceiptLine label="Amount Paid" value={money(booking.amount_paid)} />
+          <ReceiptLine label="Balance" value={money(getBalance(booking))} />
+          <ReceiptLine label="Payment Method" value={booking.payment_method || "-"} />
+          <ReceiptLine label="Payment Reference" value={booking.payment_reference || "-"} />
+          <ReceiptLine
+            label="Payment Status"
+            value={formatStatusLabel(booking.payment_status)}
+          />
+          <ReceiptLine label="Booking ID" value={booking.id || "-"} />
+        </div>
+
+        <div className="mt-6 rounded-2xl bg-[#F5F3F1] p-4 text-sm font-semibold text-slate-600">
+          Please present this receipt or booking details when you arrive at the
+          facility.
+        </div>
+      </div>
+
+      <div className="mt-6 flex justify-end">
+        <button type="button" onClick={handlePrint} className="icb-btn-accent">
+          <Printer size={18} />
+          Print Receipt
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function CancelBookingModal({
+  booking,
+  reason,
+  setReason,
+  cancelling,
+  onClose,
+  onConfirm,
+}) {
+  return (
+    <ModalShell title="Cancel Reservation" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="rounded-2xl bg-red-50 p-4">
+        <p className="text-sm font-black text-red-700">
+          Are you sure you want to cancel this booking?
+        </p>
+
+        <p className="mt-2 text-sm font-semibold text-red-600">
+          {booking.display_title} • {formatDate(booking.booking_date)} •{" "}
+          {formatTime(booking.start_time)} - {formatTime(booking.end_time)}
+        </p>
+      </div>
+
+      <div className="mt-5">
+        <label className="icb-label">Cancellation Reason</label>
+
+        <textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Enter your reason for cancelling this reservation"
+          className="icb-textarea"
+        />
+      </div>
+
+      <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={cancelling}
+          className="icb-btn-light"
+        >
+          Keep Booking
+        </button>
+
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={cancelling}
+          className="icb-btn-danger"
+        >
+          {cancelling ? "Cancelling..." : "Confirm Cancel"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function PaymentProofModal({
+  booking,
+  amount,
+  setAmount,
+  method,
+  setMethod,
+  reference,
+  setReference,
+  notes,
+  setNotes,
+  file,
+  setFile,
+  submitting,
+  onClose,
+  onConfirm,
+}) {
+  const paymentStatus = normalizePaymentStatus(booking.payment_status);
+
+  return (
+    <ModalShell title="Upload Payment Proof" onClose={onClose}>
+      <div className="rounded-2xl bg-[#F5F3F1] p-4">
+        <p className="text-sm font-black text-[#0B1F33]">{booking.display_title}</p>
+
+        <p className="mt-1 text-sm font-semibold text-slate-600">
+          {formatDate(booking.booking_date)} • {formatTime(booking.start_time)} -{" "}
+          {formatTime(booking.end_time)}
+        </p>
+
+        <p className="mt-3 text-2xl font-black text-[#C97B6C]">
+          Total: {money(getFinalTotal(booking))}
+        </p>
+      </div>
+
+      {paymentStatus === "rejected_payment" && booking.payment_rejection_reason && (
+        <ReasonBox
+          title="Previous Payment Rejection Reason"
+          value={booking.payment_rejection_reason}
+          tone="red"
+        />
+      )}
+
+      <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <label className="icb-label">Amount Paid</label>
+          <input
+            type="number"
+            min="0"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            className="icb-input"
+          />
+        </div>
+
+        <div>
+          <label className="icb-label">Payment Method</label>
+          <select
+            value={method}
+            onChange={(event) => setMethod(event.target.value)}
+            className="icb-select"
+          >
+            <option value="GCash">GCash</option>
+            <option value="Maya">Maya</option>
+            <option value="Bank Transfer">Bank Transfer</option>
+            <option value="Cash">Cash</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="icb-label">Payment Reference Number</label>
+          <input
+            value={reference}
+            onChange={(event) => setReference(event.target.value)}
+            placeholder="Enter reference number"
+            className="icb-input"
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="icb-label">Upload Screenshot / Proof</label>
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            onChange={(event) => setFile(event.target.files?.[0] || null)}
+            className="w-full rounded-2xl border border-[#DED8D2] bg-white px-4 py-3 text-sm font-bold"
+          />
+
+          <p className="mt-2 text-xs font-semibold text-slate-500">
+            {file ? `Selected: ${file.name}` : "Upload a clear payment proof image."}
+          </p>
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="icb-label">Notes</label>
+          <textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Optional notes about your payment"
+            className="icb-textarea"
+          />
+        </div>
+      </div>
+
+      <div className="mt-6 flex flex-col justify-end gap-3 sm:flex-row">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={submitting}
+          className="icb-btn-light"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={submitting}
+          className="icb-btn-accent"
+        >
+          <Upload size={18} />
+          {submitting ? "Submitting..." : "Submit Payment Proof"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ModalShell({ title, onClose, children, maxWidth = "max-w-5xl" }) {
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#0B1F33]/60 px-4 py-6 backdrop-blur-sm">
+      <div
+        className={`max-h-[92vh] w-full ${maxWidth} overflow-y-auto rounded-[28px] bg-white p-6 shadow-2xl`}
+      >
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="icb-eyebrow">InCredoBall</p>
+            <h2 className="mt-1 text-2xl font-black text-[#0B1F33]">{title}</h2>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-[#DED8D2] px-4 py-2 font-bold hover:bg-[#F5F3F1]"
+            className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#DED8D2] text-[#0B1F33] transition hover:bg-[#F5F3F1]"
           >
-            Close
+            <X size={20} />
           </button>
         </div>
 
-        <div ref={printRef} className="mt-6">
-          <div className="receipt rounded-[24px] border border-[#DED8D2] bg-white p-6">
-            <div className="header text-center">
-              <h1 className="text-2xl font-black text-[#0B1F33]">
-                InCredoBall Sports Center
-              </h1>
-
-              <p className="mt-1 text-sm font-semibold text-slate-500">
-                Booking Payment Receipt
-              </p>
-            </div>
-
-            <ReceiptRow label="Receipt Number" value={booking.receipt_number || "-"} />
-            <ReceiptRow label="Facility" value={getFacilityName(booking)} />
-            <ReceiptRow label="Booking Date" value={formatDate(booking.booking_date)} />
-            <ReceiptRow
-              label="Time"
-              value={`${formatTime(booking.start_time)} - ${formatTime(booking.end_time)}`}
-            />
-            <ReceiptRow label="Total Hours" value={`${booking.total_hours || 0} hour(s)`} />
-            <ReceiptRow label="Rate Per Hour" value={money(booking.rate_per_hour)} />
-            <ReceiptRow label="Payment Method" value={booking.payment_method || "-"} />
-            <ReceiptRow label="Payment Reference" value={booking.payment_reference || "-"} />
-            <ReceiptRow label="Payment Status" value={formatStatusLabel(booking.payment_status)} />
-            <ReceiptRow label="Booking Status" value={formatStatusLabel(booking.status)} />
-            <ReceiptRow label="Completion Status" value={formatCompletionStatus(booking.completion_status)} />
-            <ReceiptRow label="Issued At" value={formatDateTime(booking.receipt_issued_at || booking.payment_verified_at)} />
-            <ReceiptRow label="Total Amount" value={money(getBookingTotal(booking))} total />
-            <ReceiptRow label="Amount Paid" value={money(booking.amount_paid)} total />
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="icb-btn-accent"
-          >
-            <Printer size={18} />
-            Print Receipt
-          </button>
-        </div>
+        {children}
       </div>
     </div>
-  );
-}
-
-function ReceiptRow({ label, value, total = false }) {
-  return (
-    <div className="row flex items-center justify-between gap-4 border-b border-[#EEE] py-3">
-      <span className="label text-sm font-bold text-slate-500">{label}</span>
-      <span
-        className={`value text-right font-black ${
-          total ? "total text-xl text-[#C97B6C]" : "text-[#0B1F33]"
-        }`}
-      >
-        {value || "-"}
-      </span>
-    </div>
-  );
-}
-
-function PaymentInfo({ label, value }) {
-  return (
-    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
-      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
-        {label}
-      </p>
-
-      <p className="mt-2 break-words text-sm font-black text-[#0B1F33]">
-        {value || "-"}
-      </p>
-    </div>
-  );
-}
-
-function MiniDetail({ label, value }) {
-  return (
-    <div className="rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] p-4">
-      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
-        {label}
-      </p>
-
-      <p className="mt-2 break-words text-sm font-black text-[#0B1F33]">
-        {value || "-"}
-      </p>
-    </div>
-  );
-}
-
-function FilterButton({ active, onClick, children }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-2xl px-4 py-3 text-sm font-black transition ${
-        active
-          ? "bg-[#C97B6C] text-white shadow-[0_10px_24px_rgba(201,123,108,0.22)]"
-          : "border border-[#DED8D2] bg-white text-slate-600 hover:bg-[#F3E4DF] hover:text-[#B86658]"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
 function HeroStat({ label, value }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white backdrop-blur">
-      <p className="text-xs font-black uppercase tracking-widest text-[#E8A093]">
-        {label}
-      </p>
-      <h3 className="mt-1 text-2xl font-black">{value}</h3>
+    <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white">
+      <p className="text-xs font-bold text-white/70">{label}</p>
+      <p className="mt-1 text-2xl font-black">{value}</p>
     </div>
   );
 }
 
-function FormField({ label, children }) {
-  return (
-    <div>
-      <label className="mb-2 block text-sm font-black text-[#0B1F33]">
-        {label}
-      </label>
+function MiniStat({ label, value, icon, tone = "navy" }) {
+  const tones = {
+    navy: "bg-[#F3E4DF] text-[#B86658]",
+    blue: "bg-blue-100 text-blue-700",
+    amber: "bg-amber-100 text-amber-700",
+    green: "bg-green-100 text-green-700",
+    red: "bg-red-100 text-red-700",
+  };
 
+  return (
+    <div className="icb-card icb-card-hover p-5">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-bold text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-black text-[#0B1F33]">{value}</p>
+        </div>
+
+        <div
+          className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
+            tones[tone] || tones.navy
+          }`}
+        >
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Badge({ children, className }) {
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${className}`}>
       {children}
+    </span>
+  );
+}
+
+function PaymentMini({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-[#F5F3F1] px-4 py-3">
+      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 font-black text-[#0B1F33]">{value}</p>
+    </div>
+  );
+}
+
+function DetailItem({ label, value, capitalize = false }) {
+  return (
+    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
+      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+        {label}
+      </p>
+
+      <p
+        className={`mt-2 break-words text-sm font-black text-[#0B1F33] ${
+          capitalize ? "capitalize" : ""
+        }`}
+      >
+        {String(value || "-")}
+      </p>
+    </div>
+  );
+}
+
+function ReceiptLine({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-[#F5F3F1] px-4 py-3">
+      <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-black text-[#0B1F33]">{value || "-"}</p>
+    </div>
+  );
+}
+
+function ReasonBox({ title, value, tone = "red" }) {
+  const classes =
+    tone === "red"
+      ? "bg-red-50 text-red-700"
+      : "bg-slate-100 text-slate-700";
+
+  return (
+    <div className={`mt-5 rounded-2xl p-4 ${classes}`}>
+      <p className="text-sm font-black">{title}</p>
+      <p className="mt-2 text-sm font-semibold">{value}</p>
     </div>
   );
 }
