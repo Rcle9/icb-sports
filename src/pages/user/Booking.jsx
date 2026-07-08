@@ -387,6 +387,19 @@ export default function Booking() {
     );
   }, [selectedGroups]);
 
+  const profileContactNumber = useMemo(() => {
+    return String(
+      authProfile?.contact_number ||
+        authProfile?.phone ||
+        authProfile?.mobile_number ||
+        ""
+    ).trim();
+  }, [authProfile]);
+
+  const profileFullName = useMemo(() => {
+    return String(authProfile?.full_name || user?.email || "Customer").trim();
+  }, [authProfile, user]);
+
   useEffect(() => {
     if (!user?.id) return;
 
@@ -775,6 +788,11 @@ export default function Booking() {
       return false;
     }
 
+    if (!profileContactNumber) {
+      setError("Please add your contact number in Profile Settings before booking.");
+      return false;
+    }
+
     if (!form.booking_date) {
       setError("Please select a booking date.");
       return false;
@@ -865,6 +883,8 @@ export default function Booking() {
           total_hours: group.total_hours,
           rate_per_hour: group.rate_per_hour,
           total_amount: group.total_amount,
+          contact_number: profileContactNumber,
+          customer_name: profileFullName,
         });
 
         if (savedBooking?.id) {
@@ -947,6 +967,27 @@ export default function Booking() {
           {message && (
             <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-bold text-green-700">
               {message}
+            </div>
+          )}
+
+          {!profileContactNumber && (
+            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm font-bold text-amber-800">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="font-black">Contact number required</p>
+                  <p className="mt-1 font-semibold">
+                    Please add your contact number in Profile Settings before creating a booking.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => navigate("/user/profile")}
+                  className="rounded-2xl bg-amber-600 px-5 py-3 text-sm font-black text-white transition hover:bg-amber-700"
+                >
+                  Add Contact Number
+                </button>
+              </div>
             </div>
           )}
 

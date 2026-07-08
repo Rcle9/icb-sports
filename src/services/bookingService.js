@@ -86,6 +86,8 @@ function buildBookingMetadata(booking = {}) {
     payment_status: booking.payment_status || null,
     status: booking.status || null,
     receipt_number: booking.receipt_number || null,
+    contact_number: booking.contact_number || null,
+    customer_name: booking.customer_name || null,
   };
 }
 
@@ -213,8 +215,35 @@ export async function createBooking(payload) {
       ? data
       : data?.id || data?.booking_id || data?.[0]?.id || data?.[0]?.booking_id;
 
+  if (bookingId && (payload.contact_number || payload.customer_name)) {
+    const updatePayload = {};
+
+    if (payload.contact_number) {
+      updatePayload.contact_number = payload.contact_number;
+    }
+
+    if (payload.customer_name) {
+      updatePayload.customer_name = payload.customer_name;
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
+      const { error: updateError } = await supabase
+        .from("bookings")
+        .update(updatePayload)
+        .eq("id", bookingId);
+
+      if (updateError) {
+        console.error("Booking contact update error:", updateError.message);
+      }
+    }
+  }
+
   const booking = bookingId ? await fetchBookingWithDetails(bookingId) : null;
-  const metadata = buildBookingMetadata(booking || payload);
+  const metadata = buildBookingMetadata({
+    ...(booking || payload),
+    contact_number: booking?.contact_number || payload.contact_number || null,
+    customer_name: booking?.customer_name || payload.customer_name || null,
+  });
 
   await safeNotify(async () => {
     await createStaffNotification({

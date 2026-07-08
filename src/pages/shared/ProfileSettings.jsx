@@ -1,11 +1,11 @@
 // src/pages/shared/ProfileSettings.jsx
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  CalendarCheck,
   CheckCircle2,
   Lock,
   Mail,
+  Phone,
   RefreshCw,
   Save,
   ShieldCheck,
@@ -13,113 +13,61 @@ import {
 } from "lucide-react";
 import Sidebar from "../../components/layout/Sidebar";
 import Topbar from "../../components/layout/Topbar";
-import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../services/supabaseClient";
+import { useAuth } from "../../context/AuthContext";
 
-function getRoleForSidebar(role) {
+function formatRole(role) {
   const value = String(role || "user").toLowerCase();
 
-  if (value === "admin") return "admin";
-  if (value === "staff") return "staff";
-
-  return "user";
-}
-
-function getRoleLabel(role) {
-  const value = String(role || "user").toLowerCase();
-
-  if (value === "admin") return "Administrator";
+  if (value === "admin") return "Admin";
   if (value === "staff") return "Staff";
 
-  return "Customer";
+  return "User";
 }
 
-function getRoleDescription(role) {
+function getRoleHome(role) {
   const value = String(role || "user").toLowerCase();
 
-  if (value === "admin") {
-    return "You can manage users, facilities, reports, settings, and system operations.";
-  }
+  if (value === "admin") return "/admin/dashboard";
+  if (value === "staff") return "/staff/dashboard";
 
-  if (value === "staff") {
-    return "You can manage bookings, payments, walk-in reservations, maintenance, and inventory.";
-  }
-
-  return "You can book facilities, upload payment proof, track reservations, and view receipts.";
+  return "/dashboard";
 }
 
-function getInitials(name, email) {
-  const cleanName = String(name || "").trim();
+function isValidContactNumber(value) {
+  const clean = String(value || "").replace(/\s|-/g, "");
 
-  if (cleanName) {
-    const parts = cleanName.split(" ").filter(Boolean);
+  if (!clean) return true;
 
-    if (parts.length >= 2) {
-      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    }
-
-    return parts[0]?.slice(0, 2).toUpperCase() || "U";
-  }
-
-  return String(email || "U").slice(0, 2).toUpperCase();
-}
-
-function formatDateTime(value) {
-  if (!value) return "-";
-
-  try {
-    return new Date(value).toLocaleString(undefined, {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return value;
-  }
+  return /^(\+63|0)?9\d{9}$/.test(clean) || clean.length >= 7;
 }
 
 export default function ProfileSettings() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
+
+  const currentRole = String(profile?.role || "user").toLowerCase();
 
   const [form, setForm] = useState({
     full_name: "",
+    email: "",
+    contact_number: "",
+    role: "user",
   });
 
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [localProfile, setLocalProfile] = useState(null);
-
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-
-  const activeProfile = localProfile || profile;
-  const sidebarRole = getRoleForSidebar(activeProfile?.role);
-  const roleLabel = getRoleLabel(activeProfile?.role);
-
-  const initials = useMemo(() => {
-    return getInitials(activeProfile?.full_name, user?.email);
-  }, [activeProfile?.full_name, user?.email]);
-
-  const profileCompleteness = useMemo(() => {
-    let score = 0;
-
-    if (activeProfile?.full_name) score += 50;
-    if (user?.email) score += 30;
-    if (activeProfile?.role) score += 20;
-
-    return score;
-  }, [activeProfile, user]);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
-    setLocalProfile(profile || null);
-
     setForm({
-      full_name: profile?.full_name || "",
+      full_name: profile?.full_name || user?.user_metadata?.full_name || "",
+      email: profile?.email || user?.email || "",
+      contact_number: profile?.contact_number || "",
+      role: profile?.role || "user",
     });
-  }, [profile]);
+  }, [profile, user]);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -128,29 +76,20 @@ export default function ProfileSettings() {
       ...prev,
       [name]: value,
     }));
+
+    setError("");
+    setMessage("");
   }
 
-  async function refreshProfile() {
+  async function handleRefreshProfile() {
     try {
-      if (!user?.id) return;
-
       setRefreshing(true);
       setError("");
       setMessage("");
 
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-
-      if (error) throw error;
-
-      setLocalProfile(data || null);
-
-      setForm({
-        full_name: data?.full_name || "",
-      });
+      if (refreshProfile) {
+        await refreshProfile();
+      }
 
       setMessage("Profile refreshed.");
     } catch (err) {
@@ -165,59 +104,66 @@ export default function ProfileSettings() {
     event.preventDefault();
 
     try {
-      if (!user?.id) return;
+      setLoading(true);
+      setError("");
+      setMessage("");
 
-      const cleanName = form.full_name.trim();
+      const cleanName = String(form.full_name || "").trim();
+      const cleanContact = String(form.contact_number || "").trim();
 
       if (!cleanName) {
         setError("Full name is required.");
         return;
       }
 
-      setSaving(true);
-      setError("");
-      setMessage("");
+      if (!isValidContactNumber(cleanContact)) {
+        setError("Please enter a valid contact number.");
+        return;
+      }
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("profiles")
         .update({
           full_name: cleanName,
+          contact_number: cleanContact,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", user.id)
-        .select("*")
-        .single();
+        .eq("id", user.id);
 
       if (error) throw error;
 
-      setLocalProfile(data || null);
+      if (refreshProfile) {
+        await refreshProfile();
+      }
 
       setMessage("Profile updated successfully.");
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to update profile.");
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   }
 
   return (
     <div className="page-shell">
-      <Sidebar role={sidebarRole} />
+      <Sidebar role={currentRole} />
 
       <main className="page-main">
         <div className="page-container">
-          <Topbar title="Profile Settings" subtitle="Manage your account information" />
+          <Topbar
+            title="Profile Settings"
+            subtitle="Manage your account information"
+          />
 
           {error && <div className="icb-alert-error mb-5">{error}</div>}
-
           {message && <div className="icb-alert-success mb-5">{message}</div>}
 
           <section className="page-hero mb-6">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <p className="text-sm font-black uppercase tracking-[0.18em] text-[#E8A093]">
-                  Account Preferences
+                  Account Profile
                 </p>
 
                 <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
@@ -225,219 +171,200 @@ export default function ProfileSettings() {
                 </h2>
 
                 <p className="mt-4 max-w-3xl text-sm font-semibold leading-6 text-white/85">
-                  You can update your display name only. Your email address is
-                  locked because it is used for login and account identification.
+                  You can update your name and contact number here. Your email
+                  address and role are locked for security.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-                <HeroStat label="Role" value={roleLabel} />
-                <HeroStat label="Profile" value={`${profileCompleteness}%`} />
-                <HeroStat label="Status" value="Active" />
+                <HeroStat label="Role" value={formatRole(currentRole)} />
+                <HeroStat label="Email" value="Locked" />
+                <HeroStat label="Contact" value={form.contact_number ? "Saved" : "Missing"} />
               </div>
             </div>
           </section>
 
-          <section className="grid grid-cols-1 gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
-            <aside className="space-y-6">
-              <div className="icb-card overflow-hidden">
-                <div className="bg-[#0B1F33] px-6 py-8 text-center text-white">
-                  <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-[32px] bg-white text-4xl font-black text-[#0B1F33] shadow-sm">
-                    {initials}
-                  </div>
+          <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_420px]">
+            <form onSubmit={handleSubmit} className="icb-card p-5 sm:p-6">
+              <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="icb-eyebrow">Profile Form</p>
 
-                  <h3 className="mt-5 break-words text-2xl font-black">
-                    {activeProfile?.full_name || "User"}
+                  <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                    Personal details
                   </h3>
 
-                  <p className="mt-2 break-all text-sm font-semibold text-white/75">
-                    {user?.email || "-"}
-                  </p>
-
-                  <span className="mt-4 inline-flex rounded-full bg-[#C97B6C] px-4 py-2 text-xs font-black uppercase tracking-wide text-white">
-                    {roleLabel}
-                  </span>
-                </div>
-
-                <div className="p-5">
-                  <p className="text-sm font-semibold leading-6 text-slate-600">
-                    {getRoleDescription(activeProfile?.role)}
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
+                    Keep your contact information updated so staff can reach you
+                    about your bookings.
                   </p>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleRefreshProfile}
+                  disabled={refreshing}
+                  className="icb-btn-light disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCw
+                    size={17}
+                    className={refreshing ? "animate-spin" : ""}
+                  />
+                  {refreshing ? "Refreshing..." : "Refresh"}
+                </button>
               </div>
 
-              <div className="icb-card p-5">
-                <p className="icb-eyebrow">Account Summary</p>
+              <div className="grid grid-cols-1 gap-5">
+                <div>
+                  <label className="icb-label flex items-center gap-2">
+                    <UserRound size={16} />
+                    Full Name
+                  </label>
 
-                <div className="mt-5 space-y-3">
-                  <SummaryItem
-                    icon={<UserRound size={18} />}
-                    label="Full Name"
-                    value={activeProfile?.full_name || "-"}
-                  />
-
-                  <SummaryItem
-                    icon={<Mail size={18} />}
-                    label="Email"
-                    value={user?.email || "-"}
-                  />
-
-                  <SummaryItem
-                    icon={<ShieldCheck size={18} />}
-                    label="Role"
-                    value={roleLabel}
-                  />
-
-                  <SummaryItem
-                    icon={<CalendarCheck size={18} />}
-                    label="Created At"
-                    value={formatDateTime(activeProfile?.created_at)}
+                  <input
+                    type="text"
+                    name="full_name"
+                    value={form.full_name}
+                    onChange={handleChange}
+                    placeholder="Enter your full name"
+                    className="icb-input"
+                    required
                   />
                 </div>
-              </div>
-            </aside>
 
-            <section className="space-y-6">
-              <div className="icb-card p-5 sm:p-6">
-                <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <p className="icb-eyebrow">Edit Profile</p>
+                <div>
+                  <label className="icb-label flex items-center gap-2">
+                    <Phone size={16} />
+                    Contact Number
+                  </label>
 
-                    <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
-                      Basic information
-                    </h3>
+                  <input
+                    type="tel"
+                    name="contact_number"
+                    value={form.contact_number}
+                    onChange={handleChange}
+                    placeholder="Example: 09123456789"
+                    className="icb-input"
+                  />
 
-                    <p className="mt-1 text-sm font-semibold text-slate-500">
-                      Only your full name can be edited by the user.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={refreshProfile}
-                    disabled={refreshing || saving}
-                    className="icb-btn-light"
-                  >
-                    <RefreshCw
-                      size={17}
-                      className={refreshing ? "animate-spin" : ""}
-                    />
-                    {refreshing ? "Refreshing..." : "Refresh"}
-                  </button>
+                  <p className="mt-2 text-xs font-semibold text-slate-500">
+                    Staff can use this number to contact you about booking or
+                    payment concerns.
+                  </p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-5">
-                  <div>
-                    <label className="icb-label">Full Name</label>
+                <div>
+                  <label className="icb-label flex items-center gap-2">
+                    <Mail size={16} />
+                    Email Address
+                  </label>
 
+                  <div className="relative">
                     <input
-                      type="text"
-                      name="full_name"
-                      value={form.full_name}
-                      onChange={handleChange}
-                      className="icb-input"
-                      placeholder="Enter your full name"
-                    />
-
-                    <p className="mt-2 text-xs font-semibold text-slate-500">
-                      This name will appear in your profile, booking records, and
-                      system activities.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="icb-label">Email Address</label>
-
-                    <div className="relative">
-                      <Mail
-                        size={17}
-                        className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                      />
-
-                      <input
-                        type="email"
-                        value={user?.email || ""}
-                        disabled
-                        readOnly
-                        aria-disabled="true"
-                        tabIndex={-1}
-                        className="icb-input cursor-not-allowed bg-slate-100 pl-11 pr-12 text-slate-500 opacity-80"
-                      />
-
-                      <Lock
-                        size={17}
-                        className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
-                      />
-                    </div>
-
-                    <p className="mt-2 text-xs font-semibold text-slate-500">
-                      Email editing is disabled. This email is used for login and
-                      cannot be changed by the user.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="icb-label">Account Role</label>
-
-                    <input
-                      type="text"
-                      value={roleLabel}
-                      readOnly
+                      type="email"
+                      name="email"
+                      value={form.email}
                       disabled
-                      className="icb-input cursor-not-allowed bg-slate-100 text-slate-500 opacity-80"
+                      readOnly
+                      aria-disabled="true"
+                      tabIndex={-1}
+                      className="icb-input cursor-not-allowed bg-slate-100 pr-12 text-slate-500"
                     />
 
-                    <p className="mt-2 text-xs font-semibold text-slate-500">
-                      Only the admin can change account roles.
-                    </p>
+                    <Lock
+                      size={18}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
                   </div>
 
-                  <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setForm({
-                          full_name: activeProfile?.full_name || "",
-                        })
-                      }
-                      disabled={saving}
-                      className="icb-btn-light"
-                    >
-                      Reset Changes
-                    </button>
+                  <p className="mt-2 text-xs font-semibold text-slate-500">
+                    Email cannot be edited from profile settings.
+                  </p>
+                </div>
 
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="icb-btn-accent"
-                    >
-                      <Save size={18} />
-                      {saving ? "Saving..." : "Save Profile"}
-                    </button>
+                <div>
+                  <label className="icb-label flex items-center gap-2">
+                    <ShieldCheck size={16} />
+                    Account Role
+                  </label>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      name="role"
+                      value={formatRole(form.role)}
+                      disabled
+                      readOnly
+                      aria-disabled="true"
+                      tabIndex={-1}
+                      className="icb-input cursor-not-allowed bg-slate-100 pr-12 text-slate-500"
+                    />
+
+                    <Lock
+                      size={18}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
                   </div>
-                </form>
+
+                  <p className="mt-2 text-xs font-semibold text-slate-500">
+                    Role changes are managed by the administrator.
+                  </p>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <InfoCard
-                  icon={<CheckCircle2 size={22} />}
-                  title="Verified Login"
-                  description="Your account is connected to Supabase Authentication."
-                />
+              <button
+                type="submit"
+                disabled={loading}
+                className="icb-btn-accent mt-6 w-full disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Save size={18} />
+                {loading ? "Saving..." : "Save Profile"}
+              </button>
+            </form>
 
-                <InfoCard
-                  icon={<ShieldCheck size={22} />}
-                  title="Role Protected"
-                  description="Your pages are protected based on your assigned role."
-                />
+            <aside className="space-y-6">
+              <section className="icb-card p-5 sm:p-6">
+                <p className="icb-eyebrow">Profile Summary</p>
 
-                <InfoCard
-                  icon={<Lock size={22} />}
-                  title="Locked Email"
-                  description="Your email is protected and cannot be edited from profile settings."
-                />
-              </div>
-            </section>
+                <h3 className="mt-2 text-2xl font-black text-[#0B1F33]">
+                  Account information
+                </h3>
+
+                <div className="mt-5 grid grid-cols-1 gap-3">
+                  <SummaryItem label="Full Name" value={form.full_name || "-"} />
+                  <SummaryItem label="Email" value={form.email || "-"} />
+                  <SummaryItem
+                    label="Contact Number"
+                    value={form.contact_number || "Not added yet"}
+                    warning={!form.contact_number}
+                  />
+                  <SummaryItem label="Role" value={formatRole(form.role)} />
+                </div>
+              </section>
+
+              <section className="rounded-[28px] border border-[#DED8D2] bg-[#0B1F33] p-6 text-white">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-[#E8A093]">
+                  <CheckCircle2 size={22} />
+                </div>
+
+                <h3 className="mt-4 text-2xl font-black">
+                  Why add your contact number?
+                </h3>
+
+                <p className="mt-3 text-sm font-semibold leading-6 text-white/75">
+                  Staff may need to contact you if your payment proof has an
+                  issue, your booking needs confirmation, or there are schedule
+                  changes.
+                </p>
+
+                <a
+                  href={getRoleHome(currentRole)}
+                  className="mt-5 inline-flex rounded-2xl bg-white/10 px-4 py-3 text-sm font-black text-white transition hover:bg-white/20"
+                >
+                  Back to Dashboard
+                </a>
+              </section>
+            </aside>
           </section>
         </div>
       </main>
@@ -449,44 +376,32 @@ function HeroStat({ label, value }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-white">
       <p className="text-xs font-bold text-white/70">{label}</p>
-      <p className="mt-1 text-lg font-black sm:text-2xl">{value}</p>
+      <p className="mt-1 truncate text-lg font-black sm:text-xl">{value}</p>
     </div>
   );
 }
 
-function SummaryItem({ icon, label, value }) {
+function SummaryItem({ label, value, warning = false }) {
   return (
-    <div className="rounded-2xl border border-[#DED8D2] bg-white p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658]">
-          {icon}
-        </div>
+    <div
+      className={`rounded-2xl p-4 ${
+        warning ? "bg-orange-50" : "bg-[#F5F3F1]"
+      }`}
+    >
+      <p
+        className={`text-xs font-black uppercase tracking-widest ${
+          warning ? "text-orange-500" : "text-slate-400"
+        }`}
+      >
+        {label}
+      </p>
 
-        <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-400">
-            {label}
-          </p>
-
-          <p className="mt-1 break-words text-sm font-black text-[#0B1F33]">
-            {String(value || "-")}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function InfoCard({ icon, title, description }) {
-  return (
-    <div className="icb-card icb-card-hover p-5">
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658]">
-        {icon}
-      </div>
-
-      <h4 className="mt-4 text-lg font-black text-[#0B1F33]">{title}</h4>
-
-      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-        {description}
+      <p
+        className={`mt-2 break-words text-sm font-black ${
+          warning ? "text-orange-700" : "text-[#0B1F33]"
+        }`}
+      >
+        {String(value || "-")}
       </p>
     </div>
   );

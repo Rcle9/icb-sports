@@ -9,6 +9,7 @@ import {
   Menu,
   RefreshCw,
   UserRound,
+  X,
 } from "lucide-react";
 import { supabase } from "../../services/supabaseClient";
 import { useAuth } from "../../context/AuthContext";
@@ -29,17 +30,8 @@ function formatDateTime(value) {
   }
 }
 
-function normalizeRole(role) {
-  const value = String(role || "user").toLowerCase();
-
-  if (value === "admin") return "admin";
-  if (value === "staff") return "staff";
-
-  return "user";
-}
-
 function formatRole(role) {
-  const value = normalizeRole(role);
+  const value = String(role || "user").toLowerCase();
 
   if (value === "admin") return "Admin";
   if (value === "staff") return "Staff";
@@ -48,7 +40,7 @@ function formatRole(role) {
 }
 
 function getRoleHome(role) {
-  const value = normalizeRole(role);
+  const value = String(role || "user").toLowerCase();
 
   if (value === "admin") return "/admin/dashboard";
   if (value === "staff") return "/staff/dashboard";
@@ -56,8 +48,17 @@ function getRoleHome(role) {
   return "/dashboard";
 }
 
-function getRoleProfilePath(role) {
-  const value = normalizeRole(role);
+function getRoleNotifications(role) {
+  const value = String(role || "user").toLowerCase();
+
+  if (value === "admin") return "/admin/notifications";
+  if (value === "staff") return "/staff/notifications";
+
+  return "/user/notifications";
+}
+
+function getRoleProfile(role) {
+  const value = String(role || "user").toLowerCase();
 
   if (value === "admin") return "/admin/profile";
   if (value === "staff") return "/staff/profile";
@@ -65,17 +66,17 @@ function getRoleProfilePath(role) {
   return "/user/profile";
 }
 
-function getRoleNotificationsPath(role) {
-  const value = normalizeRole(role);
+function getRoleBookingPath(role) {
+  const value = String(role || "user").toLowerCase();
 
-  if (value === "admin") return "/notifications";
-  if (value === "staff") return "/notifications";
+  if (value === "admin") return "/admin/manage-bookings";
+  if (value === "staff") return "/staff/manage-bookings";
 
-  return "/notifications";
+  return "/my-bookings";
 }
 
 function getRoleSubtitle(role) {
-  const value = normalizeRole(role);
+  const value = String(role || "user").toLowerCase();
 
   if (value === "admin") return "Administrative control center";
   if (value === "staff") return "Facility operations workspace";
@@ -108,55 +109,77 @@ function getGreeting() {
   return "Good evening";
 }
 
-function getNotificationActionPath(notification, role) {
-  const referenceId = notification?.reference_id;
+function getReferenceId(notification) {
+  const metadata = notification?.metadata || {};
+
+  return (
+    notification?.reference_id ||
+    metadata.booking_id ||
+    metadata.bookingId ||
+    metadata.reference_id ||
+    metadata.id ||
+    ""
+  );
+}
+
+function isBookingNotification(notification) {
   const referenceType = String(notification?.reference_type || "").toLowerCase();
   const type = String(notification?.type || "").toLowerCase();
-  const currentRole = normalizeRole(role);
 
+  return (
+    referenceType === "bookings" ||
+    referenceType === "booking" ||
+    type.includes("booking") ||
+    type.includes("payment") ||
+    type.includes("reservation") ||
+    type.includes("receipt")
+  );
+}
+
+function getNotificationActionPath(notification, role) {
   if (notification?.action_url) return notification.action_url;
 
-  if (referenceId && referenceType === "bookings") {
-    if (currentRole === "admin" || currentRole === "staff") {
-      return `/staff/manage-bookings?highlight=${referenceId}`;
-    }
+  const referenceId = getReferenceId(notification);
+  const bookingPath = getRoleBookingPath(role);
+  const type = String(notification?.type || "").toLowerCase();
 
+  if (referenceId && isBookingNotification(notification)) {
     if (
-      type === "booking_reserved" ||
-      type === "payment_rejected" ||
-      type === "reservation_expired"
+      role === "user" &&
+      [
+        "booking_reserved",
+        "payment_rejected",
+        "reservation_expired",
+        "booking_expired",
+        "payment_pending",
+      ].includes(type)
     ) {
       return `/my-bookings?highlight=${referenceId}&pay=1`;
     }
 
-    return `/my-bookings?highlight=${referenceId}`;
+    return `${bookingPath}?highlight=${referenceId}`;
   }
 
-  return getRoleNotificationsPath(currentRole);
+  return getRoleNotifications(role);
 }
 
-export default function Topbar({
-  title = "Dashboard",
-  subtitle = "",
-  onMenuClick,
-}) {
+export default function Topbar({ title = "Dashboard", subtitle = "" }) {
   const navigate = useNavigate();
   const dropdownRef = useRef(null);
 
   const { user, profile } = useAuth();
-  const { openSidebar, toggleSidebar } = useSidebar();
+  const { openSidebar } = useSidebar();
+
+  const currentRole = String(profile?.role || "user").toLowerCase();
+  const roleLabel = formatRole(currentRole);
+  const roleHome = getRoleHome(currentRole);
+  const notificationPage = getRoleNotifications(currentRole);
+  const profilePage = getRoleProfile(currentRole);
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [recentNotifications, setRecentNotifications] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
-
-  const role = normalizeRole(profile?.role);
-  const roleLabel = formatRole(role);
-  const roleHome = getRoleHome(role);
-  const profilePath = getRoleProfilePath(role);
-  const notificationsPath = getRoleNotificationsPath(role);
-  const finalSubtitle = subtitle || getRoleSubtitle(role);
 
   const displayName = useMemo(() => {
     return (
@@ -168,65 +191,28 @@ export default function Topbar({
     );
   }, [profile, user]);
 
+  const finalSubtitle = subtitle || getRoleSubtitle(currentRole);
+
   useEffect(() => {
     if (!user?.id) return;
 
     loadUnreadCount();
     loadRecentNotifications();
-  }, [user?.id, role]);
+  }, [user?.id, currentRole]);
 
   useEffect(() => {
     if (!user?.id) return;
 
     const channel = supabase
-      .channel(`topbar-notifications-${user.id}-${role}-${Date.now()}`)
+      .channel(`topbar-notifications-${user.id}-${currentRole}-${Date.now()}`)
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*",
           schema: "public",
           table: "notifications",
         },
-        (payload) => {
-          const notification = payload.new;
-
-          if (!isNotificationForCurrentUser(notification)) return;
-
-          setRecentNotifications((prev) => [notification, ...prev].slice(0, 5));
-
-          if (!notification?.is_read) {
-            setUnreadCount((prev) => prev + 1);
-          }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "notifications",
-        },
-        (payload) => {
-          const notification = payload.new;
-
-          if (!isNotificationForCurrentUser(notification)) return;
-
-          loadUnreadCount();
-          loadRecentNotifications(false);
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "notifications",
-        },
-        (payload) => {
-          const notification = payload.old;
-
-          if (!isNotificationForCurrentUser(notification)) return;
-
+        () => {
           loadUnreadCount();
           loadRecentNotifications(false);
         }
@@ -236,7 +222,7 @@ export default function Topbar({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, role]);
+  }, [user?.id, currentRole]);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -245,40 +231,33 @@ export default function Topbar({
       }
     }
 
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        setDropdownOpen(false);
+      }
+    }
+
     document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
     };
   }, []);
 
-  function isNotificationForCurrentUser(notification) {
-    if (!notification || !user?.id) return false;
+  async function buildNotificationQuery() {
+    let query = supabase.from("notifications").select("*");
 
-    const notificationUserId = notification.user_id;
-    const notificationRole = String(notification.role || "").toLowerCase();
-
-    if (notificationUserId && String(notificationUserId) === String(user.id)) {
-      return true;
+    if (currentRole === "admin") {
+      query = query.or(`role.eq.admin,user_id.eq.${user.id}`);
+    } else if (currentRole === "staff") {
+      query = query.or(`role.eq.staff,user_id.eq.${user.id}`);
+    } else {
+      query = query.eq("user_id", user.id);
     }
 
-    if ((role === "admin" || role === "staff") && notificationRole === role) {
-      return true;
-    }
-
-    return false;
-  }
-
-  function handleMenuClick() {
-    if (typeof openSidebar === "function") {
-      openSidebar();
-    } else if (typeof toggleSidebar === "function") {
-      toggleSidebar();
-    }
-
-    if (typeof onMenuClick === "function") {
-      onMenuClick();
-    }
+    return query;
   }
 
   async function loadUnreadCount() {
@@ -293,8 +272,10 @@ export default function Topbar({
         })
         .eq("is_read", false);
 
-      if (role === "admin" || role === "staff") {
-        query = query.or(`user_id.eq.${user.id},role.eq.${role}`);
+      if (currentRole === "admin") {
+        query = query.or(`role.eq.admin,user_id.eq.${user.id}`);
+      } else if (currentRole === "staff") {
+        query = query.or(`role.eq.staff,user_id.eq.${user.id}`);
       } else {
         query = query.eq("user_id", user.id);
       }
@@ -323,8 +304,10 @@ export default function Topbar({
         })
         .limit(5);
 
-      if (role === "admin" || role === "staff") {
-        query = query.or(`user_id.eq.${user.id},role.eq.${role}`);
+      if (currentRole === "admin") {
+        query = query.or(`role.eq.admin,user_id.eq.${user.id}`);
+      } else if (currentRole === "staff") {
+        query = query.or(`role.eq.staff,user_id.eq.${user.id}`);
       } else {
         query = query.eq("user_id", user.id);
       }
@@ -342,8 +325,6 @@ export default function Topbar({
   }
 
   async function markNotificationAsRead(notificationId) {
-    if (!notificationId || !user?.id) return;
-
     const { error } = await supabase
       .from("notifications")
       .update({
@@ -371,11 +352,11 @@ export default function Topbar({
       }
 
       setDropdownOpen(false);
-      navigate(getNotificationActionPath(notification, role));
+      navigate(getNotificationActionPath(notification, currentRole));
     } catch (error) {
       console.error("Failed to open notification:", error.message);
       setDropdownOpen(false);
-      navigate(notificationsPath);
+      navigate(notificationPage);
     }
   }
 
@@ -387,20 +368,20 @@ export default function Topbar({
   return (
     <header className="mb-6 lg:mb-8">
       <div className="icb-card px-4 py-4 sm:px-5 sm:py-5 lg:px-6">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-3 sm:gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
               type="button"
-              onClick={handleMenuClick}
-              className="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#DED8D2] bg-[#F3E4DF] text-[#B86658] shadow-sm transition active:scale-95 hover:bg-[#C97B6C] hover:text-white lg:hidden"
+              onClick={openSidebar}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#DED8D2] bg-[#F3E4DF] text-[#B86658] transition hover:bg-[#E8A093] hover:text-white lg:hidden sm:h-12 sm:w-12"
               aria-label="Open menu"
             >
-              <Menu size={23} />
+              <Menu size={22} />
             </button>
 
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+                <p className="max-w-[180px] truncate text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C] sm:max-w-none">
                   {getGreeting()}, {displayName.split(" ")[0]}
                 </p>
 
@@ -409,19 +390,19 @@ export default function Topbar({
                 </span>
               </div>
 
-              <h1 className="mt-1 truncate text-2xl font-black tracking-tight text-[#0B1F33] sm:text-3xl">
+              <h1 className="mt-1 max-w-[170px] truncate text-xl font-black tracking-tight text-[#0B1F33] min-[380px]:max-w-[210px] sm:max-w-none sm:text-3xl">
                 {title}
               </h1>
 
-              <p className="mt-1 line-clamp-1 text-sm font-semibold text-slate-500">
+              <p className="mt-1 hidden text-sm font-semibold text-slate-500 sm:line-clamp-1">
                 {finalSubtitle}
               </p>
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-3" ref={dropdownRef}>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3" ref={dropdownRef}>
             <Link
-              to={profilePath}
+              to={profilePage}
               className="hidden items-center gap-3 rounded-2xl border border-[#DED8D2] bg-[#FBFAF9] px-3 py-2 transition hover:bg-[#F3E4DF] md:flex"
             >
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#0B1F33] text-sm font-black text-white">
@@ -443,7 +424,7 @@ export default function Topbar({
               <button
                 type="button"
                 onClick={() => setDropdownOpen((prev) => !prev)}
-                className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658]"
+                className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658] sm:h-12 sm:w-12"
                 title="Notifications"
               >
                 <Bell size={21} />
@@ -456,117 +437,132 @@ export default function Topbar({
               </button>
 
               {dropdownOpen && (
-                <div className="absolute right-0 z-[800] mt-3 w-[360px] max-w-[88vw] overflow-hidden rounded-[28px] border border-[#DED8D2] bg-white shadow-[0_24px_70px_rgba(11,31,51,0.16)]">
-                  <div className="flex items-start justify-between gap-4 border-b border-[#DED8D2] px-5 py-4">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
-                        Notifications
-                      </p>
+                <>
+                  <div className="fixed inset-0 z-[790] bg-black/10 backdrop-blur-[1px] sm:hidden" />
 
-                      <h3 className="mt-1 text-lg font-black text-[#0B1F33]">
-                        Recent updates
-                      </h3>
-
-                      <p className="mt-1 text-xs font-bold text-slate-500">
-                        {unreadCount} unread notification
-                        {unreadCount === 1 ? "" : "s"}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleRefreshNotifications}
-                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658]"
-                      title="Refresh notifications"
-                    >
-                      <RefreshCw size={17} />
-                    </button>
-                  </div>
-
-                  <div className="max-h-[360px] overflow-y-auto">
-                    {loadingPreview ? (
-                      <div className="px-5 py-6 text-sm font-semibold text-slate-500">
-                        Loading notifications...
-                      </div>
-                    ) : recentNotifications.length === 0 ? (
-                      <div className="px-5 py-8 text-center">
-                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658]">
-                          <Bell size={22} />
-                        </div>
-
-                        <p className="mt-3 text-sm font-black text-[#0B1F33]">
-                          No notifications yet
+                  <div className="fixed left-3 right-3 top-[96px] z-[800] max-h-[78vh] overflow-hidden rounded-[28px] border border-[#DED8D2] bg-white shadow-[0_24px_70px_rgba(11,31,51,0.20)] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-3 sm:w-[360px] sm:max-w-[88vw]">
+                    <div className="flex items-start justify-between gap-4 border-b border-[#DED8D2] px-4 py-4 sm:px-5">
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-[#C97B6C]">
+                          Notifications
                         </p>
 
-                        <p className="mt-1 text-xs font-semibold text-slate-500">
-                          Booking and system updates will appear here.
+                        <h3 className="mt-1 text-lg font-black text-[#0B1F33]">
+                          Recent updates
+                        </h3>
+
+                        <p className="mt-1 text-xs font-bold text-slate-500">
+                          {unreadCount} unread notification
+                          {unreadCount === 1 ? "" : "s"}
                         </p>
                       </div>
-                    ) : (
-                      recentNotifications.map((notification) => (
+
+                      <div className="flex shrink-0 gap-2">
                         <button
                           type="button"
-                          key={notification.id}
-                          onClick={() => handleNotificationClick(notification)}
-                          className={`block w-full border-b border-[#DED8D2] px-5 py-4 text-left transition last:border-b-0 hover:bg-[#FBFAF9] ${
-                            notification.is_read ? "bg-white" : "bg-[#FFF8F6]"
-                          }`}
+                          onClick={handleRefreshNotifications}
+                          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658]"
+                          title="Refresh notifications"
                         >
-                          <div className="flex items-start gap-3">
-                            <span
-                              className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${
-                                notification.is_read
-                                  ? "bg-slate-300"
-                                  : "bg-red-600"
-                              }`}
-                            />
+                          <RefreshCw size={17} />
+                        </button>
 
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-start justify-between gap-3">
-                                <p className="line-clamp-1 text-sm font-black text-[#0B1F33]">
-                                  {notification.title || "Notification"}
+                        <button
+                          type="button"
+                          onClick={() => setDropdownOpen(false)}
+                          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[#DED8D2] bg-white text-[#0B1F33] transition hover:bg-[#F3E4DF] hover:text-[#B86658] sm:hidden"
+                          title="Close notifications"
+                        >
+                          <X size={17} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-[52vh] overflow-y-auto sm:max-h-[360px]">
+                      {loadingPreview ? (
+                        <div className="px-5 py-6 text-sm font-semibold text-slate-500">
+                          Loading notifications...
+                        </div>
+                      ) : recentNotifications.length === 0 ? (
+                        <div className="px-5 py-8 text-center">
+                          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F3E4DF] text-[#B86658]">
+                            <Bell size={22} />
+                          </div>
+
+                          <p className="mt-3 text-sm font-black text-[#0B1F33]">
+                            No notifications yet
+                          </p>
+
+                          <p className="mt-1 text-xs font-semibold text-slate-500">
+                            Booking and payment updates will appear here.
+                          </p>
+                        </div>
+                      ) : (
+                        recentNotifications.map((notification) => (
+                          <button
+                            type="button"
+                            key={notification.id}
+                            onClick={() => handleNotificationClick(notification)}
+                            className={`block w-full border-b border-[#DED8D2] px-4 py-4 text-left transition last:border-b-0 hover:bg-[#FBFAF9] sm:px-5 ${
+                              notification.is_read ? "bg-white" : "bg-[#FFF8F6]"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span
+                                className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ${
+                                  notification.is_read
+                                    ? "bg-slate-300"
+                                    : "bg-red-600"
+                                }`}
+                              />
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                  <p className="line-clamp-1 text-sm font-black text-[#0B1F33]">
+                                    {notification.title || "Notification"}
+                                  </p>
+
+                                  <ChevronRight
+                                    size={16}
+                                    className="mt-0.5 shrink-0 text-slate-400"
+                                  />
+                                </div>
+
+                                <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">
+                                  {notification.message ||
+                                    "You have a new notification."}
                                 </p>
 
-                                <ChevronRight
-                                  size={16}
-                                  className="mt-0.5 shrink-0 text-slate-400"
-                                />
+                                <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
+                                  <Clock size={13} />
+                                  {formatDateTime(notification.created_at)}
+                                </p>
                               </div>
-
-                              <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-slate-600">
-                                {notification.message ||
-                                  "You have a new notification."}
-                              </p>
-
-                              <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
-                                <Clock size={13} />
-                                {formatDateTime(notification.created_at)}
-                              </p>
                             </div>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
 
-                  <div className="border-t border-[#DED8D2] bg-[#FBFAF9] px-5 py-4">
-                    <Link
-                      to={notificationsPath}
-                      onClick={() => setDropdownOpen(false)}
-                      className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#C97B6C] px-4 py-3 text-sm font-black text-white transition hover:bg-[#B86658]"
-                    >
-                      View All Notifications
-                      <ChevronRight size={17} />
-                    </Link>
+                    <div className="border-t border-[#DED8D2] bg-[#FBFAF9] px-4 py-4 sm:px-5">
+                      <Link
+                        to={notificationPage}
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#C97B6C] px-4 py-3 text-sm font-black text-white transition hover:bg-[#B86658]"
+                      >
+                        View All Notifications
+                        <ChevronRight size={17} />
+                      </Link>
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
 
             <button
               type="button"
-              onClick={() => navigate(profilePath)}
-              className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[#DED8D2] bg-[#0B1F33] text-white transition hover:bg-[#102A43] md:hidden"
+              onClick={() => navigate(profilePage)}
+              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#DED8D2] bg-[#0B1F33] text-white transition hover:bg-[#102A43] md:hidden sm:h-12 sm:w-12"
               title="Profile"
             >
               <UserRound size={21} />
